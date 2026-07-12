@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react";
 
-import { creaPostAllenamentoAction } from "@/app/(dashboard)/misurazioni/actions";
+import { creaMisurazioneAntropometricaAction  } from "@/app/(dashboard)/misurazioni/actions";
 
 import type {
   GiocatoreMisurazioni,
@@ -113,7 +113,7 @@ export default function MisurazioniGiocatoreClient({
     );
 
     const result =
-      await creaPostAllenamentoAction(formData);
+      await creaMisurazioneAntropometricaAction (formData);
 
     setSalvataggio(false);
 
