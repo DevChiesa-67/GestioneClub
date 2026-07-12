@@ -134,7 +134,7 @@ async function getContestoAdmin() {
     throw new Error("L'utente autenticato non possiede un indirizzo email.");
   }
 
-  let profilo: {
+  type ProfiloContesto = {
     id: string;
     auth_user_id: string | null;
     email: string;
@@ -142,7 +142,9 @@ async function getContestoAdmin() {
     last_squadra_id: string | null;
     tipo_profilo: TipoProfilo | null;
     attivo: boolean;
-  } | null = null;
+  };
+
+  let profilo: ProfiloContesto | null = null;
 
   const { data: profiloDaAuth, error: profiloDaAuthError } =
     await supabaseAdmin
@@ -161,7 +163,7 @@ async function getContestoAdmin() {
     throw new Error("Non è stato possibile recuperare il profilo.");
   }
 
-  profilo = profiloDaAuth as typeof profilo;
+  profilo = profiloDaAuth as ProfiloContesto | null;
 
   if (!profilo) {
     const { data: profiloDaEmail, error: profiloDaEmailError } =
@@ -182,7 +184,7 @@ async function getContestoAdmin() {
       throw new Error("Non è stato possibile recuperare il profilo.");
     }
 
-    profilo = profiloDaEmail as typeof profilo;
+    profilo = profiloDaEmail as ProfiloContesto | null;
   }
 
   if (!profilo) {

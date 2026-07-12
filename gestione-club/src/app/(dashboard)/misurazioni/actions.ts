@@ -95,6 +95,133 @@ async function getCurrentContext() {
   };
 }
 
+function getNullableBoolean(
+  value: FormDataEntryValue | null,
+): boolean {
+  return getString(value) === "true";
+}
+
+/*
+ * Auto-compilazione dello stato post-allenamento da parte del
+ * giocatore stesso (self-report), non un'azione di gestione
+ * riservata all'admin: ogni giocatore può inserire solo il
+ * proprio stato, collegato tramite giocatori.user_id.
+ */
+export async function creaPostAllenamentoAction(
+  formData: FormData,
+): Promise<MisurazioniActionResult> {
+  try {
+    const { supabase, user, profilo } = await getCurrentContext();
+
+    const tipoProfilo = String(
+      profilo.tipo_profilo || "",
+    ).toLowerCase();
+
+    if (tipoProfilo !== "giocatore") {
+      return {
+        success: false,
+        message:
+          "Solo un giocatore può registrare il proprio stato post allenamento.",
+      };
+    }
+
+    const { data: giocatore, error: giocatoreError } = await supabase
+      .from("giocatori")
+      .select("id, squadra_id")
+      .eq("user_id", user.id)
+      .eq("club_id", profilo.last_club_id)
+      .maybeSingle();
+
+    if (giocatoreError || !giocatore) {
+      return {
+        success: false,
+        message:
+          "Il tuo profilo non è collegato a un giocatore della squadra attiva.",
+      };
+    }
+
+    const dataCompilazione =
+      getString(formData.get("data_compilazione")) ||
+      new Date().toISOString().slice(0, 10);
+
+    const fatica = getNullableNumber(formData.get("fatica"));
+    const doloreMuscolare = getNullableNumber(
+      formData.get("dolore_muscolare"),
+    );
+    const qualitaRecupero = getNullableNumber(
+      formData.get("qualita_recupero"),
+    );
+    const umore = getNullableNumber(formData.get("umore"));
+
+    if (
+      fatica === null ||
+      doloreMuscolare === null ||
+      qualitaRecupero === null ||
+      umore === null
+    ) {
+      return {
+        success: false,
+        message: "Compila tutti i campi obbligatori.",
+      };
+    }
+
+    const doloreProvocato = getNullableBoolean(
+      formData.get("dolore_presente"),
+    );
+
+    const { error: insertError } = await supabase
+      .from("misurazioni_post_allenamento")
+      .insert({
+        club_id: profilo.last_club_id,
+        squadra_id: giocatore.squadra_id ?? null,
+        giocatore_id: giocatore.id,
+        data_compilazione: dataCompilazione,
+        fatica,
+        dolore_muscolare: doloreMuscolare,
+        qualita_recupero: qualitaRecupero,
+        umore,
+        qualita_sonno: getNullableNumber(
+          formData.get("qualita_sonno"),
+        ),
+        ore_sonno: getNullableNumber(formData.get("ore_sonno")),
+        dolore_presente: doloreProvocato,
+        zona_dolore: doloreProvocato
+          ? getNullableString(formData.get("zona_dolore"))
+          : null,
+        note: getNullableString(formData.get("note")),
+      });
+
+    if (insertError) {
+      console.error(
+        "Errore inserimento post allenamento:",
+        insertError,
+      );
+
+      return {
+        success: false,
+        message: insertError.message,
+      };
+    }
+
+    revalidatePath("/misurazioni");
+
+    return {
+      success: true,
+      message: "Stato post allenamento salvato correttamente.",
+    };
+  } catch (error) {
+    console.error("Errore creaPostAllenamentoAction:", error);
+
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Errore imprevisto.",
+    };
+  }
+}
+
 export async function creaMisurazioneAntropometricaAction(
   formData: FormData,
 ): Promise<MisurazioniActionResult> {

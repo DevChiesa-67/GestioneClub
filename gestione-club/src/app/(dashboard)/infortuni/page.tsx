@@ -61,9 +61,25 @@ export default async function InfortuniPage() {
     giocatoriQuery,
   ]);
 
+  /*
+   * Le relazioni FK singole (giocatore_id, squadra_id) vengono
+   * restituite da Supabase come oggetto singolo, ma senza i tipi
+   * generati dal Database lo string-based select le tipizza come
+   * array: normalizziamo qui prendendo il primo elemento.
+   */
+  const infortuniNormalizzati = (infortuni ?? []).map((infortunio) => ({
+    ...infortunio,
+    giocatori: Array.isArray(infortunio.giocatori)
+      ? (infortunio.giocatori[0] ?? null)
+      : infortunio.giocatori,
+    squadre: Array.isArray(infortunio.squadre)
+      ? (infortunio.squadre[0] ?? null)
+      : infortunio.squadre,
+  }));
+
   return (
     <InfortuniClient
-      infortuni={infortuni ?? []}
+      infortuni={infortuniNormalizzati}
       giocatori={giocatori ?? []}
       isAdmin={isAdmin}
     />

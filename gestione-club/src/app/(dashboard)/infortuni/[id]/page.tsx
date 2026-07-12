@@ -85,9 +85,25 @@ export default async function InfortunioDetailPage({ params }: PageProps) {
     throw new Error("Infortunio non trovato.");
   }
 
+  /*
+   * Le relazioni FK singole (giocatore_id, squadra_id) vengono
+   * restituite da Supabase come oggetto singolo, ma senza i tipi
+   * generati dal Database lo string-based select le tipizza come
+   * array: normalizziamo qui prendendo il primo elemento.
+   */
+  const infortunioNormalizzato = {
+    ...infortunio,
+    giocatori: Array.isArray(infortunio.giocatori)
+      ? (infortunio.giocatori[0] ?? null)
+      : infortunio.giocatori,
+    squadre: Array.isArray(infortunio.squadre)
+      ? (infortunio.squadre[0] ?? null)
+      : infortunio.squadre,
+  };
+
   return (
     <InfortunioDetailClient
-      infortunio={infortunio}
+      infortunio={infortunioNormalizzato}
       medico={medico ?? []}
       fisioterapista={fisioterapista ?? []}
       preparatore={preparatore ?? []}
