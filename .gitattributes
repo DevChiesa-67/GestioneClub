@@ -1,0 +1,17 @@
+# Normalizza le fine riga: tutto salvato come LF nel repository,
+# indipendentemente dal sistema operativo o dall'editor usato per
+# modificare i file. Evita il "rumore" di migliaia di righe cambiate
+# per solo CRLF/LF che appariva in git status/diff.
+* text=auto eol=lf
+
+# File binari: nessuna conversione di fine riga.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.pdf binary
