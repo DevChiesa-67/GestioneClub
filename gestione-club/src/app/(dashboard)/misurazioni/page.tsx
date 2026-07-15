@@ -39,15 +39,10 @@ export type MisurazioneAntropometrica = {
 export type MisurazionePostAllenamento = {
   id: string;
   data_compilazione: string;
-  fatica: number;
-  dolore_muscolare: number;
-  qualita_recupero: number;
   umore: number;
   qualita_sonno: number | null;
-  ore_sonno: number | null;
   dolore_presente: boolean;
   zona_dolore: string | null;
-  note: string | null;
   created_at: string;
 };
 
@@ -181,7 +176,7 @@ export default async function MisurazioniPage() {
       .select(
         "id, id_atleta, nome, cognome, foto_url, club_id, squadra_id",
       )
-      .eq("user_id", user.id)
+      .eq("id_atleta", profilo.id)
       .eq("club_id", profilo.last_club_id);
 
     if (profilo.last_squadra_id) {
@@ -240,15 +235,10 @@ export default async function MisurazioniPage() {
         .select(`
           id,
           data_compilazione,
-          fatica,
-          dolore_muscolare,
-          qualita_recupero,
           umore,
           qualita_sonno,
-          ore_sonno,
           dolore_presente,
           zona_dolore,
-          note,
           created_at
         `)
         .eq("club_id", profilo.last_club_id)

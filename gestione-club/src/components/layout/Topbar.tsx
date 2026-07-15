@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, ChevronDown, Menu, X } from "lucide-react";
+import { Bell, ChevronDown, Megaphone, Menu, User, Users, X } from "lucide-react";
 
 import { supabase } from "@/lib/supabase-client";
 import { usePagePermissions } from "@/hooks/use-page-permissions";
@@ -13,6 +13,8 @@ import {
   useComunicazioniBell,
   type ComunicazioneBell,
 } from "@/hooks/use-comunicazioni-bell";
+import type { ComunicazioneScope } from "@/lib/comunicazioni/destinatari";
+import { useToast } from "@/components/ui/Toast";
 import { isMenuItemActive } from "@/lib/navigation/app-menu";
 
 type Squadra = {
@@ -40,6 +42,16 @@ type SquadraPartitaLogo = {
 };
 
 const DEFAULT_THEME_COLOR = "#d71920";
+
+/*
+ * Colori fissi (non legati al club) per distinguere a colpo d'occhio
+ * l'ambito di una comunicazione: "tutti" usa invece il colore del
+ * club stesso, per dare risalto ai messaggi rivolti a tutta la squadra.
+ */
+const SCOPE_COLOR: Record<Exclude<ComunicazioneScope, "tutti">, string> = {
+  gruppo: "#f59e0b",
+  personale: "#a855f7",
+};
 
 const PAGE_INFO: Record<
   string,
@@ -259,13 +271,39 @@ export function Topbar() {
   const { loading: permissionsLoading, allowedMenuItems } =
     usePagePermissions();
 
+  const { showToast } = useToast();
+
+  const [themeColor, setThemeColor] = useState(DEFAULT_THEME_COLOR);
+
+  const onNuovaComunicazioneVisibile = useCallback(
+    (comunicazione: ComunicazioneBell, scope: ComunicazioneScope) => {
+      const icon =
+        scope === "tutti" ? Megaphone : scope === "gruppo" ? Users : User;
+
+      const accentColor =
+        scope === "tutti" ? themeColor : SCOPE_COLOR[scope];
+
+      showToast({
+        type: "info",
+        title: comunicazione.titolo || "Nuova comunicazione",
+        message:
+          comunicazione.descrizione || "Hai ricevuto una nuova comunicazione.",
+        durationMs: 8000,
+        icon,
+        accentColor,
+        onClick: () => router.push(`/comunicazioni/${comunicazione.id}`),
+      });
+    },
+    [showToast, router, themeColor],
+  );
+
   const {
     comunicazioni: comunicazioniNonLette,
     lettureIds,
     nonLette,
     segnaComeLetta,
     segnaTutteComeLette,
-  } = useComunicazioniBell();
+  } = useComunicazioniBell(onNuovaComunicazioneVisibile);
 
   const mobileMenuItems = useMemo(
     () => allowedMenuItems.filter((item) => item.showInMobileMenu),
@@ -282,8 +320,6 @@ export function Topbar() {
   const [activeSquadra, setActiveSquadra] = useState<Squadra | null>(null);
 
   const [profilo, setProfilo] = useState<Profilo | null>(null);
-
-  const [themeColor, setThemeColor] = useState(DEFAULT_THEME_COLOR);
 
   const [clubName, setClubName] = useState("Nome Club");
 

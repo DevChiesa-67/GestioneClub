@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase-server";
+import { umoreKeyToValue } from "@/lib/misurazioni/umore";
 
 export type MisurazioniActionResult = {
   success: boolean;
@@ -128,7 +129,7 @@ export async function creaPostAllenamentoAction(
     const { data: giocatore, error: giocatoreError } = await supabase
       .from("giocatori")
       .select("id, squadra_id")
-      .eq("user_id", user.id)
+      .eq("id_atleta", profilo.id)
       .eq("club_id", profilo.last_club_id)
       .maybeSingle();
 
@@ -144,24 +145,33 @@ export async function creaPostAllenamentoAction(
       getString(formData.get("data_compilazione")) ||
       new Date().toISOString().slice(0, 10);
 
-    const fatica = getNullableNumber(formData.get("fatica"));
-    const doloreMuscolare = getNullableNumber(
-      formData.get("dolore_muscolare"),
-    );
-    const qualitaRecupero = getNullableNumber(
-      formData.get("qualita_recupero"),
-    );
-    const umore = getNullableNumber(formData.get("umore"));
+    /*
+     * Solo 3 domande al giocatore:
+     * 1. Come hai dormito -> 1 (male) a 5 (benissimo) -> qualita_sonno
+     * 2. Come ti senti -> nervoso|stressato|bene -> umore (mappato a intero)
+     * 3. Hai dolori muscolari -> si/no (+ zona) -> dolore_presente/zona_dolore
+     */
+    const qualitaSonno = getNullableNumber(formData.get("qualita_sonno"));
 
     if (
-      fatica === null ||
-      doloreMuscolare === null ||
-      qualitaRecupero === null ||
-      umore === null
+      qualitaSonno === null ||
+      qualitaSonno < 1 ||
+      qualitaSonno > 5 ||
+      !Number.isInteger(qualitaSonno)
     ) {
       return {
         success: false,
-        message: "Compila tutti i campi obbligatori.",
+        message: "Indica come hai dormito (da 1 a 5).",
+      };
+    }
+
+    const umoreChiave = getString(formData.get("umore"));
+    const umore = umoreKeyToValue(umoreChiave);
+
+    if (umore === null) {
+      return {
+        success: false,
+        message: "Indica come ti senti.",
       };
     }
 
@@ -176,19 +186,12 @@ export async function creaPostAllenamentoAction(
         squadra_id: giocatore.squadra_id ?? null,
         giocatore_id: giocatore.id,
         data_compilazione: dataCompilazione,
-        fatica,
-        dolore_muscolare: doloreMuscolare,
-        qualita_recupero: qualitaRecupero,
         umore,
-        qualita_sonno: getNullableNumber(
-          formData.get("qualita_sonno"),
-        ),
-        ore_sonno: getNullableNumber(formData.get("ore_sonno")),
+        qualita_sonno: qualitaSonno,
         dolore_presente: doloreProvocato,
         zona_dolore: doloreProvocato
           ? getNullableString(formData.get("zona_dolore"))
           : null,
-        note: getNullableString(formData.get("note")),
       });
 
     if (insertError) {

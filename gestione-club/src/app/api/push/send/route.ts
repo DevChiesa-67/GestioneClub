@@ -3,6 +3,7 @@
 import { NextResponse } from "next/server";
 import webpush from "web-push";
 import { createClient } from "@/lib/supabase-server";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 type SendPushBody = {
   comunicazione_id: string;
@@ -50,7 +51,7 @@ export async function POST(request: Request) {
 
     const { data: profilo, error: profiloError } = await supabase
       .from("profili")
-      .select("id,last_club_id")
+      .select("id,last_club_id,tipo_profilo")
       .eq("auth_user_id", user.id)
       .single();
 
@@ -61,7 +62,25 @@ export async function POST(request: Request) {
       );
     }
 
+    if (String(profilo.tipo_profilo || "").toLowerCase() !== "admin") {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Solo un amministratore può inviare notifiche.",
+        },
+        { status: 403 }
+      );
+    }
+
     const clubId = profilo.last_club_id;
+
+    /*
+     * Da qui in poi operiamo per conto di TUTTI i destinatari del
+     * club (inserimento notifiche altrui, lettura subscription push
+     * altrui): serve il client service-role, perché le policy RLS
+     * legano correttamente le scritture solo al proprio profilo.
+     * L'autorizzazione è già stata verificata sopra (solo admin).
+     */
 
     const body = (await request.json()) as SendPushBody;
 
@@ -72,7 +91,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: comunicazione, error: comunicazioneError } = await supabase
+    const { data: comunicazione, error: comunicazioneError } = await supabaseAdmin
       .from("comunicazioni")
       .select(
         `
@@ -118,7 +137,7 @@ export async function POST(request: Request) {
         : [];
 
       if (categorie.includes("tutti")) {
-        const { data: profili } = await supabase
+        const { data: profili } = await supabaseAdmin
           .from("profili")
           .select("id")
           .contains("club_id", [clubId]);
@@ -130,7 +149,7 @@ export async function POST(request: Request) {
 
           if (!tipoProfilo) continue;
 
-          const { data: profiliPerTipo } = await supabase
+          const { data: profiliPerTipo } = await supabaseAdmin
             .from("profili")
             .select("id")
             .contains("club_id", [clubId])
@@ -159,7 +178,7 @@ export async function POST(request: Request) {
     /*
      * Notifiche in-app: una riga per destinatario.
      */
-    const { error: notificheError } = await supabase.from("notifiche").insert(
+    const { error: notificheError } = await supabaseAdmin.from("notifiche").insert(
       profiloIds.map((profiloId) => ({
         club_id: clubId,
         profilo_id: profiloId,
@@ -176,7 +195,7 @@ export async function POST(request: Request) {
     /*
      * Push browser: solo per chi ha una subscription attiva.
      */
-    const { data: subscriptions, error: subscriptionsError } = await supabase
+    const { data: subscriptions, error: subscriptionsError } = await supabaseAdmin
       .from("push_subscriptions")
       .select("id,profilo_id,endpoint,p256dh,auth")
       .eq("club_id", clubId)
@@ -224,7 +243,7 @@ export async function POST(request: Request) {
             isWebPushSendError(error) &&
             (error.statusCode === 404 || error.statusCode === 410)
           ) {
-            await supabase
+            await supabaseAdmin
               .from("push_subscriptions")
               .delete()
               .eq("id", sub.id)

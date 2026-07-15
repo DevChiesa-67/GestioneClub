@@ -65,3 +65,27 @@ export function comunicazioneVisibilePerProfilo(
 
   return destinatariTipo.includes(categoriaPropria.toLowerCase());
 }
+
+/*
+ * Ambito della comunicazione dal punto di vista del destinatario:
+ * usato per distinguere a colpo d'occhio (icona/colore) se è diretta
+ * a tutti, a un gruppo/categoria, o specificamente al singolo utente.
+ */
+export type ComunicazioneScope = "tutti" | "gruppo" | "personale";
+
+export function getComunicazioneScope(
+  comunicazione: ComunicazioneDestinatari,
+  profiloId: string
+): ComunicazioneScope {
+  const destinatariProfili = comunicazione.destinatari_profili ?? [];
+
+  if (destinatariProfili.length > 0) {
+    return destinatariProfili.includes(profiloId) ? "personale" : "gruppo";
+  }
+
+  const destinatariTipo = (comunicazione.destinatari_tipo ?? []).map((tipo) =>
+    String(tipo).trim().toLowerCase()
+  );
+
+  return destinatariTipo.includes("tutti") ? "tutti" : "gruppo";
+}

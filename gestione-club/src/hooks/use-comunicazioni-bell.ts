@@ -2,15 +2,20 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase-client";
-import { comunicazioneVisibilePerProfilo } from "@/lib/comunicazioni/destinatari";
+import {
+  comunicazioneVisibilePerProfilo,
+  getComunicazioneScope,
+  type ComunicazioneScope,
+} from "@/lib/comunicazioni/destinatari";
 
 export type ComunicazioneBell = {
   id: string;
   titolo: string;
   descrizione: string;
   created_at: string;
+  created_by: string | null;
   destinatari_tipo: string[] | null;
   destinatari_profili: string[] | null;
 };
@@ -26,7 +31,12 @@ export type ComunicazioneBell = {
  * club, o quando l'utente segna qualcosa come letto da qualsiasi punto
  * del gestionale (pagina Comunicazioni o dropdown della campanella).
  */
-export function useComunicazioniBell() {
+export function useComunicazioniBell(
+  onNuovaComunicazioneVisibile?: (
+    comunicazione: ComunicazioneBell,
+    scope: ComunicazioneScope
+  ) => void
+) {
   const [userId, setUserId] = useState<string | null>(null);
   const [profiloId, setProfiloId] = useState<string | null>(null);
   const [tipoProfilo, setTipoProfilo] = useState<string | null>(null);
@@ -36,11 +46,36 @@ export function useComunicazioniBell() {
   const [lettureIds, setLettureIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
+  /*
+   * Ref sempre aggiornato: evita di dover ricreare la subscription
+   * realtime ogni volta che il chiamante passa una nuova funzione
+   * (es. una closure ridefinita ad ogni render di Topbar).
+   */
+  const onNuovaComunicazioneRef = useRef(onNuovaComunicazioneVisibile);
+
+  useEffect(() => {
+    onNuovaComunicazioneRef.current = onNuovaComunicazioneVisibile;
+  }, [onNuovaComunicazioneVisibile]);
+
+  /*
+   * Ref sempre aggiornati con profilo/tipo correnti, così il
+   * listener realtime (che si crea solo quando cambia clubId) non
+   * lavora mai con valori vecchi.
+   */
+  const profiloRef = useRef<{
+    id: string | null;
+    tipoProfilo: string | null;
+  }>({ id: null, tipoProfilo: null });
+
+  useEffect(() => {
+    profiloRef.current = { id: profiloId, tipoProfilo };
+  }, [profiloId, tipoProfilo]);
+
   const loadComunicazioni = useCallback(async (attivoClubId: string) => {
     const { data, error } = await supabase
       .from("comunicazioni")
       .select(
-        "id,titolo,descrizione,created_at,destinatari_tipo,destinatari_profili"
+        "id,titolo,descrizione,created_at,created_by,destinatari_tipo,destinatari_profili"
       )
       .eq("club_id", attivoClubId)
       .order("created_at", { ascending: false })
@@ -134,15 +169,32 @@ export function useComunicazioniBell() {
           filter: `club_id=eq.${clubId}`,
         },
         (payload) => {
-          setComunicazioni((prev) => {
-            const nuova = payload.new as ComunicazioneBell;
+          const nuova = payload.new as ComunicazioneBell;
 
+          setComunicazioni((prev) => {
             if (prev.some((c) => c.id === nuova.id)) {
               return prev;
             }
 
             return [nuova, ...prev].slice(0, 30);
           });
+
+          const profiloCorrente = profiloRef.current;
+
+          if (!profiloCorrente.id) return;
+
+          // Non notificare a chi ha appena creato la comunicazione.
+          if (nuova.created_by === profiloCorrente.id) return;
+
+          const visibile = comunicazioneVisibilePerProfilo(nuova, {
+            id: profiloCorrente.id,
+            tipoProfilo: profiloCorrente.tipoProfilo,
+          });
+
+          if (visibile) {
+            const scope = getComunicazioneScope(nuova, profiloCorrente.id);
+            onNuovaComunicazioneRef.current?.(nuova, scope);
+          }
         }
       )
       .subscribe();

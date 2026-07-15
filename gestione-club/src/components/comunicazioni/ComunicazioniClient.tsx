@@ -75,6 +75,86 @@ export default function ComunicazioniClient() {
     loadInitialData();
   }, []);
 
+  /*
+   * Realtime: la tab si aggiorna da sola quando arriva una nuova
+   * comunicazione, quando una viene modificata o eliminata (da
+   * qualunque admin, anche da un altro dispositivo), e quando una
+   * lettura viene segnata altrove (es. dalla campanella in Topbar).
+   */
+  useEffect(() => {
+    if (!clubId) return;
+
+    const channel = supabase
+      .channel(`comunicazioni-tab-${clubId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "comunicazioni",
+          filter: `club_id=eq.${clubId}`,
+        },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const nuova = payload.new as Comunicazione;
+
+            setComunicazioni((prev) =>
+              prev.some((c) => c.id === nuova.id)
+                ? prev
+                : [nuova, ...prev]
+            );
+          } else if (payload.eventType === "UPDATE") {
+            const aggiornata = payload.new as Comunicazione;
+
+            setComunicazioni((prev) =>
+              prev.map((c) => (c.id === aggiornata.id ? aggiornata : c))
+            );
+          } else if (payload.eventType === "DELETE") {
+            const eliminataId = (payload.old as { id: string }).id;
+
+            setComunicazioni((prev) =>
+              prev.filter((c) => c.id !== eliminataId)
+            );
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [clubId]);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const channel = supabase
+      .channel(`comunicazioni-letture-tab-${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "comunicazioni_letture",
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          const nuovaLettura = payload.new as Lettura;
+
+          setLetture((prev) =>
+            prev.some((l) => l.comunicazione_id === nuovaLettura.comunicazione_id)
+              ? prev
+              : [...prev, nuovaLettura]
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
   async function loadInitialData() {
     setLoading(true);
 
