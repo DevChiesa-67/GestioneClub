@@ -64,6 +64,9 @@ export default function ModificaGiocatorePage() {
     mano_piede_dominante: "",
     genitore: "",
     telefono_genitore: "",
+    numero_tessera: "",
+    tipo_documento: "",
+    numero_documento: "",
     note: "",
   });
 
@@ -136,6 +139,9 @@ export default function ModificaGiocatorePage() {
               mano_piede_dominante,
               genitore,
               telefono_genitore,
+              numero_tessera,
+              tipo_documento,
+              numero_documento,
               note,
               foto_url
             `)
@@ -167,6 +173,9 @@ export default function ModificaGiocatorePage() {
         mano_piede_dominante: giocatore.mano_piede_dominante ?? "",
         genitore: giocatore.genitore ?? "",
         telefono_genitore: giocatore.telefono_genitore ?? "",
+        numero_tessera: giocatore.numero_tessera ?? "",
+        tipo_documento: giocatore.tipo_documento ?? "",
+        numero_documento: giocatore.numero_documento ?? "",
         note: giocatore.note ?? "",
       });
 
@@ -263,6 +272,9 @@ export default function ModificaGiocatorePage() {
         mano_piede_dominante: form.mano_piede_dominante || null,
         genitore: form.genitore || null,
         telefono_genitore: form.telefono_genitore || null,
+        numero_tessera: form.numero_tessera || null,
+        tipo_documento: form.tipo_documento || null,
+        numero_documento: form.numero_documento || null,
         note: form.note || null,
         foto_url: fotoUrl,
       });
@@ -450,8 +462,7 @@ export default function ModificaGiocatorePage() {
                     onChange={(v) => updateField("cognome", v)}
                   />
 
-                  <Input
-                    type="date"
+                  <DataNascitaInput
                     label="Data di nascita"
                     value={form.data_nascita}
                     onChange={(v) => updateField("data_nascita", v)}
@@ -570,15 +581,37 @@ export default function ModificaGiocatorePage() {
 
             {activeTab === "Documenti" && (
               <Section title="Documenti">
-                <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 p-6 text-center">
-                  <p className="font-bold text-white">
-                    Documenti non ancora attivi
-                  </p>
-                  <p className="mt-2 text-sm text-zinc-500">
-                    Qui potrai aggiungere certificato medico, documento
-                    identità e scadenze.
-                  </p>
-                </div>
+                <FormGrid>
+                  <div className="md:col-span-2">
+                    <Input
+                      label="Numero Tessera"
+                      value={form.numero_tessera}
+                      onChange={(v) => updateField("numero_tessera", v)}
+                    />
+                  </div>
+
+                  <Select
+                    label="Tipo Documento"
+                    value={form.tipo_documento}
+                    onChange={(v) => updateField("tipo_documento", v)}
+                    options={[
+                      { value: "Carta d'identità", label: "Carta d'identità" },
+                      { value: "Passaporto", label: "Passaporto" },
+                      { value: "Patente", label: "Patente" },
+                    ]}
+                  />
+
+                  <Input
+                    label="Numero Documento"
+                    value={form.numero_documento}
+                    onChange={(v) => updateField("numero_documento", v)}
+                  />
+                </FormGrid>
+
+                <p className="mt-4 text-xs leading-5 text-zinc-500">
+                  Certificato medico e scadenze non sono ancora gestiti da
+                  questa sezione.
+                </p>
               </Section>
             )}
 
@@ -667,6 +700,85 @@ function Input({
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition placeholder:text-zinc-600 focus:border-[#d71920] focus:ring-4 focus:ring-[#d71920]/10 disabled:cursor-not-allowed disabled:opacity-40"
+      />
+    </label>
+  );
+}
+
+function isoToGiornoMeseAnno(iso: string) {
+  const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+  if (!match) return "";
+
+  const [, anno, mese, giorno] = match;
+
+  return `${giorno}-${mese}-${anno}`;
+}
+
+function giornoMeseAnnoToIso(valore: string) {
+  const match = valore.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+
+  if (!match) return null;
+
+  const [, giorno, mese, anno] = match;
+
+  return `${anno}-${mese}-${giorno}`;
+}
+
+function DataNascitaInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (isoValue: string) => void;
+}) {
+  const [testo, setTesto] = useState(() => isoToGiornoMeseAnno(value));
+
+  useEffect(() => {
+    setTesto(isoToGiornoMeseAnno(value));
+  }, [value]);
+
+  function handleChange(raw: string) {
+    const cifre = raw.replace(/\D/g, "").slice(0, 8);
+
+    let formattato = cifre;
+
+    if (cifre.length > 4) {
+      formattato = `${cifre.slice(0, 2)}-${cifre.slice(2, 4)}-${cifre.slice(4)}`;
+    } else if (cifre.length > 2) {
+      formattato = `${cifre.slice(0, 2)}-${cifre.slice(2)}`;
+    }
+
+    setTesto(formattato);
+
+    if (formattato === "") {
+      onChange("");
+      return;
+    }
+
+    const iso = giornoMeseAnnoToIso(formattato);
+
+    if (iso) {
+      onChange(iso);
+    }
+  }
+
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-medium text-zinc-400">
+        {label}
+      </span>
+
+      <input
+        type="text"
+        inputMode="numeric"
+        placeholder="GG-MM-YYYY"
+        maxLength={10}
+        value={testo}
+        onChange={(e) => handleChange(e.target.value)}
+        className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition placeholder:text-zinc-600 focus:border-[#d71920] focus:ring-4 focus:ring-[#d71920]/10"
       />
     </label>
   );

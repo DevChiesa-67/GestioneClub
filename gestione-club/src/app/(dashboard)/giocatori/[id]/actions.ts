@@ -24,6 +24,9 @@ type ModificaGiocatoreInput = {
   mano_piede_dominante: string | null;
   genitore: string | null;
   telefono_genitore: string | null;
+  numero_tessera: string | null;
+  tipo_documento: string | null;
+  numero_documento: string | null;
   note: string | null;
   foto_url: string | null;
 };
@@ -174,6 +177,9 @@ export async function aggiornaGiocatoreAction(
           email,
           genitore: stringOrNull(input.genitore),
           telefono_genitore: stringOrNull(input.telefono_genitore),
+          numero_tessera: stringOrNull(input.numero_tessera),
+          tipo_documento: stringOrNull(input.tipo_documento),
+          numero_documento: stringOrNull(input.numero_documento),
           foto_url: stringOrNull(input.foto_url),
           note: stringOrNull(input.note),
           updated_at: new Date().toISOString(),

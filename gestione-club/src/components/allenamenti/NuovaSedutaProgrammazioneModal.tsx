@@ -2,7 +2,16 @@
 
 import { useState } from "react";
 import { X, Save, Loader2 } from "lucide-react";
-import { creaSedutaSettimana } from "@/app/(dashboard)/allenamenti/programmazione/actions";
+import {
+  creaSedutaSettimana,
+  type Intensita,
+} from "@/app/(dashboard)/allenamenti/programmazione/actions";
+
+const INTENSITA_OPTIONS: { value: Intensita; label: string }[] = [
+  { value: "bassa", label: "Bassa" },
+  { value: "media", label: "Media" },
+  { value: "alta", label: "Alta" },
+];
 
 type Settimana = {
   id: string;
@@ -36,13 +45,16 @@ export default function NuovaSedutaProgrammazioneModal({
     setLoading(true);
     setErrore(null);
 
+    const intensitaValore = String(formData.get("intensita") ?? "");
+
     const res = await creaSedutaSettimana({
       settimana_id: String(formData.get("settimana_id") ?? ""),
       data_seduta: String(formData.get("data_seduta") ?? "") || null,
       tipo_sessione: String(formData.get("tipo_sessione") ?? "") || null,
       tema: String(formData.get("tema") ?? "") || null,
       volume_min: Number(formData.get("volume_min") ?? 0) || null,
-      rpe: Number(formData.get("rpe") ?? 0) || null,
+      durata_min: Number(formData.get("durata_min") ?? 0) || null,
+      intensita: intensitaValore ? (intensitaValore as Intensita) : null,
       note: String(formData.get("note") ?? "") || null,
     });
 
@@ -105,19 +117,28 @@ export default function NuovaSedutaProgrammazioneModal({
             </select>
           </div>
 
-          <div>
-            <Input
-              label="Data seduta"
-              name="data_seduta"
-              type="date"
-              min={settimanaSelezionata?.data_inizio}
-              max={settimanaSelezionata?.data_fine}
-            />
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <Input
+                label="Data seduta"
+                name="data_seduta"
+                type="date"
+                min={settimanaSelezionata?.data_inizio}
+                max={settimanaSelezionata?.data_fine}
+              />
 
-            <p className="mt-2 text-xs text-zinc-500">
-              Se non inserisci una data, la seduta verrà considerata valida per
-              tutta la settimana.
-            </p>
+              <p className="mt-2 text-xs text-zinc-500">
+                Se non inserisci una data, la seduta verrà considerata valida
+                per tutta la settimana.
+              </p>
+            </div>
+
+            <Input
+              label="Durata (min)"
+              name="durata_min"
+              type="number"
+              placeholder="90"
+            />
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -142,19 +163,24 @@ export default function NuovaSedutaProgrammazioneModal({
               placeholder="60"
             />
 
-            <Input
-              label="Intensità RPE 1-10"
-              name="rpe"
-              type="number"
-              placeholder="7"
-              min="1"
-              max="10"
-            />
-          </div>
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-zinc-800">
+                Intensità
+              </label>
 
-          <div className="rounded-2xl bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
-            Il carico verrà calcolato automaticamente:{" "}
-            <strong>Volume × RPE</strong>.
+              <select
+                name="intensita"
+                className="h-12 w-full rounded-2xl border border-zinc-300 bg-white px-4 text-sm text-zinc-900 outline-none"
+              >
+                <option value="">Seleziona</option>
+
+                {INTENSITA_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div>

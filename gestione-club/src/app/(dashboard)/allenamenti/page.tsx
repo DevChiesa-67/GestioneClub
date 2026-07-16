@@ -908,14 +908,16 @@ export default function Page() {
                     </button>
 
                     <div className="flex items-center justify-end gap-2 sm:justify-start">
-                      <Link
-                        href={`/allenamenti/${allenamento.id}/modifica`}
-                        className="rounded-xl border bg-zinc-950 p-2 text-zinc-300 hover:text-white"
-                        style={{ borderColor: `${themeColor}33` }}
-                        title="Modifica allenamento"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Link>
+                      {isAdmin && (
+                        <Link
+                          href={`/allenamenti/${allenamento.id}/modifica`}
+                          className="rounded-xl border bg-zinc-950 p-2 text-zinc-300 hover:text-white"
+                          style={{ borderColor: `${themeColor}33` }}
+                          title="Modifica allenamento"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Link>
+                      )}
 
                       <button
                         onClick={() => setModalPresenzeAllenamento(allenamento)}

@@ -70,7 +70,7 @@ export default async function ComunicazionePage({ params }: PageProps) {
     .eq("id", profilo.last_club_id)
     .single();
 
-  const coloreClub = club?.colore_flag ?? "#ffffff";
+  const coloreClub = club?.colore_flag ?? "#d71920";
 
   // 3. Comunicazione
 const { data: comunicazione, error: comunicazioneError } = await supabase

@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase-server";
-import { umoreKeyToValue } from "@/lib/misurazioni/umore";
 
 export type MisurazioniActionResult = {
   success: boolean;
@@ -96,12 +95,6 @@ async function getCurrentContext() {
   };
 }
 
-function getNullableBoolean(
-  value: FormDataEntryValue | null,
-): boolean {
-  return getString(value) === "true";
-}
-
 /*
  * Auto-compilazione dello stato post-allenamento da parte del
  * giocatore stesso (self-report), non un'azione di gestione
@@ -146,38 +139,54 @@ export async function creaPostAllenamentoAction(
       new Date().toISOString().slice(0, 10);
 
     /*
-     * Solo 3 domande al giocatore:
-     * 1. Come hai dormito -> 1 (male) a 5 (benissimo) -> qualita_sonno
-     * 2. Come ti senti -> nervoso|stressato|bene -> umore (mappato a intero)
-     * 3. Hai dolori muscolari -> si/no (+ zona) -> dolore_presente/zona_dolore
+     * Solo 3 domande al giocatore, tutte su scala 1-5:
+     * 1. Come hai dormito -> qualita_sonno
+     * 2. Come ti senti -> umore
+     * 3. Hai dolori muscolari -> dolore_muscolare (+ zona_dolore se > 1)
      */
-    const qualitaSonno = getNullableNumber(formData.get("qualita_sonno"));
+    function getScala1a5(
+      campo: string,
+      etichetta: string,
+    ): { valore: number } | { errore: string } {
+      const valore = getNullableNumber(formData.get(campo));
 
-    if (
-      qualitaSonno === null ||
-      qualitaSonno < 1 ||
-      qualitaSonno > 5 ||
-      !Number.isInteger(qualitaSonno)
-    ) {
-      return {
-        success: false,
-        message: "Indica come hai dormito (da 1 a 5).",
-      };
+      if (
+        valore === null ||
+        valore < 1 ||
+        valore > 5 ||
+        !Number.isInteger(valore)
+      ) {
+        return { errore: `Indica ${etichetta} (da 1 a 5).` };
+      }
+
+      return { valore };
     }
 
-    const umoreChiave = getString(formData.get("umore"));
-    const umore = umoreKeyToValue(umoreChiave);
+    const sonnoRisultato = getScala1a5("qualita_sonno", "come hai dormito");
 
-    if (umore === null) {
-      return {
-        success: false,
-        message: "Indica come ti senti.",
-      };
+    if ("errore" in sonnoRisultato) {
+      return { success: false, message: sonnoRisultato.errore };
     }
 
-    const doloreProvocato = getNullableBoolean(
-      formData.get("dolore_presente"),
+    const umoreRisultato = getScala1a5("umore", "come ti senti");
+
+    if ("errore" in umoreRisultato) {
+      return { success: false, message: umoreRisultato.errore };
+    }
+
+    const doloreRisultato = getScala1a5(
+      "dolore_muscolare",
+      "il livello di dolori muscolari",
     );
+
+    if ("errore" in doloreRisultato) {
+      return { success: false, message: doloreRisultato.errore };
+    }
+
+    const qualitaSonno = sonnoRisultato.valore;
+    const umore = umoreRisultato.valore;
+    const doloreMuscolare = doloreRisultato.valore;
+    const doloreProvocato = doloreMuscolare > 1;
 
     const { error: insertError } = await supabase
       .from("misurazioni_post_allenamento")
@@ -188,6 +197,7 @@ export async function creaPostAllenamentoAction(
         data_compilazione: dataCompilazione,
         umore,
         qualita_sonno: qualitaSonno,
+        dolore_muscolare: doloreMuscolare,
         dolore_presente: doloreProvocato,
         zona_dolore: doloreProvocato
           ? getNullableString(formData.get("zona_dolore"))

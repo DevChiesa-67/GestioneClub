@@ -97,7 +97,7 @@ export default async function Page() {
     .eq("id", clubId)
     .single<ClubAttivo>();
 
-  const coloreClub = clubAttivo?.colore_flag || "#ffffff";
+  const coloreClub = clubAttivo?.colore_flag || "#d71920";
 
   async function aggiungiLogoUrl(
     squadra: SquadraPartitaRel | null

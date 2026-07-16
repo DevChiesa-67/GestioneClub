@@ -14,13 +14,15 @@ export default async function ProgrammazionePage() {
 
   const { data: profilo } = await supabase
     .from("profili")
-    .select("id,last_club_id,last_squadra_id")
+    .select("id,tipo_profilo,last_club_id,last_squadra_id")
     .eq("auth_user_id", user.id)
     .single();
 
   if (!profilo?.last_club_id) {
     throw new Error("Nessun club attivo selezionato");
   }
+
+  const isAdmin = String(profilo.tipo_profilo ?? "").toLowerCase() === "admin";
 
   const { data: club } = await supabase
     .from("club")
@@ -59,7 +61,8 @@ export default async function ProgrammazionePage() {
           tipo_sessione,
           tema,
           volume_min,
-          rpe,
+          durata_min,
+          intensita,
           carico,
           note
         )
@@ -83,6 +86,7 @@ export default async function ProgrammazionePage() {
       club={club}
       profilo={profilo}
       programmazioni={programmazioni ?? []}
+      isAdmin={isAdmin}
     />
   );
 }

@@ -1,19 +1,26 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   CircleDot,
+  Pencil,
   Save,
   Shield,
   Shirt,
+  Trash2,
   Trophy,
   Users,
 } from "lucide-react";
 
 import {
+  eliminaPartita,
   salvaConvocazioniPartita,
   salvaStatistichePartita,
 } from "@/app/(dashboard)/partite/[id]/actions";
+import ModificaDettagliPartitaModal, {
+  type SquadraPartitaOption,
+} from "@/components/partite/ModificaDettagliPartitaModal";
 
 type PosizioneRugby =
   | "pilone_sx"
@@ -114,6 +121,7 @@ type Props = {
   statistiche: Statistiche;
   giocatori: Giocatore[];
   convocazioni: ConvocazioneDb[];
+  squadreDisponibili: SquadraPartitaOption[];
   coloreClub: string;
   isAdmin: boolean;
 };
@@ -196,16 +204,42 @@ export default function PartitaEditorClient({
   statistiche,
   giocatori,
   convocazioni,
+  squadreDisponibili,
   coloreClub,
   isAdmin,
 }: Props) {
+  const router = useRouter();
+
   const [tab, setTab] = useState<"risultato" | "convocazioni">(
     "risultato"
   );
 
   const [isPending, startTransition] = useTransition();
+  const [isDeleting, startDeleteTransition] = useTransition();
+  const [openModificaDettagli, setOpenModificaDettagli] = useState(false);
 
   const [message, setMessage] = useState<string | null>(null);
+
+  function handleEliminaPartita() {
+    const conferma = window.confirm(
+      "Eliminare definitivamente questa partita? Verranno eliminate anche statistiche e convocazioni collegate. L'operazione non è reversibile."
+    );
+
+    if (!conferma) return;
+
+    startDeleteTransition(async () => {
+      try {
+        await eliminaPartita(partita.id);
+        router.push("/partite");
+      } catch (error) {
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "Errore durante l'eliminazione della partita."
+        );
+      }
+    });
+  }
 
   const [stats, setStats] = useState({
     punti_fatti:
@@ -671,6 +705,66 @@ function giocatoriPerPosizione(
               Modifica punteggio, statistiche e
               convocazioni della partita.
             </p>
+
+            {isAdmin && (
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setOpenModificaDettagli(true)}
+                  className="
+                    inline-flex
+                    items-center
+                    gap-2
+                    rounded-xl
+                    border
+                    px-3
+                    py-2
+                    text-xs
+                    font-bold
+                    uppercase
+                    tracking-wider
+                    transition
+                  "
+                  style={{
+                    borderColor: `${coloreClub}45`,
+                    backgroundColor: `${coloreClub}12`,
+                    color: coloreClub,
+                  }}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Modifica dettagli
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleEliminaPartita}
+                  disabled={isDeleting}
+                  className="
+                    inline-flex
+                    items-center
+                    gap-2
+                    rounded-xl
+                    border
+                    border-red-500/30
+                    bg-red-500/10
+                    px-3
+                    py-2
+                    text-xs
+                    font-bold
+                    uppercase
+                    tracking-wider
+                    text-red-300
+                    transition
+                    hover:bg-red-500/20
+                    disabled:cursor-not-allowed
+                    disabled:opacity-50
+                  "
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {isDeleting ? "Eliminazione..." : "Elimina partita"}
+                </button>
+              </div>
+            )}
           </div>
 
           <div
@@ -1990,6 +2084,26 @@ function giocatoriPerPosizione(
             </div>
           </div>
         </div>
+      )}
+
+      {isAdmin && (
+        <ModificaDettagliPartitaModal
+          open={openModificaDettagli}
+          onClose={() => setOpenModificaDettagli(false)}
+          onSaved={() => router.refresh()}
+          brand={coloreClub}
+          partitaId={partita.id}
+          squadre={squadreDisponibili}
+          valoriIniziali={{
+            squadra_casa_id: partita.squadra_casa_id ?? "",
+            squadra_fuori_id: partita.squadra_fuori_id ?? "",
+            data_partita: partita.data_partita ?? "",
+            ora_partita: partita.ora_partita ?? "",
+            luogo: partita.luogo ?? "",
+            tipo_partita: partita.tipo_partita ?? "campionato",
+            note: partita.note ?? "",
+          }}
+        />
       )}
     </div>
   );

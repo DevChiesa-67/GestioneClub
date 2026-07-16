@@ -37,7 +37,7 @@ export default async function PartitaDetailPage({ params }: PageProps) {
     .single();
 
   const coloreClub =
-    club?.colore_flag || club?.color_flag || club?.colore || "#ffffff";
+    club?.colore_flag || club?.color_flag || club?.colore || "#d71920";
 
  
 
@@ -196,12 +196,19 @@ if (!partitaHaGiaConvocati && giocatoriGiaConvocatiIds.length > 0) {
 
 const { data: giocatori } = await giocatoriQuery;
 
+const { data: squadreDisponibili } = await supabase
+  .from("squadre_partite")
+  .select("id,nome,abbreviazione,logo_path")
+  .eq("club_id", profilo.last_club_id)
+  .order("nome", { ascending: true });
+
   return (
     <PartitaEditorClient
       partita={partita}
       statistiche={statistiche}
       giocatori={giocatori ?? []}
       convocazioni={convocazioni ?? []}
+      squadreDisponibili={squadreDisponibili ?? []}
       coloreClub={coloreClub}
       isAdmin={isAdmin}
     />

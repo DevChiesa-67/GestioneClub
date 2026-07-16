@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Activity,
   BedDouble,
@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 
 import { creaPostAllenamentoAction } from "@/app/(dashboard)/misurazioni/actions";
-import { UMORE_OPTIONS, umoreValueToLabel, type UmoreKey } from "@/lib/misurazioni/umore";
 
 import type {
   GiocatoreMisurazioni,
@@ -35,20 +34,8 @@ type Props = {
 
 type Tab = "benessere" | "antropometria";
 
-const SONNO_MIN = 1;
-const SONNO_MAX = 5;
-
-const UMORE_ICONS: Record<UmoreKey, typeof Smile> = {
-  nervoso: Frown,
-  stressato: Meh,
-  bene: Smile,
-};
-
-const UMORE_COLORS: Record<UmoreKey, string> = {
-  nervoso: "#f87171",
-  stressato: "#f59e0b",
-  bene: "#34d399",
-};
+const SCALA_MIN = 1;
+const SCALA_MAX = 5;
 
 function getToday(): string {
   return new Date().toISOString().slice(0, 10);
@@ -72,6 +59,23 @@ function formatNumber(value: number | null, suffix = ""): string {
   }).format(value)}${suffix}`;
 }
 
+/*
+ * Colore/icona indicativi in base al valore 1-5: usati solo per dare
+ * un colpo d'occhio visivo nelle card storiche, il dato salvato resta
+ * sempre il numero puro.
+ */
+function getUmoreVisual(valore: number) {
+  if (valore <= 2) return { Icon: Frown, color: "#f87171" };
+  if (valore === 3) return { Icon: Meh, color: "#f59e0b" };
+  return { Icon: Smile, color: "#34d399" };
+}
+
+function getDoloreColore(valore: number) {
+  if (valore <= 1) return "#34d399";
+  if (valore <= 3) return "#f59e0b";
+  return "#f87171";
+}
+
 export default function MisurazioniGiocatoreClient({
   coloreClub,
   giocatore,
@@ -83,8 +87,8 @@ export default function MisurazioniGiocatoreClient({
   const [salvataggio, setSalvataggio] = useState(false);
 
   const [sonno, setSonno] = useState(3);
-  const [umoreScelto, setUmoreScelto] = useState<UmoreKey | null>(null);
-  const [dolorePresente, setDolorePresente] = useState(false);
+  const [umore, setUmore] = useState(3);
+  const [doloreMuscolare, setDoloreMuscolare] = useState(1);
   const [zonaDolore, setZonaDolore] = useState("");
 
   const [messaggio, setMessaggio] = useState<{
@@ -107,30 +111,22 @@ export default function MisurazioniGiocatoreClient({
 
   function resetForm() {
     setSonno(3);
-    setUmoreScelto(null);
-    setDolorePresente(false);
+    setUmore(3);
+    setDoloreMuscolare(1);
     setZonaDolore("");
   }
 
   async function handleSubmit() {
-    if (!umoreScelto) {
-      setMessaggio({
-        tipo: "error",
-        testo: "Seleziona come ti senti.",
-      });
-      return;
-    }
-
     setSalvataggio(true);
     setMessaggio(null);
 
     const formData = new FormData();
     formData.set("data_compilazione", getToday());
     formData.set("qualita_sonno", String(sonno));
-    formData.set("umore", umoreScelto);
-    formData.set("dolore_presente", dolorePresente ? "true" : "false");
+    formData.set("umore", String(umore));
+    formData.set("dolore_muscolare", String(doloreMuscolare));
 
-    if (dolorePresente) {
+    if (doloreMuscolare > 1) {
       formData.set("zona_dolore", zonaDolore);
     }
 
@@ -275,11 +271,10 @@ export default function MisurazioniGiocatoreClient({
       {tab === "benessere" && (
         <section className="space-y-3">
           {postAllenamento.map((misurazione) => {
-            const umoreKey = UMORE_OPTIONS.find(
-              (o) => o.value === misurazione.umore
-            )?.key;
-            const UmoreIcon = umoreKey ? UMORE_ICONS[umoreKey] : Smile;
-            const umoreColor = umoreKey ? UMORE_COLORS[umoreKey] : "#a1a1aa";
+            const { Icon: UmoreIcon, color: umoreColore } = getUmoreVisual(
+              misurazione.umore
+            );
+            const doloreColore = getDoloreColore(misurazione.dolore_muscolare);
 
             return (
               <article
@@ -300,7 +295,7 @@ export default function MisurazioniGiocatoreClient({
                   <ChevronRight className="h-5 w-5 text-zinc-700" />
                 </div>
 
-                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <div className="mt-4 grid grid-cols-3 gap-2">
                   <WellnessValue
                     label="Sonno"
                     value={
@@ -318,18 +313,26 @@ export default function MisurazioniGiocatoreClient({
                     <div className="mt-1 flex items-center gap-1.5">
                       <UmoreIcon
                         className="h-4 w-4 shrink-0"
-                        style={{ color: umoreColor }}
+                        style={{ color: umoreColore }}
                       />
                       <p className="text-sm font-bold text-white">
-                        {umoreValueToLabel(misurazione.umore)}
+                        {misurazione.umore}/5
                       </p>
                     </div>
                   </div>
 
-                  <WellnessValue
-                    label="Dolori muscolari"
-                    value={misurazione.dolore_presente ? "Sì" : "No"}
-                  />
+                  <div className="rounded-xl bg-zinc-900 p-3">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                      Dolori muscolari
+                    </p>
+
+                    <p
+                      className="mt-1 text-sm font-bold"
+                      style={{ color: doloreColore }}
+                    >
+                      {misurazione.dolore_muscolare}/5
+                    </p>
+                  </div>
                 </div>
 
                 {misurazione.dolore_presente && (
@@ -439,126 +442,44 @@ export default function MisurazioniGiocatoreClient({
             </div>
 
             <div className="space-y-6 p-4 sm:p-5">
-              {/* DOMANDA 1: SONNO */}
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-zinc-400">
-                    <BedDouble className="h-5 w-5" />
-                  </div>
+              <ScaleField1a5
+                icon={<BedDouble className="h-5 w-5" />}
+                label="Come hai dormito?"
+                leftLabel="Male"
+                rightLabel="Benissimo"
+                value={sonno}
+                onChange={setSonno}
+                accentColor={coloreClub}
+              />
 
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-white">
-                      Come hai dormito?
-                    </p>
+              <ScaleField1a5
+                icon={<Smile className="h-5 w-5" />}
+                label="Come ti senti?"
+                leftLabel="Male"
+                rightLabel="Benissimo"
+                value={umore}
+                onChange={setUmore}
+                accentColor={coloreClub}
+              />
 
-                    <div className="mt-3 grid grid-cols-5 gap-2">
-                      {Array.from(
-                        { length: SONNO_MAX - SONNO_MIN + 1 },
-                        (_, i) => SONNO_MIN + i,
-                      ).map((valore) => {
-                        const selezionato = sonno === valore;
+              <ScaleField1a5
+                icon={<HeartPulse className="h-5 w-5" />}
+                label="Hai dolori muscolari?"
+                leftLabel="Nessun dolore"
+                rightLabel="Dolore forte"
+                value={doloreMuscolare}
+                onChange={setDoloreMuscolare}
+                accentColor={coloreClub}
+              />
 
-                        return (
-                          <button
-                            key={valore}
-                            type="button"
-                            onClick={() => setSonno(valore)}
-                            className="flex h-11 items-center justify-center rounded-xl text-sm font-bold transition"
-                            style={
-                              selezionato
-                                ? { backgroundColor: coloreClub, color: "#fff" }
-                                : {
-                                    backgroundColor: "#18181b",
-                                    color: "#a1a1aa",
-                                  }
-                            }
-                          >
-                            {valore}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    <div className="mt-1.5 flex justify-between text-[11px] text-zinc-600">
-                      <span>Male</span>
-                      <span>Benissimo</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* DOMANDA 2: COME TI SENTI */}
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4">
-                <p className="text-sm font-semibold text-white">
-                  Come ti senti?
-                </p>
-
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  {UMORE_OPTIONS.map((opzione) => {
-                    const Icon = UMORE_ICONS[opzione.key];
-                    const selezionato = umoreScelto === opzione.key;
-                    const colore = UMORE_COLORS[opzione.key];
-
-                    return (
-                      <button
-                        key={opzione.key}
-                        type="button"
-                        onClick={() => setUmoreScelto(opzione.key)}
-                        className="flex flex-col items-center gap-1.5 rounded-xl border py-3 text-xs font-semibold transition"
-                        style={{
-                          borderColor: selezionato ? colore : "#27272a",
-                          backgroundColor: selezionato
-                            ? `${colore}1a`
-                            : "#18181b",
-                          color: selezionato ? colore : "#a1a1aa",
-                        }}
-                      >
-                        <Icon className="h-6 w-6" />
-                        {opzione.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* DOMANDA 3: DOLORI MUSCOLARI */}
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-white">
-                      Hai dolori muscolari?
-                    </p>
-
-                    <p className="mt-1 text-xs text-zinc-500">
-                      Segnalalo allo staff.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setDolorePresente((current) => !current)}
-                    className="relative h-7 w-12 shrink-0 rounded-full transition"
-                    style={{
-                      backgroundColor: dolorePresente ? coloreClub : "#3f3f46",
-                    }}
-                  >
-                    <span
-                      className={`absolute top-1 h-5 w-5 rounded-full bg-white transition ${
-                        dolorePresente ? "left-6" : "left-1"
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {dolorePresente && (
-                  <input
-                    value={zonaDolore}
-                    onChange={(event) => setZonaDolore(event.target.value)}
-                    placeholder="Dove? Es. spalla destra, ginocchio..."
-                    className={`${inputClass} mt-3`}
-                  />
-                )}
-              </div>
+              {doloreMuscolare > 1 && (
+                <input
+                  value={zonaDolore}
+                  onChange={(event) => setZonaDolore(event.target.value)}
+                  placeholder="Dove? Es. spalla destra, ginocchio..."
+                  className={inputClass}
+                />
+              )}
 
               {messaggio && (
                 <div
@@ -591,6 +512,68 @@ export default function MisurazioniGiocatoreClient({
 
 const inputClass =
   "min-h-11 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-zinc-600";
+
+function ScaleField1a5({
+  icon,
+  label,
+  leftLabel,
+  rightLabel,
+  value,
+  onChange,
+  accentColor,
+}: {
+  icon: ReactNode;
+  label: string;
+  leftLabel: string;
+  rightLabel: string;
+  value: number;
+  onChange: (value: number) => void;
+  accentColor: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-zinc-400">
+          {icon}
+        </div>
+
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-white">{label}</p>
+
+          <div className="mt-3 grid grid-cols-5 gap-2">
+            {Array.from(
+              { length: SCALA_MAX - SCALA_MIN + 1 },
+              (_, i) => SCALA_MIN + i,
+            ).map((valore) => {
+              const selezionato = value === valore;
+
+              return (
+                <button
+                  key={valore}
+                  type="button"
+                  onClick={() => onChange(valore)}
+                  className="flex h-11 items-center justify-center rounded-xl text-sm font-bold transition"
+                  style={
+                    selezionato
+                      ? { backgroundColor: accentColor, color: "#fff" }
+                      : { backgroundColor: "#18181b", color: "#a1a1aa" }
+                  }
+                >
+                  {valore}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-1.5 flex justify-between text-[11px] text-zinc-600">
+            <span>{leftLabel}</span>
+            <span>{rightLabel}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function PlayerStat({
   icon,

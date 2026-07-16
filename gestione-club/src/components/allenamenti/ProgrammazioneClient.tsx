@@ -2,18 +2,28 @@
 
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   CalendarDays,
   Plus,
   Dumbbell,
   Activity,ChevronDown,
   BarChart3,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 
 import NuovaProgrammazioneModal from "@/components/allenamenti/NuovaProgrammazioneModal";
 import NuovaFaseProgrammazioneModal from "@/components/allenamenti/NuovaFaseProgrammazioneModal";
 import NuovaSedutaProgrammazioneModal from "@/components/allenamenti/NuovaSedutaProgrammazioneModal";
+import ModificaFaseModal from "@/components/allenamenti/ModificaFaseModal";
+import ModificaSedutaModal from "@/components/allenamenti/ModificaSedutaModal";
+import {
+  eliminaProgrammazione,
+  eliminaFase,
+  eliminaSeduta,
+} from "@/app/(dashboard)/allenamenti/programmazione/actions";
 
 type Club = {
   id: string;
@@ -27,13 +37,28 @@ type Profilo = {
   last_squadra_id: string | null;
 };
 
+type Intensita = "bassa" | "media" | "alta";
+
+const INTENSITA_LABEL: Record<Intensita, string> = {
+  bassa: "Bassa",
+  media: "Media",
+  alta: "Alta",
+};
+
+const INTENSITA_COLOR: Record<Intensita, string> = {
+  bassa: "#22c55e",
+  media: "#f59e0b",
+  alta: "#ef4444",
+};
+
 type Seduta = {
   id: string;
   data_seduta: string | null;
   tipo_sessione: string | null;
   tema: string | null;
   volume_min: number | null;
-  rpe: number | null;
+  durata_min: number | null;
+  intensita: Intensita | null;
   carico: number | null;
   note: string | null;
 };
@@ -74,9 +99,15 @@ type Props = {
   club: Club | null;
   profilo: Profilo;
   programmazioni: Programmazione[];
+  isAdmin: boolean;
 };
 
-export default function ProgrammazioneClient({ club, programmazioni }: Props) {
+export default function ProgrammazioneClient({
+  club,
+  programmazioni,
+  isAdmin,
+}: Props) {
+  const router = useRouter();
   const coloreClub = club?.colore_flag ?? "#0f3b68";
   const hasProgrammazioni = programmazioni.length > 0;
 
@@ -84,9 +115,76 @@ export default function ProgrammazioneClient({ club, programmazioni }: Props) {
     useState(!hasProgrammazioni);
   const [openNuovaFase, setOpenNuovaFase] = useState(false);
   const [openNuovaSeduta, setOpenNuovaSeduta] = useState(false);
+  const [faseInModifica, setFaseInModifica] = useState<Fase | null>(null);
+  const [sedutaInModifica, setSedutaInModifica] = useState<Seduta | null>(
+    null
+  );
+  const [settimanaSedutaInModifica, setSettimanaSedutaInModifica] =
+    useState<Settimana | null>(null);
+  const [isDeleting, startDeleteTransition] = useTransition();
 
   const [programmazioneAttiva, setProgrammazioneAttiva] =
     useState<Programmazione | null>(programmazioni[0] ?? null);
+
+  function handleEliminaProgrammazione() {
+    if (!programmazioneAttiva) return;
+
+    const conferma = window.confirm(
+      `Eliminare definitivamente la programmazione "${programmazioneAttiva.titolo}"? Verranno eliminate anche tutte le fasi, settimane e sedute collegate.`
+    );
+
+    if (!conferma) return;
+
+    startDeleteTransition(async () => {
+      const res = await eliminaProgrammazione(programmazioneAttiva.id);
+
+      if (!res.success) {
+        window.alert(res.message);
+        return;
+      }
+
+      setProgrammazioneAttiva(null);
+      router.refresh();
+    });
+  }
+
+  function handleEliminaFase(fase: Fase) {
+    const conferma = window.confirm(
+      `Eliminare definitivamente la fase "${fase.nome}"? Verranno eliminate anche le settimane e le sedute collegate.`
+    );
+
+    if (!conferma) return;
+
+    startDeleteTransition(async () => {
+      const res = await eliminaFase(fase.id);
+
+      if (!res.success) {
+        window.alert(res.message);
+        return;
+      }
+
+      router.refresh();
+    });
+  }
+
+  function handleEliminaSeduta(seduta: Seduta) {
+    const conferma = window.confirm(
+      "Eliminare definitivamente questa seduta?"
+    );
+
+    if (!conferma) return;
+
+    startDeleteTransition(async () => {
+      const res = await eliminaSeduta(seduta.id);
+
+      if (!res.success) {
+        window.alert(res.message);
+        return;
+      }
+
+      router.refresh();
+    });
+  }
 
   const fasi = useMemo(() => {
     return [...(programmazioneAttiva?.programmazione_fasi ?? [])].sort(
@@ -141,7 +239,7 @@ export default function ProgrammazioneClient({ club, programmazioni }: Props) {
       <div className="space-y-6">
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-3xl border border-zinc-800 bg-zinc-950/70 p-5">
-  <div className=" h-full items-center gap-4 ">
+  <div className="flex h-full items-center gap-4">
     <div
       className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl "
       style={{
@@ -223,6 +321,18 @@ export default function ProgrammazioneClient({ club, programmazioni }: Props) {
         />
       </div>
     </div>
+
+    {isAdmin && programmazioneAttiva && (
+      <button
+        type="button"
+        onClick={handleEliminaProgrammazione}
+        disabled={isDeleting}
+        title="Elimina programmazione"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
+      >
+        <Trash2 size={16} />
+      </button>
+    )}
   </div>
 </div>
 
@@ -258,7 +368,15 @@ export default function ProgrammazioneClient({ club, programmazioni }: Props) {
           key={fase.id}
           fase={fase}
           coloreClub={coloreClub}
+          isAdmin={isAdmin}
           onAddSeduta={() => setOpenNuovaSeduta(true)}
+          onEditFase={() => setFaseInModifica(fase)}
+          onDeleteFase={() => handleEliminaFase(fase)}
+          onEditSeduta={(settimana, seduta) => {
+            setSettimanaSedutaInModifica(settimana);
+            setSedutaInModifica(seduta);
+          }}
+          onDeleteSeduta={handleEliminaSeduta}
         />
       ))}
 
@@ -309,6 +427,29 @@ export default function ProgrammazioneClient({ club, programmazioni }: Props) {
         brand={coloreClub}
         settimane={settimane}
       />
+
+      <ModificaFaseModal
+        open={Boolean(faseInModifica)}
+        onClose={() => {
+          setFaseInModifica(null);
+          router.refresh();
+        }}
+        brand={coloreClub}
+        fase={faseInModifica}
+      />
+
+      <ModificaSedutaModal
+        open={Boolean(sedutaInModifica)}
+        onClose={() => {
+          setSedutaInModifica(null);
+          setSettimanaSedutaInModifica(null);
+          router.refresh();
+        }}
+        brand={coloreClub}
+        seduta={sedutaInModifica}
+        minData={settimanaSedutaInModifica?.data_inizio}
+        maxData={settimanaSedutaInModifica?.data_fine}
+      />
     </>
   );
 }
@@ -346,11 +487,21 @@ function StatCard({
 function FaseProspetto({
   fase,
   coloreClub,
+  isAdmin,
   onAddSeduta,
+  onEditFase,
+  onDeleteFase,
+  onEditSeduta,
+  onDeleteSeduta,
 }: {
   fase: Fase;
   coloreClub: string;
+  isAdmin: boolean;
   onAddSeduta: () => void;
+  onEditFase: () => void;
+  onDeleteFase: () => void;
+  onEditSeduta: (settimana: Settimana, seduta: Seduta) => void;
+  onDeleteSeduta: (seduta: Seduta) => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -360,13 +511,15 @@ function FaseProspetto({
 
   return (
     <div className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left text-white"
+      <div
+        className="flex items-center justify-between gap-4 px-5 py-4 text-white"
         style={{ backgroundColor: fase.colore ?? coloreClub }}
       >
-        <div>
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="flex-1 text-left"
+        >
           <h3 className="text-lg font-bold">
             {fase.nome}
           </h3>
@@ -378,10 +531,40 @@ function FaseProspetto({
           {fase.obiettivo && (
             <p className="mt-2 text-sm text-white/85">{fase.obiettivo}</p>
           )}
-        </div>
+        </button>
 
-        <span className="text-2xl font-bold">{open ? "−" : "+"}</span>
-      </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {isAdmin && (
+            <>
+              <button
+                type="button"
+                onClick={onEditFase}
+                title="Modifica fase"
+                className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20"
+              >
+                <Pencil size={15} />
+              </button>
+
+              <button
+                type="button"
+                onClick={onDeleteFase}
+                title="Elimina fase"
+                className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-red-500/60"
+              >
+                <Trash2 size={15} />
+              </button>
+            </>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            className="text-2xl font-bold"
+          >
+            {open ? "−" : "+"}
+          </button>
+        </div>
+      </div>
 
       {open && (
         <div className="grid gap-4 p-4 lg:grid-cols-2 xl:grid-cols-4">
@@ -391,7 +574,10 @@ function FaseProspetto({
                 key={settimana.id}
                 settimana={settimana}
                 coloreClub={coloreClub}
+                isAdmin={isAdmin}
                 onAddSeduta={onAddSeduta}
+                onEditSeduta={onEditSeduta}
+                onDeleteSeduta={onDeleteSeduta}
               />
             ))
           ) : (
@@ -408,11 +594,17 @@ function FaseProspetto({
 function SettimanaCard({
   settimana,
   coloreClub,
+  isAdmin,
   onAddSeduta,
+  onEditSeduta,
+  onDeleteSeduta,
 }: {
   settimana: Settimana;
   coloreClub: string;
+  isAdmin: boolean;
   onAddSeduta: () => void;
+  onEditSeduta: (settimana: Settimana, seduta: Seduta) => void;
+  onDeleteSeduta: (seduta: Seduta) => void;
 }) {
   const sedute = settimana.programmazione_sedute ?? [];
 
@@ -445,7 +637,13 @@ function SettimanaCard({
       <div className="mt-4 flex-1 space-y-3">
         {sedute.length > 0 ? (
           sedute.map((seduta) => (
-            <SedutaItem key={seduta.id} seduta={seduta} />
+            <SedutaItem
+              key={seduta.id}
+              seduta={seduta}
+              isAdmin={isAdmin}
+              onEdit={() => onEditSeduta(settimana, seduta)}
+              onDelete={() => onDeleteSeduta(seduta)}
+            />
           ))
         ) : (
           <div className="flex h-32 items-center justify-center rounded-2xl border border-dashed border-zinc-700 bg-zinc-900 p-4 text-center text-sm text-zinc-500">
@@ -467,7 +665,17 @@ function SettimanaCard({
   );
 }
 
-function SedutaItem({ seduta }: { seduta: Seduta }) {
+function SedutaItem({
+  seduta,
+  isAdmin,
+  onEdit,
+  onDelete,
+}: {
+  seduta: Seduta;
+  isAdmin: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
   const carico = Number(seduta.carico ?? 0);
 
   return (
@@ -484,14 +692,56 @@ function SedutaItem({ seduta }: { seduta: Seduta }) {
           </p>
         </div>
 
-        <span className="rounded-full bg-white/10 px-2 py-1 text-xs font-bold text-white">
-          {carico}
-        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className="rounded-full bg-white/10 px-2 py-1 text-xs font-bold text-white">
+            {carico}
+          </span>
+
+          {isAdmin && (
+            <>
+              <button
+                type="button"
+                onClick={onEdit}
+                title="Modifica seduta"
+                className="flex h-6 w-6 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-white/10 hover:text-white"
+              >
+                <Pencil size={12} />
+              </button>
+
+              <button
+                type="button"
+                onClick={onDelete}
+                title="Elimina seduta"
+                className="flex h-6 w-6 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-red-500/20 hover:text-red-300"
+              >
+                <Trash2 size={12} />
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-zinc-400">
         <span>Volume: {seduta.volume_min ?? "—"} min</span>
-        <span>RPE: {seduta.rpe ?? "—"}</span>
+        <span>Durata: {seduta.durata_min ?? "—"} min</span>
+
+        <span className="flex items-center gap-1.5">
+          Intensità:
+          {seduta.intensita ? (
+            <span
+              className="inline-flex items-center gap-1 font-bold"
+              style={{ color: INTENSITA_COLOR[seduta.intensita] }}
+            >
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: INTENSITA_COLOR[seduta.intensita] }}
+              />
+              {INTENSITA_LABEL[seduta.intensita]}
+            </span>
+          ) : (
+            "—"
+          )}
+        </span>
       </div>
 
       {seduta.note && (

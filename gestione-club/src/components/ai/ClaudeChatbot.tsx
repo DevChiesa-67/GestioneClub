@@ -32,7 +32,7 @@ export default function ClaudeChatbot({ coloreFlag }: Props) {
   const [messaggi, setMessaggi] = useState<Messaggio[]>([]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  const brandColor = useMemo(() => coloreFlag || "#ffffff", [coloreFlag]);
+  const brandColor = useMemo(() => coloreFlag || "#d71920", [coloreFlag]);
 
   useEffect(() => {
     if (open) {

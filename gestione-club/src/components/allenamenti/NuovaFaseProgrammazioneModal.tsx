@@ -12,7 +12,16 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { creaFaseConSettimane } from "@/app/(dashboard)/allenamenti/programmazione/actions";
+import {
+  creaFaseConSettimane,
+  type Intensita,
+} from "@/app/(dashboard)/allenamenti/programmazione/actions";
+
+const INTENSITA_OPTIONS: { value: Intensita; label: string }[] = [
+  { value: "bassa", label: "Bassa" },
+  { value: "media", label: "Media" },
+  { value: "alta", label: "Alta" },
+];
 
 type Programmazione = {
   id: string;
@@ -27,7 +36,7 @@ type SedutaDraft = {
   tema: string;
   durata_min: string;
   volume_min: string;
-  rpe: string;
+  intensita: string;
   note: string;
 };
 
@@ -140,7 +149,7 @@ export default function NuovaFaseProgrammazioneModal({
       tema: "",
       durata_min: "",
       volume_min: "",
-      rpe: "",
+      intensita: "",
       note: "",
     },
   ]);
@@ -186,7 +195,9 @@ export default function NuovaFaseProgrammazioneModal({
           tema: seduta.tema || null,
           durata_min: Number(seduta.durata_min) || null,
           volume_min: Number(seduta.volume_min) || null,
-          rpe: Number(seduta.rpe) || null,
+          intensita: seduta.intensita
+            ? (seduta.intensita as Intensita)
+            : null,
           note: seduta.note || null,
         })),
       });
@@ -361,10 +372,6 @@ export default function NuovaFaseProgrammazioneModal({
                         </div>
                       ) : (
                         seduteSettimana.map((seduta) => {
-  const volume = Number(seduta.volume_min) || 0;
-  const rpe = Number(seduta.rpe) || 0;
-  const carico = volume * rpe;
-
   return (
     <div
       key={seduta.id}
@@ -383,7 +390,7 @@ export default function NuovaFaseProgrammazioneModal({
         </div>
 
         <div className="flex items-end gap-2">
-          <div className="min-w-52">
+          <div className="min-w-44">
   <label className="mb-1.5 block text-xs font-semibold text-zinc-500">
     Data seduta
   </label>
@@ -395,6 +402,23 @@ export default function NuovaFaseProgrammazioneModal({
     value={seduta.data_seduta}
     onChange={(e) =>
       aggiornaSeduta(seduta.id, "data_seduta", e.target.value)
+    }
+    className="h-11 w-full rounded-2xl border border-zinc-300 bg-white px-4 text-sm text-zinc-900 outline-none transition focus:ring-2 focus:ring-zinc-200"
+  />
+</div>
+
+          <div className="w-32">
+  <label className="mb-1.5 block text-xs font-semibold text-zinc-500">
+    Durata (min)
+  </label>
+
+  <input
+    type="number"
+    min={0}
+    placeholder="90"
+    value={seduta.durata_min}
+    onChange={(e) =>
+      aggiornaSeduta(seduta.id, "durata_min", e.target.value)
     }
     className="h-11 w-full rounded-2xl border border-zinc-300 bg-white px-4 text-sm text-zinc-900 outline-none transition focus:ring-2 focus:ring-zinc-200"
   />
@@ -413,9 +437,9 @@ export default function NuovaFaseProgrammazioneModal({
 
       <div className="space-y-5 p-5">
         {/* RIGA 1 */}
-        <div className="grid gap-4 md:grid-cols-12">
+        <div className="grid gap-4 md:grid-cols-2">
           {/* TIPO STRUTTURA */}
-          <div className="md:col-span-4">
+          <div>
             <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
               Tipo della struttura
             </label>
@@ -436,7 +460,7 @@ export default function NuovaFaseProgrammazioneModal({
           </div>
 
           {/* TEMA */}
-          <div className="md:col-span-5">
+          <div>
             <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
               Tema tecnico / tattico
             </label>
@@ -455,38 +479,10 @@ export default function NuovaFaseProgrammazioneModal({
               className="h-12 w-full rounded-2xl border border-zinc-300 bg-zinc-950 px-4 text-sm text-white outline-none transition focus:ring-2 focus:ring-zinc-200"
             />
           </div>
-
-          {/* DURATA */}
-          <div className="md:col-span-3">
-            <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
-              Durata
-            </label>
-
-            <div className="relative">
-              <input
-                type="number"
-                min={0}
-                placeholder="90"
-                value={seduta.durata_min}
-                onChange={(e) =>
-                  aggiornaSeduta(
-                    seduta.id,
-                    "durata_min",
-                    e.target.value
-                  )
-                }
-                className="h-12 w-full rounded-2xl border border-zinc-300 bg-zinc-950 px-4 pr-14 text-sm text-white outline-none transition focus:ring-2 focus:ring-zinc-200"
-              />
-
-              <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-400">
-                min
-              </span>
-            </div>
-          </div>
         </div>
 
-        {/* RIGA 2 - CARICO */}
-        <div className="grid gap-4 md:grid-cols-3">
+        {/* RIGA 2 */}
+        <div className="grid gap-4 md:grid-cols-2">
           {/* VOLUME */}
           <div>
             <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
@@ -518,70 +514,27 @@ export default function NuovaFaseProgrammazioneModal({
             </div>
           </div>
 
-          {/* RPE */}
+          {/* INTENSITÀ */}
           <div>
             <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
-              Intensità RPE
-              <span className="ml-1 normal-case font-medium text-zinc-400">
-                1–10
-              </span>
+              Intensità
             </label>
 
-            <input
-              type="number"
-              min={1}
-              max={10}
-              step={1}
-              placeholder="Es. 7"
-              value={seduta.rpe}
-              onChange={(e) => {
-                const value = e.target.value;
-
-                if (
-                  value === "" ||
-                  (Number(value) >= 1 && Number(value) <= 10)
-                ) {
-                  aggiornaSeduta(
-                    seduta.id,
-                    "rpe",
-                    value
-                  );
-                }
-              }}
+            <select
+              value={seduta.intensita}
+              onChange={(e) =>
+                aggiornaSeduta(seduta.id, "intensita", e.target.value)
+              }
               className="h-12 w-full rounded-2xl border border-zinc-300 bg-zinc-950 px-4 text-sm text-white outline-none transition focus:ring-2 focus:ring-zinc-200"
-            />
-          </div>
-
-          {/* CARICO */}
-          <div>
-            <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
-              Carico
-              <span className="ml-1 normal-case font-medium text-zinc-400">
-                (Vol × RPE)
-              </span>
-            </label>
-
-            <div
-              className="flex h-12 items-center justify-between rounded-2xl border px-4"
-              style={{
-                borderColor: `${brand}40`,
-                backgroundColor: `${brand}10`,
-              }}
             >
-              <span
-                className="text-lg font-black"
-                style={{ color: brand }}
-              >
-                {volume > 0 && rpe > 0 ? carico : 0}
-              </span>
+              <option value="">Seleziona</option>
 
-              <span
-                className="text-xs font-bold uppercase tracking-wide"
-                style={{ color: brand }}
-              >
-                AU
-              </span>
-            </div>
+              {INTENSITA_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 

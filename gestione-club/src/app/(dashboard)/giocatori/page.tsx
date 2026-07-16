@@ -11,6 +11,14 @@ function getGoogleDriveImageUrl(url: string | null) {
   return `https://drive.google.com/uc?export=view&id=${match[1]}`;
 }
 
+function getAnnoNascita(dataNascita: string | null) {
+  if (!dataNascita) return null;
+
+  const anno = Number(dataNascita.slice(0, 4));
+
+  return Number.isFinite(anno) ? anno : null;
+}
+
 async function getPageContext() {
   const supabase = await createClient();
 
@@ -75,6 +83,7 @@ export default async function GiocatoriPage() {
       nome,
       cognome,
       foto_url,
+      data_nascita,
       categoria,
       ruolo_1,
       ruolo_2,
@@ -134,6 +143,7 @@ export default async function GiocatoriPage() {
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {giocatori?.map((g) => {
           const imageUrl = getGoogleDriveImageUrl(g.foto_url);
+          const annoNascita = getAnnoNascita(g.data_nascita);
 
           return (
             <Link
@@ -175,9 +185,17 @@ export default async function GiocatoriPage() {
               </div>
 
               <div className="p-5">
-                <h2 className="text-xl font-black text-white">
-                  {g.nome} {g.cognome}
-                </h2>
+                <div className="flex items-start justify-between gap-2">
+                  <h2 className="text-xl font-black text-white">
+                    {g.nome} {g.cognome}
+                  </h2>
+
+                  {annoNascita && (
+                    <span className="shrink-0 rounded-full bg-white/10 px-2.5 py-1 text-xs font-bold text-zinc-300">
+                      {annoNascita}
+                    </span>
+                  )}
+                </div>
 
                 <p className="mt-1 text-sm text-zinc-400">
                   {g.ruolo_1 || "Ruolo non impostato"}

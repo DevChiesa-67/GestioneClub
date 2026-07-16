@@ -41,6 +41,7 @@ export type MisurazionePostAllenamento = {
   data_compilazione: string;
   umore: number;
   qualita_sonno: number | null;
+  dolore_muscolare: number;
   dolore_presente: boolean;
   zona_dolore: string | null;
   created_at: string;
@@ -237,6 +238,7 @@ export default async function MisurazioniPage() {
           data_compilazione,
           umore,
           qualita_sonno,
+          dolore_muscolare,
           dolore_presente,
           zona_dolore,
           created_at
@@ -247,10 +249,21 @@ export default async function MisurazioniPage() {
         .order("created_at", { ascending: false }),
     ]);
 
-    if (antropometriaError || postAllenamentoError) {
-      console.error("Errore caricamento misurazioni giocatore", {
-        antropometriaError,
-        postAllenamentoError,
+    if (antropometriaError) {
+      console.error("Errore caricamento antropometria giocatore:", {
+        message: antropometriaError.message,
+        code: antropometriaError.code,
+        details: antropometriaError.details,
+        hint: antropometriaError.hint,
+      });
+    }
+
+    if (postAllenamentoError) {
+      console.error("Errore caricamento post allenamento giocatore:", {
+        message: postAllenamentoError.message,
+        code: postAllenamentoError.code,
+        details: postAllenamentoError.details,
+        hint: postAllenamentoError.hint,
       });
     }
 

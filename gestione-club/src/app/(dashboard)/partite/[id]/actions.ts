@@ -16,6 +16,17 @@ type SalvaStatisticheInput = {
   note?: string | null;
 };
 
+type ModificaDettagliInput = {
+  partita_id: string;
+  squadra_casa_id: string;
+  squadra_fuori_id: string;
+  data_partita: string;
+  ora_partita: string;
+  luogo?: string | null;
+  tipo_partita: string;
+  note?: string | null;
+};
+
 type ConvocazioneInput = {
   giocatore_id: string;
   convocato: boolean;
@@ -192,5 +203,116 @@ export async function salvaConvocazioniPartita(
     .eq("club_id", clubId);
 
   revalidatePath(`/partite/${partitaId}`);
+  revalidatePath("/partite");
+}
+
+export async function eliminaPartita(partitaId: string) {
+  const { supabase, clubId } = await getContestoUtente();
+
+  const { data: partita, error: partitaError } = await supabase
+    .from("partite")
+    .select("id,club_id")
+    .eq("id", partitaId)
+    .eq("club_id", clubId)
+    .single();
+
+  if (partitaError || !partita) {
+    throw new Error("Partita non trovata.");
+  }
+
+  const { error: convocazioniError } = await supabase
+    .from("partite_convocazioni")
+    .delete()
+    .eq("partita_id", partitaId)
+    .eq("club_id", clubId);
+
+  if (convocazioniError) {
+    throw new Error(convocazioniError.message);
+  }
+
+  const { error: statisticheError } = await supabase
+    .from("partite_statistiche")
+    .delete()
+    .eq("partita_id", partitaId)
+    .eq("club_id", clubId);
+
+  if (statisticheError) {
+    throw new Error(statisticheError.message);
+  }
+
+  const { error: partitaDeleteError } = await supabase
+    .from("partite")
+    .delete()
+    .eq("id", partitaId)
+    .eq("club_id", clubId);
+
+  if (partitaDeleteError) {
+    throw new Error(partitaDeleteError.message);
+  }
+
+  revalidatePath("/partite");
+}
+
+export async function modificaDettagliPartita(input: ModificaDettagliInput) {
+  const { supabase, clubId } = await getContestoUtente();
+
+  if (!input.squadra_casa_id || !input.squadra_fuori_id) {
+    throw new Error("Seleziona entrambe le squadre.");
+  }
+
+  if (input.squadra_casa_id === input.squadra_fuori_id) {
+    throw new Error("Le due squadre devono essere diverse.");
+  }
+
+  if (!input.data_partita || !input.ora_partita) {
+    throw new Error("Inserisci data e ora della partita.");
+  }
+
+  const { data: partita, error: partitaError } = await supabase
+    .from("partite")
+    .select("id,club_id")
+    .eq("id", input.partita_id)
+    .eq("club_id", clubId)
+    .single();
+
+  if (partitaError || !partita) {
+    throw new Error("Partita non trovata.");
+  }
+
+  const { data: squadre, error: squadreError } = await supabase
+    .from("squadre_partite")
+    .select("id")
+    .eq("club_id", clubId)
+    .in("id", [input.squadra_casa_id, input.squadra_fuori_id]);
+
+  if (squadreError) {
+    throw new Error(squadreError.message);
+  }
+
+  if (!squadre || squadre.length !== 2) {
+    throw new Error(
+      "Una o entrambe le squadre non appartengono al club attivo."
+    );
+  }
+
+  const { error: updateError } = await supabase
+    .from("partite")
+    .update({
+      squadra_casa_id: input.squadra_casa_id,
+      squadra_fuori_id: input.squadra_fuori_id,
+      data_partita: input.data_partita,
+      ora_partita: input.ora_partita,
+      luogo: input.luogo?.trim() || null,
+      tipo_partita: input.tipo_partita,
+      note: input.note?.trim() || null,
+    })
+    .eq("id", input.partita_id)
+    .eq("club_id", clubId);
+
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
+
+  revalidatePath(`/partite/${input.partita_id}`);
   revalidatePath("/partite");
 }
