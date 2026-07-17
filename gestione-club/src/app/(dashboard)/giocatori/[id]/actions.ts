@@ -27,6 +27,8 @@ type ModificaGiocatoreInput = {
   numero_tessera: string | null;
   tipo_documento: string | null;
   numero_documento: string | null;
+  influenza_squadra: number | null;
+  importanza_giocatore: number | null;
   note: string | null;
   foto_url: string | null;
 };
@@ -44,6 +46,17 @@ type ActionResult =
 function stringOrNull(value: string | null | undefined) {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+}
+
+function scala1a10OrNull(value: number | null | undefined) {
+  if (value === null || value === undefined) return null;
+  if (!Number.isFinite(value)) return null;
+
+  const intero = Math.round(value);
+
+  if (intero < 1 || intero > 10) return null;
+
+  return intero;
 }
 
 function normalizzaEmail(value: string) {
@@ -180,6 +193,8 @@ export async function aggiornaGiocatoreAction(
           numero_tessera: stringOrNull(input.numero_tessera),
           tipo_documento: stringOrNull(input.tipo_documento),
           numero_documento: stringOrNull(input.numero_documento),
+          influenza_squadra: scala1a10OrNull(input.influenza_squadra),
+          importanza_giocatore: scala1a10OrNull(input.importanza_giocatore),
           foto_url: stringOrNull(input.foto_url),
           note: stringOrNull(input.note),
           updated_at: new Date().toISOString(),

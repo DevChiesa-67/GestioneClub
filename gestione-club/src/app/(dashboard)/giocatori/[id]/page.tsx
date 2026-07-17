@@ -134,6 +134,8 @@ export default async function GiocatoreDetailPage({
       email,
       genitore,
       telefono_genitore,
+      influenza_squadra,
+      importanza_giocatore,
       note,
       attivo,
       presenze_allenamenti (
@@ -313,6 +315,27 @@ export default async function GiocatoreDetailPage({
                 title="Telefono genitore"
                 value={giocatore.telefono_genitore}
               />
+
+              {isAdmin && (
+                <>
+                  <InfoCard
+                    title="Influenza sulla Squadra"
+                    value={
+                      giocatore.influenza_squadra
+                        ? `${giocatore.influenza_squadra}/10`
+                        : null
+                    }
+                  />
+                  <InfoCard
+                    title="Importanza Giocatore"
+                    value={
+                      giocatore.importanza_giocatore
+                        ? `${giocatore.importanza_giocatore}/10`
+                        : null
+                    }
+                  />
+                </>
+              )}
             </div>
           </div>
         </div>

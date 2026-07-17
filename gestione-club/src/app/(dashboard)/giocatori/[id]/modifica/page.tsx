@@ -67,6 +67,8 @@ export default function ModificaGiocatorePage() {
     numero_tessera: "",
     tipo_documento: "",
     numero_documento: "",
+    influenza_squadra: "",
+    importanza_giocatore: "",
     note: "",
   });
 
@@ -142,6 +144,8 @@ export default function ModificaGiocatorePage() {
               numero_tessera,
               tipo_documento,
               numero_documento,
+              influenza_squadra,
+              importanza_giocatore,
               note,
               foto_url
             `)
@@ -176,6 +180,9 @@ export default function ModificaGiocatorePage() {
         numero_tessera: giocatore.numero_tessera ?? "",
         tipo_documento: giocatore.tipo_documento ?? "",
         numero_documento: giocatore.numero_documento ?? "",
+        influenza_squadra: giocatore.influenza_squadra?.toString() ?? "",
+        importanza_giocatore:
+          giocatore.importanza_giocatore?.toString() ?? "",
         note: giocatore.note ?? "",
       });
 
@@ -250,6 +257,25 @@ export default function ModificaGiocatorePage() {
       }
     }
 
+    for (const [campo, etichetta] of [
+      ["influenza_squadra", "Influenza sulla squadra"],
+      ["importanza_giocatore", "Importanza giocatore"],
+    ] as const) {
+      const valore = form[campo];
+
+      if (!valore) continue;
+
+      const numero = Number(valore);
+
+      if (!Number.isInteger(numero) || numero < 1 || numero > 10) {
+        showToast({
+          type: "error",
+          message: `${etichetta} deve essere un numero da 1 a 10.`,
+        });
+        return;
+      }
+    }
+
     setLoading(true);
 
     try {
@@ -275,6 +301,12 @@ export default function ModificaGiocatorePage() {
         numero_tessera: form.numero_tessera || null,
         tipo_documento: form.tipo_documento || null,
         numero_documento: form.numero_documento || null,
+        influenza_squadra: form.influenza_squadra
+          ? Number(form.influenza_squadra)
+          : null,
+        importanza_giocatore: form.importanza_giocatore
+          ? Number(form.importanza_giocatore)
+          : null,
         note: form.note || null,
         foto_url: fotoUrl,
       });
@@ -537,7 +569,30 @@ export default function ModificaGiocatorePage() {
                       { value: "Ambidestro", label: "Ambidestro" },
                     ]}
                   />
+
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10}
+                    label="Influenza sulla Squadra (1-10)"
+                    value={form.influenza_squadra}
+                    onChange={(v) => updateField("influenza_squadra", v)}
+                  />
+
+                  <Input
+                    type="number"
+                    min={1}
+                    max={10}
+                    label="Importanza Giocatore (1-10)"
+                    value={form.importanza_giocatore}
+                    onChange={(v) => updateField("importanza_giocatore", v)}
+                  />
                 </FormGrid>
+
+                <p className="mt-4 text-xs leading-5 text-zinc-500">
+                  Questi due parametri sono visibili solo agli
+                  amministratori, non ai giocatori.
+                </p>
               </Section>
             )}
 
@@ -681,12 +736,16 @@ function Input({
   onChange,
   type = "text",
   disabled = false,
+  min,
+  max,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
   disabled?: boolean;
+  min?: number;
+  max?: number;
 }) {
   return (
     <label className="block">
@@ -698,6 +757,8 @@ function Input({
         type={type}
         value={value}
         disabled={disabled}
+        min={min}
+        max={max}
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition placeholder:text-zinc-600 focus:border-[#d71920] focus:ring-4 focus:ring-[#d71920]/10 disabled:cursor-not-allowed disabled:opacity-40"
       />
