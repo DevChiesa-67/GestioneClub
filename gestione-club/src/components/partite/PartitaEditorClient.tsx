@@ -99,9 +99,11 @@ type ConvocazioneDb = {
   convocato: boolean;
   titolare: boolean;
   capitano: boolean;
+  vicecapitano: boolean;
   posizione: PosizioneRugby;
   numero_maglia: number | null;
   ordine: number | null;
+  ruolo_panchina: string | null;
   note: string | null;
 };
 
@@ -110,11 +112,25 @@ type ConvocazioneState = {
   convocato: boolean;
   titolare: boolean;
   capitano: boolean;
+  vicecapitano: boolean;
   posizione: PosizioneRugby;
   numero_maglia: number | null;
   ordine: number | null;
+  ruolo_panchina: string | null;
   note: string | null;
 };
+
+function ruoliDisponibili(giocatore?: Giocatore | null) {
+  if (!giocatore) return [];
+
+  return Array.from(
+    new Set(
+      [giocatore.ruolo_1, giocatore.ruolo_2].filter(
+        (ruolo): ruolo is string => Boolean(ruolo && ruolo.trim())
+      )
+    )
+  );
+}
 
 type Props = {
   partita: Partita;
@@ -298,9 +314,11 @@ export default function PartitaEditorClient({
         convocato: convocazione.convocato,
         titolare: convocazione.titolare,
         capitano: convocazione.capitano,
+        vicecapitano: convocazione.vicecapitano ?? false,
         posizione: convocazione.posizione,
         numero_maglia: convocazione.numero_maglia,
         ordine: convocazione.ordine,
+        ruolo_panchina: convocazione.ruolo_panchina ?? null,
         note: convocazione.note,
       };
     }
@@ -310,9 +328,11 @@ export default function PartitaEditorClient({
       convocato: false,
       titolare: false,
       capitano: false,
+      vicecapitano: false,
       posizione: "panchina",
       numero_maglia: giocatore.numero_maglia ?? null,
       ordine: null,
+      ruolo_panchina: null,
       note: null,
     };
   });
@@ -389,6 +409,48 @@ export default function PartitaEditorClient({
     );
   }
 
+  /**
+   * Ciclo capitano/vicecapitano su un giocatore: nessun flag -> Capitano
+   * -> Vicecapitano -> nessun flag. Assegnare un ruolo lo toglie a chi
+   * lo aveva prima (un solo capitano e un solo vicecapitano per volta).
+   */
+  function ciclaCapitano(giocatoreId: string) {
+    setConvocazioniState((prev) => {
+      const corrente = prev.find(
+        (item) => item.giocatore_id === giocatoreId
+      );
+
+      if (!corrente) return prev;
+
+      const prossimo: "nessuno" | "capitano" | "vicecapitano" =
+        corrente.capitano
+          ? "vicecapitano"
+          : corrente.vicecapitano
+          ? "nessuno"
+          : "capitano";
+
+      return prev.map((item) => {
+        if (item.giocatore_id === giocatoreId) {
+          return {
+            ...item,
+            capitano: prossimo === "capitano",
+            vicecapitano: prossimo === "vicecapitano",
+          };
+        }
+
+        return {
+          ...item,
+          capitano:
+            prossimo === "capitano" ? false : item.capitano,
+          vicecapitano:
+            prossimo === "vicecapitano"
+              ? false
+              : item.vicecapitano,
+        };
+      });
+    });
+  }
+
   function aggiungiInPanchina(
     giocatoreId: string
   ) {
@@ -412,14 +474,25 @@ export default function PartitaEditorClient({
         ordine:
           convocazioneEsistente?.ordine ??
           null,
+        ruolo_panchina:
+          convocazioneEsistente?.ruolo_panchina ??
+          null,
       }
     );
   }
   function normalizzaRuolo(value: string | null | undefined) {
-  return value
+  const normalizzato = value
     ?.toLowerCase()
     .trim()
+    .replace(/°/g, "")
     .replace(/\s+/g, "_");
+
+  // "N° 8" normalizza in "n_8": è un alias di "numero_8".
+  if (normalizzato === "n_8" || normalizzato === "no_8") {
+    return "numero_8";
+  }
+
+  return normalizzato;
 }
 
 const ruoliCompatibili: Record<PosizioneRugby, string[]> = {
@@ -520,6 +593,12 @@ function giocatoriPerPosizione(
     const ruolo2 = normalizzaRuolo(
       giocatore.ruolo_2
     );
+
+    // Un giocatore senza ruolo impostato non va nascosto: non potendo
+    // sapere se è compatibile, lo mostriamo in ogni posizione.
+    if (!ruolo1 && !ruolo2) {
+      return true;
+    }
 
     return (
       compatibili.includes(ruolo1 ?? "") ||
@@ -1143,7 +1222,64 @@ function giocatoriPerPosizione(
                       </p>
                     </div>
 
-                    <Shirt className="h-5 w-5 shrink-0 text-zinc-500" />
+                    <button
+                      type="button"
+                      disabled={!slot.giocatore}
+                      onClick={() =>
+                        slot.convocazione &&
+                        ciclaCapitano(
+                          slot.convocazione
+                            .giocatore_id
+                        )
+                      }
+                      title={
+                        slot.convocazione?.capitano
+                          ? "Capitano (clicca per Vicecapitano)"
+                          : slot.convocazione
+                              ?.vicecapitano
+                          ? "Vicecapitano (clicca per rimuovere)"
+                          : "Imposta capitano"
+                      }
+                      className="
+                        relative
+                        shrink-0
+                        disabled:cursor-not-allowed
+                        disabled:opacity-40
+                      "
+                    >
+                      <Shirt
+                        className="h-7 w-7"
+                        style={{
+                          color: slot.convocazione
+                            ?.capitano
+                            ? "#facc15"
+                            : slot.convocazione
+                                ?.vicecapitano
+                            ? "#a1a1aa"
+                            : "#71717a",
+                        }}
+                        fill={
+                          slot.convocazione
+                            ?.capitano ||
+                          slot.convocazione
+                            ?.vicecapitano
+                            ? "currentColor"
+                            : "none"
+                        }
+                      />
+
+                      {(slot.convocazione
+                        ?.capitano ||
+                        slot.convocazione
+                          ?.vicecapitano) && (
+                        <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[8px] font-black text-zinc-950">
+                          {slot.convocazione
+                            ?.capitano
+                            ? "C"
+                            : "VC"}
+                        </span>
+                      )}
+                    </button>
                   </div>
 
                   <select
@@ -1193,34 +1329,6 @@ function giocatoriPerPosizione(
                       )
                     )}
                   </select>
-
-                  {slot.giocatore && (
-                    <label className="mt-3 flex items-center gap-2 text-xs font-bold text-zinc-400">
-                      <input
-                        type="checkbox"
-                        checked={
-                          slot.convocazione
-                            ?.capitano ?? false
-                        }
-                        onChange={(event) =>
-                          slot.convocazione &&
-                          aggiornaConvocazione(
-                            slot.convocazione
-                              .giocatore_id,
-                            {
-                              capitano:
-                                event.target.checked,
-                            }
-                          )
-                        }
-                        style={{
-                          accentColor: coloreClub,
-                        }}
-                      />
-
-                      Capitano
-                    </label>
-                  )}
                 </div>
               ))}
             </div>
@@ -1425,7 +1533,7 @@ function giocatoriPerPosizione(
                               </button>
                             </div>
 
-                            <div className="mt-3 grid grid-cols-2 gap-2">
+                            <div className="mt-3 grid grid-cols-[0.7fr_1.3fr] gap-2">
                               <label className="min-w-0">
                                 <span className="mb-1 block text-[10px] font-bold uppercase text-zinc-500">
                                   Numero
@@ -1474,30 +1582,22 @@ function giocatoriPerPosizione(
 
                               <label className="min-w-0">
                                 <span className="mb-1 block text-[10px] font-bold uppercase text-zinc-500">
-                                  Ordine
+                                  Ruolo
                                 </span>
 
-                                <input
-                                  type="number"
-                                  min={16}
-                                  inputMode="numeric"
+                                <select
                                   value={
-                                    convocazione.ordine ??
+                                    convocazione.ruolo_panchina ??
                                     ""
                                   }
                                   onChange={(event) =>
                                     aggiornaConvocazione(
                                       giocatore.id,
                                       {
-                                        ordine:
+                                        ruolo_panchina:
                                           event.target
-                                            .value
-                                            ? Number(
-                                                event
-                                                  .target
-                                                  .value
-                                              )
-                                            : null,
+                                            .value ||
+                                          null,
                                       }
                                     )
                                   }
@@ -1514,7 +1614,22 @@ function giocatoriPerPosizione(
                                     text-white
                                     outline-none
                                   "
-                                />
+                                >
+                                  <option value="">
+                                    Seleziona ruolo
+                                  </option>
+
+                                  {ruoliDisponibili(
+                                    giocatore
+                                  ).map((ruolo) => (
+                                    <option
+                                      key={ruolo}
+                                      value={ruolo}
+                                    >
+                                      {ruolo}
+                                    </option>
+                                  ))}
+                                </select>
                               </label>
                             </div>
                           </div>
@@ -1677,7 +1792,67 @@ function giocatoriPerPosizione(
                              
                             </div>
 
-                            <Shirt className="h-5 w-5 shrink-0 text-zinc-500" />
+                            <button
+                              type="button"
+                              disabled={!slot.giocatore}
+                              onClick={() =>
+                                slot.convocazione &&
+                                ciclaCapitano(
+                                  slot.convocazione
+                                    .giocatore_id
+                                )
+                              }
+                              title={
+                                slot.convocazione
+                                  ?.capitano
+                                  ? "Capitano (clicca per Vicecapitano)"
+                                  : slot.convocazione
+                                      ?.vicecapitano
+                                  ? "Vicecapitano (clicca per rimuovere)"
+                                  : "Imposta capitano"
+                              }
+                              className="
+                                relative
+                                shrink-0
+                                disabled:cursor-not-allowed
+                                disabled:opacity-40
+                              "
+                            >
+                              <Shirt
+                                className="h-6 w-6"
+                                style={{
+                                  color: slot
+                                    .convocazione
+                                    ?.capitano
+                                    ? "#facc15"
+                                    : slot
+                                        .convocazione
+                                        ?.vicecapitano
+                                    ? "#a1a1aa"
+                                    : "#71717a",
+                                }}
+                                fill={
+                                  slot.convocazione
+                                    ?.capitano ||
+                                  slot.convocazione
+                                    ?.vicecapitano
+                                    ? "currentColor"
+                                    : "none"
+                                }
+                              />
+
+                              {(slot.convocazione
+                                ?.capitano ||
+                                slot.convocazione
+                                  ?.vicecapitano) && (
+                                <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[7px] font-black text-zinc-950">
+                                  {slot.convocazione
+                                    ?.capitano
+                                    ? "C"
+                                    : "VC"}
+                                </span>
+                              )}
+                            </button>
                           </div>
 
                           <select
@@ -1734,42 +1909,6 @@ function giocatoriPerPosizione(
                               )
                             )}
                           </select>
-
-                          {slot.giocatore && (
-                            <label className="mt-2 flex items-center gap-2 text-[10px] font-bold text-zinc-400">
-                              <input
-                                type="checkbox"
-                                checked={
-                                  slot
-                                    .convocazione
-                                    ?.capitano ??
-                                  false
-                                }
-                                onChange={(
-                                  event
-                                ) =>
-                                  slot.convocazione &&
-                                  aggiornaConvocazione(
-                                    slot
-                                      .convocazione
-                                      .giocatore_id,
-                                    {
-                                      capitano:
-                                        event
-                                          .target
-                                          .checked,
-                                    }
-                                  )
-                                }
-                                style={{
-                                  accentColor:
-                                    coloreClub,
-                                }}
-                              />
-
-                              Capitano
-                            </label>
-                          )}
                         </div>
                       </div>
                     ))}
@@ -1942,7 +2081,7 @@ function giocatoriPerPosizione(
                             </button>
                           </div>
 
-                          <div className="mt-4 grid grid-cols-2 gap-2">
+                          <div className="mt-4 grid grid-cols-[0.7fr_1.3fr] gap-2">
                             <label className="min-w-0">
                               <span className="mb-1 block text-xs text-zinc-400">
                                 Numero
@@ -1989,31 +2128,23 @@ function giocatoriPerPosizione(
 
                             <label className="min-w-0">
                               <span className="mb-1 block text-xs text-zinc-400">
-                                Ordine
+                                Ruolo
                               </span>
 
-                              <input
-                                type="number"
-                                min={16}
-                                inputMode="numeric"
+                              <select
                                 value={
-                                  convocazione.ordine ??
+                                  convocazione.ruolo_panchina ??
                                   ""
                                 }
                                 onChange={(event) =>
                                   aggiornaConvocazione(
                                     giocatore.id,
                                     {
-                                      ordine:
+                                      ruolo_panchina:
                                         event
                                           .target
-                                          .value
-                                          ? Number(
-                                              event
-                                                .target
-                                                .value
-                                            )
-                                          : null,
+                                          .value ||
+                                        null,
                                     }
                                   )
                                 }
@@ -2027,7 +2158,22 @@ function giocatoriPerPosizione(
                                   text-white
                                   outline-none
                                 "
-                              />
+                              >
+                                <option value="">
+                                  Seleziona ruolo
+                                </option>
+
+                                {ruoliDisponibili(
+                                  giocatore
+                                ).map((ruolo) => (
+                                  <option
+                                    key={ruolo}
+                                    value={ruolo}
+                                  >
+                                    {ruolo}
+                                  </option>
+                                ))}
+                              </select>
                             </label>
                           </div>
                         </div>

@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
+import {
+  risolviTipiSeduta,
+  type TipoSedutaSingolo,
+} from "@/lib/performance/catapult-filtri";
 
 type StatoPresenzaDb =
 | "presente_mattina"
@@ -33,8 +37,11 @@ squadraId: string | null;
 dataDa?: string;
 dataA?: string;
 tipoSeduta?: TipoSeduta;
+tipiSeduta?: TipoSedutaSingolo[];
 giocatoreId?: string | null;
+giocatoreIds?: string[];
 eventoId?: string | null;
+eventoIds?: string[];
 hideFilters?: boolean;
 };
 
@@ -240,8 +247,11 @@ squadraId,
 dataDa = "",
 dataA = "",
 tipoSeduta = "tutte",
+tipiSeduta = [],
 giocatoreId = null,
+giocatoreIds = [],
 eventoId = null,
+eventoIds = [],
 
 }: Props) {
 const [presenze, setPresenze] = useState<PresenzaRow[]>(
@@ -249,6 +259,8 @@ const [presenze, setPresenze] = useState<PresenzaRow[]>(
 );
 
 const [loading, setLoading] = useState(true);
+
+const tipiSedutaEffettivi = risolviTipiSeduta(tipoSeduta, tipiSeduta);
 
 useEffect(() => {
 let cancelled = false;
@@ -261,12 +273,15 @@ async function loadPresenze() {
    * Questo componente legge presenze_allenamenti.
    *
    * Quindi:
-   * - tipoSeduta = "allenamento" -> mostra i dati
-   * - tipoSeduta = "tutte" -> mostra i dati allenamento
-   * - tipoSeduta = "partita" -> nessun dato, perché le
+   * - nessun filtro, o "allenamento" incluso -> mostra i dati
+   * - solo "partita" selezionato -> nessun dato, perché le
    *   presenze partita appartengono a una sorgente diversa
    */
-  if (tipoSeduta === "partita") {
+  const soloPartita =
+    tipiSedutaEffettivi.length === 1 &&
+    tipiSedutaEffettivi[0] === "partita";
+
+  if (soloPartita) {
     if (!cancelled) {
       setPresenze([]);
       setLoading(false);
@@ -300,18 +315,28 @@ async function loadPresenze() {
   }
 
   /*
-   * Filtro giocatore.
+   * Filtro giocatore (supporta selezione multipla).
    */
-  if (giocatoreId) {
-    query = query.eq("giocatore_id", giocatoreId);
+  const filtroGiocatori =
+    giocatoreIds.length > 0
+      ? giocatoreIds
+      : giocatoreId
+        ? [giocatoreId]
+        : null;
+
+  if (filtroGiocatori) {
+    query = query.in("giocatore_id", filtroGiocatori);
   }
 
   /*
-   * Filtro evento specifico.
+   * Filtro evento specifico (supporta selezione multipla).
    * In questo componente l'evento è un allenamento.
    */
-  if (eventoId) {
-    query = query.eq("allenamento_id", eventoId);
+  const filtroEventi =
+    eventoIds.length > 0 ? eventoIds : eventoId ? [eventoId] : null;
+
+  if (filtroEventi) {
+    query = query.in("allenamento_id", filtroEventi);
   }
 
   const { data, error } = await query;
@@ -364,9 +389,11 @@ clubId,
 squadraId,
 dataDa,
 dataA,
-tipoSeduta,
+tipiSedutaEffettivi.join(","),
 giocatoreId,
+giocatoreIds.join(","),
 eventoId,
+eventoIds.join(","),
 ]);
 
 const totalePerStato = useMemo(() => {

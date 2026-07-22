@@ -259,14 +259,6 @@ export default function Page() {
 
     setProfilo(profiloData);
 
-    const { data: clubData } = await supabase
-      .from("club")
-      .select("colore_flag")
-      .eq("id", profiloData.last_club_id)
-      .single();
-
-    setThemeColor(clubData?.colore_flag || "#d71920");
-
     let allenamentiQuery = supabase
       .from("allenamenti")
       .select("*")
@@ -278,15 +270,6 @@ export default function Page() {
         "squadra_id",
         profiloData.last_squadra_id,
       );
-    }
-
-    const { data: allenamentiData, error: allenamentiError } =
-      await allenamentiQuery;
-
-    if (allenamentiError) {
-      console.error(allenamentiError);
-      setLoading(false);
-      return;
     }
 
     let giocatoriQuery = supabase
@@ -303,8 +286,29 @@ export default function Page() {
       );
     }
 
-    const { data: giocatoriData, error: giocatoriError } =
-      await giocatoriQuery;
+    // Club, allenamenti e giocatori non dipendono l'uno dall'altro:
+    // richiesti in parallelo per ridurre il tempo di caricamento.
+    const [
+      { data: clubData },
+      { data: allenamentiData, error: allenamentiError },
+      { data: giocatoriData, error: giocatoriError },
+    ] = await Promise.all([
+      supabase
+        .from("club")
+        .select("colore_flag")
+        .eq("id", profiloData.last_club_id)
+        .single(),
+      allenamentiQuery,
+      giocatoriQuery,
+    ]);
+
+    setThemeColor(clubData?.colore_flag || "#d71920");
+
+    if (allenamentiError) {
+      console.error(allenamentiError);
+      setLoading(false);
+      return;
+    }
 
     if (giocatoriError) {
       console.error(giocatoriError);
@@ -316,22 +320,26 @@ export default function Page() {
     let presenzeData: Presenza[] = [];
 
     if (idsAllenamenti.length > 0) {
-      const { data: lavoriResult, error: lavoriError } = await supabase
-        .from("lavori_allenamento")
-        .select("*")
-        .in("allenamento_id", idsAllenamenti)
-        .order("ordine", { ascending: true });
+      const [
+        { data: lavoriResult, error: lavoriError },
+        { data: presenzeResult, error: presenzeError },
+      ] = await Promise.all([
+        supabase
+          .from("lavori_allenamento")
+          .select("*")
+          .in("allenamento_id", idsAllenamenti)
+          .order("ordine", { ascending: true }),
+        supabase
+          .from("presenze_allenamenti")
+          .select("*")
+          .in("allenamento_id", idsAllenamenti),
+      ]);
 
       if (lavoriError) {
         console.error(lavoriError);
       } else {
         lavoriData = lavoriResult || [];
       }
-
-      const { data: presenzeResult, error: presenzeError } = await supabase
-        .from("presenze_allenamenti")
-        .select("*")
-        .in("allenamento_id", idsAllenamenti);
 
       if (presenzeError) {
         console.error(presenzeError);

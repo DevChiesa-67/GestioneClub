@@ -42,6 +42,7 @@ type Props = {
   clubId: string;
   squadraId: string | null;
   giocatoreId?: string | null;
+  giocatoreIds?: string[];
   dataDa?: string;
   dataA?: string;
   coloreFlag: string;
@@ -489,6 +490,7 @@ export default function ReportAcwrClient({
   clubId,
   squadraId,
   giocatoreId = null,
+  giocatoreIds = [],
   dataDa = "",
   dataA = "",
   coloreFlag,
@@ -598,8 +600,15 @@ export default function ReportAcwrClient({
         query = query.eq("squadra_id", squadraId);
       }
 
-      if (giocatoreId) {
-        query = query.eq("giocatore_id", giocatoreId);
+      const filtroGiocatori =
+        giocatoreIds.length > 0
+          ? giocatoreIds
+          : giocatoreId
+            ? [giocatoreId]
+            : null;
+
+      if (filtroGiocatori) {
+        query = query.in("giocatore_id", filtroGiocatori);
       }
 
       if (dataDa) {
@@ -654,7 +663,7 @@ export default function ReportAcwrClient({
     return () => {
       cancelled = true;
     };
-  }, [clubId, squadraId, giocatoreId, dataDa, dataA]);
+  }, [clubId, squadraId, giocatoreId, giocatoreIds.join(","), dataDa, dataA]);
 
   if (loading) {
     return (

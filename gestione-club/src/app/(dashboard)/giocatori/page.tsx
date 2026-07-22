@@ -44,28 +44,15 @@ async function getPageContext() {
   const clubId = profile?.last_club_id ?? null;
   const squadraId = profile?.last_squadra_id ?? null;
 
-  let themeColor = "#d71920";
-
-  if (clubId) {
-    const { data: club } = await supabase
-      .from("club")
-      .select("colore_flag")
-      .eq("id", clubId)
-      .single();
-
-    themeColor = club?.colore_flag || "#d71920";
-  }
-
   return {
     supabase,
     clubId,
     squadraId,
-    themeColor,
   };
 }
 
 export default async function GiocatoriPage() {
-  const { supabase, clubId, squadraId, themeColor } = await getPageContext();
+  const { supabase, clubId, squadraId } = await getPageContext();
 
   if (!clubId) {
     return (
@@ -103,7 +90,14 @@ export default async function GiocatoriPage() {
     query = query.eq("squadra_id", squadraId);
   }
 
-  const { data: giocatori, error } = await query;
+  // Club (per il colore tema) e giocatori non dipendono l'uno dall'altro:
+  // richiesti in parallelo.
+  const [{ data: club }, { data: giocatori, error }] = await Promise.all([
+    supabase.from("club").select("colore_flag").eq("id", clubId).single(),
+    query,
+  ]);
+
+  const themeColor = club?.colore_flag || "#d71920";
 
   if (error) {
     return (

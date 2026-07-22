@@ -84,17 +84,6 @@ export default async function GiocatoreDetailPage({
     profilo.tipo_profilo.trim().toLowerCase() === "admin";
 
   /*
-   * Branding dinamico del club.
-   */
-  const { data: club } = await supabase
-    .from("club")
-    .select("id, nome, colore_flag")
-    .eq("id", clubId)
-    .single();
-
-  const coloreFlag = club?.colore_flag || "#d71920";
-
-  /*
    * Filtri opzionali provenienti dalla query string.
    */
   const dataDa = filtri.dataDa || undefined;
@@ -113,6 +102,9 @@ export default async function GiocatoreDetailPage({
    * Il giocatore deve appartenere:
    * - al club attivo;
    * - alla squadra attiva, quando presente.
+   *
+   * Branding del club e dati giocatore non dipendono l'uno dall'altro:
+   * vengono richiesti in parallelo per ridurre il tempo di caricamento.
    */
   let giocatoreQuery = supabase
     .from("giocatori")
@@ -153,8 +145,17 @@ export default async function GiocatoreDetailPage({
     giocatoreQuery = giocatoreQuery.eq("squadra_id", squadraId);
   }
 
-  const { data: giocatore, error: giocatoreError } =
-    await giocatoreQuery.single();
+  const [{ data: club }, { data: giocatore, error: giocatoreError }] =
+    await Promise.all([
+      supabase
+        .from("club")
+        .select("id, nome, colore_flag")
+        .eq("id", clubId)
+        .single(),
+      giocatoreQuery.single(),
+    ]);
+
+  const coloreFlag = club?.colore_flag || "#d71920";
 
   if (giocatoreError || !giocatore) {
     return (

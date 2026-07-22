@@ -10,14 +10,16 @@ import { AppCard } from "@/components/ui/AppCard";
 import ReportPerformanceSessioniClient from "@/components/charts/ReportPerformanceSessioniClient";
 import PerformanceDashboardChartsClient from "@/components/charts/PerformanceDashboardChartsClient";
 import ReportTestClient from "@/components/charts/ReportTestClient";
+import ConfrontoPerformanceClient from "@/components/charts/ConfrontoPerformanceClient";
+import type { TipoSedutaSingolo } from "@/lib/performance/catapult-filtri";
 type TabKey =
   | "riepilogo"
   | "presenze"
   | "performance"
   | "acwr"
-  | "test";
+  | "test"
+  | "confronto";
 
-type TipoSeduta = "tutte" | "allenamento" | "partita";
 type TempoPartita = "all" | "1 Half" | "2 Half";
 
 type Giocatore = {
@@ -50,6 +52,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "performance", label: "Performance" },
   { key: "acwr", label: "ACWR" },
   { key: "test", label: "Test" },
+  { key: "confronto", label: "Confronto" },
 ];
 
 export default function ReportTabsClient({
@@ -66,39 +69,76 @@ export default function ReportTabsClient({
   const [dataDa, setDataDa] = useState("");
   const [dataA, setDataA] = useState("");
 
-  const [tipoSeduta, setTipoSeduta] =
-    useState<TipoSeduta>("tutte");
+  const [tipiSeduta, setTipiSeduta] =
+    useState<TipoSedutaSingolo[]>([]);
 
-  const [giocatoreId, setGiocatoreId] = useState<string>(
-    giocatoreIdIniziale ?? "tutti"
+  const [giocatoreIds, setGiocatoreIds] = useState<string[]>(
+    giocatoreIdIniziale ? [giocatoreIdIniziale] : []
   );
 
-  const [eventoId, setEventoId] = useState("all");
+  const [eventoIds, setEventoIds] = useState<string[]>([]);
 
   const [openGiocatori, setOpenGiocatori] = useState(false);
+  const [openEventi, setOpenEventi] = useState(false);
+  const [openSplit, setOpenSplit] = useState(false);
 
   const [tempoPartita, setTempoPartita] =
     useState<TempoPartita>("all");
 
-  const [splitName, setSplitName] = useState("all");
+  const [splitSelezionati, setSplitSelezionati] = useState<string[]>(
+    []
+  );
 
-  const giocatoreSelezionato = useMemo(() => {
-    return (
-      giocatori.find((item) => item.id === giocatoreId) ?? null
+  function toggleGiocatore(id: string) {
+    setGiocatoreIds((prev) =>
+      prev.includes(id)
+        ? prev.filter((item) => item !== id)
+        : [...prev, id]
     );
-  }, [giocatori, giocatoreId]);
+  }
+
+  function toggleEvento(id: string) {
+    setEventoIds((prev) =>
+      prev.includes(id)
+        ? prev.filter((item) => item !== id)
+        : [...prev, id]
+    );
+  }
+
+  function toggleSplit(split: string) {
+    setSplitSelezionati((prev) =>
+      prev.includes(split)
+        ? prev.filter((item) => item !== split)
+        : [...prev, split]
+    );
+  }
+
+  function toggleTipoSeduta(tipo: TipoSedutaSingolo) {
+    setTipiSeduta((prev) =>
+      prev.includes(tipo)
+        ? prev.filter((item) => item !== tipo)
+        : [...prev, tipo]
+    );
+    setTempoPartita("all");
+    setSplitSelezionati([]);
+    setEventoIds([]);
+  }
+
+  const giocatoriSelezionati = useMemo(() => {
+    return giocatori.filter((item) =>
+      giocatoreIds.includes(item.id)
+    );
+  }, [giocatori, giocatoreIds]);
 
   const eventiFiltrati = useMemo(() => {
-    if (tipoSeduta === "allenamento") {
-      return eventi.filter((evento) => evento.tipo === "allenamento");
+    if (tipiSeduta.length === 0) {
+      return eventi;
     }
 
-    if (tipoSeduta === "partita") {
-      return eventi.filter((evento) => evento.tipo === "partita");
-    }
-
-    return eventi;
-  }, [eventi, tipoSeduta]);
+    return eventi.filter((evento) =>
+      tipiSeduta.includes(evento.tipo)
+    );
+  }, [eventi, tipiSeduta]);
 
   function nomeCompleto(giocatore: Giocatore) {
     return (
@@ -107,23 +147,36 @@ export default function ReportTabsClient({
     );
   }
 
-  const giocatoreIdFiltro =
-    giocatoreId === "tutti" ? null : giocatoreId;
+  const eventiSelezionati = useMemo(() => {
+    return eventi.filter((evento) => eventoIds.includes(evento.id));
+  }, [eventi, eventoIds]);
 
-  const eventoIdFiltro = eventoId === "all" ? null : eventoId;
+  // catapult_data non ha un riferimento diretto a un allenamento o
+  // partita: come approssimazione, filtriamo per le date degli eventi
+  // selezionati (funziona salvo eventi diversi nello stesso giorno).
+  const eventoDateFiltro = useMemo(() => {
+    return Array.from(
+      new Set(eventiSelezionati.map((evento) => evento.data))
+    );
+  }, [eventiSelezionati]);
 
-  const labelEvento =
-    tipoSeduta === "partita"
-      ? "Nome partita"
-      : tipoSeduta === "allenamento"
-        ? "Nome allenamento"
-        : "Nome evento";
+  const soloPartita =
+    tipiSeduta.length === 1 && tipiSeduta[0] === "partita";
+
+  const soloAllenamento =
+    tipiSeduta.length === 1 && tipiSeduta[0] === "allenamento";
+
+  const labelEvento = soloPartita
+    ? "Nome partita"
+    : soloAllenamento
+      ? "Nome allenamento"
+      : "Nome evento";
 
   return (
     <div className="space-y-6 p-6">
       <AppCard title="Filtri report">
         <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1.4fr_1fr]">
-          {/* GIOCATORE */}
+          {/* GIOCATORE (multiselezione) */}
           <div className="relative">
             <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-500">
               Giocatore
@@ -137,14 +190,20 @@ export default function ReportTabsClient({
               className="flex h-[52px] w-full items-center justify-between rounded-2xl border border-white/10 bg-zinc-950 px-4 text-left text-white shadow-inner outline-none transition hover:border-white/25 hover:bg-zinc-900"
             >
               <span className="flex min-w-0 items-center gap-3">
-                {giocatoreSelezionato?.foto_url ? (
-                  <Image
-                    src={giocatoreSelezionato.foto_url}
-                    alt={nomeCompleto(giocatoreSelezionato)}
-                    width={36}
-                    height={36}
-                    className="h-9 w-9 rounded-full object-cover ring-2 ring-white/10"
-                  />
+                {giocatoriSelezionati.length === 1 ? (
+                  giocatoriSelezionati[0].foto_url ? (
+                    <Image
+                      src={giocatoriSelezionati[0].foto_url}
+                      alt={nomeCompleto(giocatoriSelezionati[0])}
+                      width={36}
+                      height={36}
+                      className="h-9 w-9 rounded-full object-cover ring-2 ring-white/10"
+                    />
+                  ) : (
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-zinc-300 ring-2 ring-white/10">
+                      <UserRound size={17} />
+                    </span>
+                  )
                 ) : (
                   <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-zinc-300 ring-2 ring-white/10">
                     <UserRound size={17} />
@@ -152,9 +211,11 @@ export default function ReportTabsClient({
                 )}
 
                 <span className="truncate text-sm font-bold">
-                  {giocatoreSelezionato
-                    ? nomeCompleto(giocatoreSelezionato)
-                    : "Tutti i giocatori"}
+                  {giocatoriSelezionati.length === 0
+                    ? "Tutti i giocatori"
+                    : giocatoriSelezionati.length === 1
+                      ? nomeCompleto(giocatoriSelezionati[0])
+                      : `${giocatoriSelezionati.length} giocatori selezionati`}
                 </span>
               </span>
 
@@ -168,10 +229,7 @@ export default function ReportTabsClient({
               <div className="absolute z-40 mt-2 max-h-80 w-full overflow-auto rounded-2xl border border-white/10 bg-zinc-950 p-2 shadow-2xl">
                 <button
                   type="button"
-                  onClick={() => {
-                    setGiocatoreId("tutti");
-                    setOpenGiocatori(false);
-                  }}
+                  onClick={() => setGiocatoreIds([])}
                   className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-bold text-white transition hover:bg-white/5"
                 >
                   <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10">
@@ -179,37 +237,60 @@ export default function ReportTabsClient({
                   </span>
 
                   Tutti i giocatori
+
+                  {giocatoreIds.length === 0 && (
+                    <span className="ml-auto text-emerald-400">✓</span>
+                  )}
                 </button>
 
-                {giocatori.map((giocatore) => (
-                  <button
-                    key={giocatore.id}
-                    type="button"
-                    onClick={() => {
-                      setGiocatoreId(giocatore.id);
-                      setOpenGiocatori(false);
-                    }}
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-zinc-300 transition hover:bg-white/5 hover:text-white"
-                  >
-                    {giocatore.foto_url ? (
-                      <Image
-                        src={giocatore.foto_url}
-                        alt={nomeCompleto(giocatore)}
-                        width={36}
-                        height={36}
-                        className="h-9 w-9 rounded-full object-cover ring-2 ring-white/10"
-                      />
-                    ) : (
-                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10">
-                        <UserRound size={17} />
-                      </span>
-                    )}
+                {giocatori.map((giocatore) => {
+                  const selezionato = giocatoreIds.includes(
+                    giocatore.id
+                  );
 
-                    <span className="truncate">
-                      {nomeCompleto(giocatore)}
-                    </span>
+                  return (
+                    <button
+                      key={giocatore.id}
+                      type="button"
+                      onClick={() => toggleGiocatore(giocatore.id)}
+                      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-white/5 hover:text-white ${
+                        selezionato ? "text-white" : "text-zinc-300"
+                      }`}
+                    >
+                      {giocatore.foto_url ? (
+                        <Image
+                          src={giocatore.foto_url}
+                          alt={nomeCompleto(giocatore)}
+                          width={36}
+                          height={36}
+                          className="h-9 w-9 rounded-full object-cover ring-2 ring-white/10"
+                        />
+                      ) : (
+                        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10">
+                          <UserRound size={17} />
+                        </span>
+                      )}
+
+                      <span className="truncate">
+                        {nomeCompleto(giocatore)}
+                      </span>
+
+                      {selezionato && (
+                        <span className="ml-auto text-emerald-400">✓</span>
+                      )}
+                    </button>
+                  );
+                })}
+
+                <div className="mt-1 border-t border-white/10 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setOpenGiocatori(false)}
+                    className="w-full rounded-xl px-3 py-2 text-center text-xs font-bold text-zinc-400 transition hover:bg-white/5 hover:text-white"
+                  >
+                    Chiudi
                   </button>
-                ))}
+                </div>
               </div>
             )}
           </div>
@@ -242,60 +323,119 @@ export default function ReportTabsClient({
             />
           </div>
 
-          {/* TIPO SEDUTA */}
+          {/* TIPO SEDUTA (multiselezione) */}
           <div>
             <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-500">
               Tipo seduta
             </label>
 
-            <select
-              value={tipoSeduta}
-              onChange={(e) => {
-                const value = e.target.value as TipoSeduta;
+            <div className="flex h-[52px] items-center gap-2 rounded-2xl border border-white/10 bg-zinc-950 p-1.5">
+              <button
+                type="button"
+                onClick={() => toggleTipoSeduta("allenamento")}
+                className="flex h-full flex-1 items-center justify-center rounded-xl text-xs font-black transition"
+                style={
+                  tipiSeduta.includes("allenamento")
+                    ? { backgroundColor: coloreFlag, color: "#fff" }
+                    : { backgroundColor: "transparent", color: "#a1a1aa" }
+                }
+              >
+                Allenamento
+              </button>
 
-                setTipoSeduta(value);
-                setTempoPartita("all");
-                setSplitName("all");
-                setEventoId("all");
-              }}
-              className="h-[52px] w-full rounded-2xl border border-white/10 bg-zinc-950 px-4 text-sm font-bold text-white outline-none transition focus:border-white/30"
-            >
-              <option value="tutte">Tutte</option>
-              <option value="allenamento">
-                Allenamento / Training
-              </option>
-              <option value="partita">
-                Partita / Game
-              </option>
-            </select>
+              <button
+                type="button"
+                onClick={() => toggleTipoSeduta("partita")}
+                className="flex h-full flex-1 items-center justify-center rounded-xl text-xs font-black transition"
+                style={
+                  tipiSeduta.includes("partita")
+                    ? { backgroundColor: coloreFlag, color: "#fff" }
+                    : { backgroundColor: "transparent", color: "#a1a1aa" }
+                }
+              >
+                Partita
+              </button>
+            </div>
           </div>
 
-          {/* NOME EVENTO */}
-          <div>
+          {/* NOME EVENTO (multiselezione) */}
+          <div className="relative">
             <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-500">
               {labelEvento}
             </label>
 
-            <select
-              value={eventoId}
-              onChange={(e) => setEventoId(e.target.value)}
-              className="h-[52px] w-full rounded-2xl border border-white/10 bg-zinc-950 px-4 text-sm font-bold text-white outline-none transition focus:border-white/30"
+            <button
+              type="button"
+              onClick={() => setOpenEventi((value) => !value)}
+              className="flex h-[52px] w-full items-center justify-between rounded-2xl border border-white/10 bg-zinc-950 px-4 text-left text-sm font-bold text-white outline-none transition hover:border-white/25 hover:bg-zinc-900"
             >
-              <option value="all">Tutti gli eventi</option>
+              <span className="truncate">
+                {eventoIds.length === 0
+                  ? "Tutti gli eventi"
+                  : eventoIds.length === 1
+                    ? (eventiSelezionati[0]?.nome ?? "1 evento")
+                    : `${eventoIds.length} eventi selezionati`}
+              </span>
 
-              {eventiFiltrati.map((evento) => (
-                <option
-                  key={`${evento.tipo}-${evento.id}`}
-                  value={evento.id}
+              <ChevronDown
+                size={18}
+                className="shrink-0 text-zinc-500"
+              />
+            </button>
+
+            {openEventi && (
+              <div className="absolute z-40 mt-2 max-h-80 w-full overflow-auto rounded-2xl border border-white/10 bg-zinc-950 p-2 shadow-2xl">
+                <button
+                  type="button"
+                  onClick={() => setEventoIds([])}
+                  className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-bold text-white transition hover:bg-white/5"
                 >
-                  {evento.nome} - {evento.data}
-                </option>
-              ))}
-            </select>
+                  Tutti gli eventi
+                  {eventoIds.length === 0 && (
+                    <span className="text-emerald-400">✓</span>
+                  )}
+                </button>
+
+                {eventiFiltrati.map((evento) => {
+                  const selezionato = eventoIds.includes(evento.id);
+
+                  return (
+                    <button
+                      key={`${evento.tipo}-${evento.id}`}
+                      type="button"
+                      onClick={() => toggleEvento(evento.id)}
+                      className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-white/5 hover:text-white ${
+                        selezionato ? "text-white" : "text-zinc-300"
+                      }`}
+                    >
+                      <span className="truncate">
+                        {evento.nome} - {evento.data}
+                      </span>
+
+                      {selezionato && (
+                        <span className="shrink-0 text-emerald-400">
+                          ✓
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+
+                <div className="mt-1 border-t border-white/10 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setOpenEventi(false)}
+                    className="w-full rounded-xl px-3 py-2 text-center text-xs font-bold text-zinc-400 transition hover:bg-white/5 hover:text-white"
+                  >
+                    Chiudi
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* DETTAGLIO */}
-          {tipoSeduta === "partita" ? (
+          {soloPartita ? (
             <div>
               <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-500">
                 Tempo
@@ -321,27 +461,79 @@ export default function ReportTabsClient({
                 </option>
               </select>
             </div>
-          ) : tipoSeduta === "allenamento" ? (
-            <div>
+          ) : soloAllenamento ? (
+            <div className="relative">
               <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-500">
                 Split
               </label>
 
-              <select
-                value={splitName}
-                onChange={(e) =>
-                  setSplitName(e.target.value)
-                }
-                className="h-[52px] w-full rounded-2xl border border-white/10 bg-zinc-950 px-4 text-sm font-bold text-white outline-none transition focus:border-white/30"
+              <button
+                type="button"
+                onClick={() => setOpenSplit((value) => !value)}
+                className="flex h-[52px] w-full items-center justify-between rounded-2xl border border-white/10 bg-zinc-950 px-4 text-left text-sm font-bold text-white outline-none transition hover:border-white/25 hover:bg-zinc-900"
               >
-                <option value="all">Tutti</option>
+                <span className="truncate">
+                  {splitSelezionati.length === 0
+                    ? "Tutti"
+                    : splitSelezionati.length === 1
+                      ? splitSelezionati[0]
+                      : `${splitSelezionati.length} split selezionati`}
+                </span>
 
-                {splitNames.map((split) => (
-                  <option key={split} value={split}>
-                    {split}
-                  </option>
-                ))}
-              </select>
+                <ChevronDown
+                  size={18}
+                  className="shrink-0 text-zinc-500"
+                />
+              </button>
+
+              {openSplit && (
+                <div className="absolute z-40 mt-2 max-h-80 w-full overflow-auto rounded-2xl border border-white/10 bg-zinc-950 p-2 shadow-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setSplitSelezionati([])}
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-bold text-white transition hover:bg-white/5"
+                  >
+                    Tutti
+                    {splitSelezionati.length === 0 && (
+                      <span className="text-emerald-400">✓</span>
+                    )}
+                  </button>
+
+                  {splitNames.map((split) => {
+                    const selezionato =
+                      splitSelezionati.includes(split);
+
+                    return (
+                      <button
+                        key={split}
+                        type="button"
+                        onClick={() => toggleSplit(split)}
+                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-white/5 hover:text-white ${
+                          selezionato ? "text-white" : "text-zinc-300"
+                        }`}
+                      >
+                        <span className="truncate">{split}</span>
+
+                        {selezionato && (
+                          <span className="shrink-0 text-emerald-400">
+                            ✓
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+
+                  <div className="mt-1 border-t border-white/10 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setOpenSplit(false)}
+                      className="w-full rounded-xl px-3 py-2 text-center text-xs font-bold text-zinc-400 transition hover:bg-white/5 hover:text-white"
+                    >
+                      Chiudi
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div>
@@ -363,12 +555,14 @@ export default function ReportTabsClient({
             onClick={() => {
               setDataDa("");
               setDataA("");
-              setTipoSeduta("tutte");
-              setGiocatoreId("tutti");
-              setEventoId("all");
+              setTipiSeduta([]);
+              setGiocatoreIds([]);
+              setEventoIds([]);
               setTempoPartita("all");
-              setSplitName("all");
+              setSplitSelezionati([]);
               setOpenGiocatori(false);
+              setOpenEventi(false);
+              setOpenSplit(false);
             }}
             className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-bold text-zinc-300 transition hover:bg-white/10 hover:text-white"
           >
@@ -414,18 +608,19 @@ export default function ReportTabsClient({
             mode="summary"
             clubId={clubId}
             squadraId={squadraId}
-            giocatoreId={giocatoreIdFiltro}
+            giocatoreIds={giocatoreIds}
             dataDa={dataDa}
             dataA={dataA}
-            tipoSeduta={tipoSeduta}
-            eventoId={eventoIdFiltro}
+            tipiSeduta={tipiSeduta}
+            eventoDate={eventoDateFiltro}
+            splitSelezionati={splitSelezionati}
           />
 
           <ReportAcwrClient
             mode="chart"
             clubId={clubId}
             squadraId={squadraId}
-            giocatoreId={giocatoreIdFiltro}
+            giocatoreIds={giocatoreIds}
             dataDa={dataDa}
             dataA={dataA}
             coloreFlag={coloreFlag}
@@ -434,11 +629,12 @@ export default function ReportTabsClient({
           <PerformanceDashboardChartsClient
             clubId={clubId}
             squadraId={squadraId}
-            giocatoreId={giocatoreIdFiltro}
+            giocatoreIds={giocatoreIds}
             dataDa={dataDa}
             dataA={dataA}
-            tipoSeduta={tipoSeduta}
-            eventoId={eventoIdFiltro}
+            tipiSeduta={tipiSeduta}
+            eventoDate={eventoDateFiltro}
+            splitSelezionati={splitSelezionati}
             coloreFlag={coloreFlag}
           />
         </div>
@@ -450,9 +646,9 @@ export default function ReportTabsClient({
           squadraId={squadraId}
           dataDa={dataDa}
           dataA={dataA}
-          tipoSeduta={tipoSeduta}
-          giocatoreId={giocatoreIdFiltro}
-          eventoId={eventoIdFiltro}
+          tipiSeduta={tipiSeduta}
+          giocatoreIds={giocatoreIds}
+          eventoIds={eventoIds}
           hideFilters
         />
       )}
@@ -462,11 +658,12 @@ export default function ReportTabsClient({
           mode="table"
           clubId={clubId}
           squadraId={squadraId}
-          giocatoreId={giocatoreIdFiltro}
+          giocatoreIds={giocatoreIds}
           dataDa={dataDa}
           dataA={dataA}
-          tipoSeduta={tipoSeduta}
-          eventoId={eventoIdFiltro}
+          tipiSeduta={tipiSeduta}
+          eventoDate={eventoDateFiltro}
+          splitSelezionati={splitSelezionati}
         />
       )}
 
@@ -475,7 +672,7 @@ export default function ReportTabsClient({
           mode="table"
           clubId={clubId}
           squadraId={squadraId}
-          giocatoreId={giocatoreIdFiltro}
+          giocatoreIds={giocatoreIds}
           dataDa={dataDa}
           dataA={dataA}
           coloreFlag={coloreFlag}
@@ -486,14 +683,29 @@ export default function ReportTabsClient({
          <ReportTestClient
             clubId={clubId}
             squadraId={squadraId}
-            giocatoreId={giocatoreIdFiltro}
+            giocatoreIds={giocatoreIds}
             dataDa={dataDa}
             dataA={dataA}
             coloreFlag={coloreFlag}
           />
       )}
 
-      
+      {activeTab === "confronto" && (
+        <ConfrontoPerformanceClient
+          clubId={clubId}
+          squadraId={squadraId}
+          giocatori={giocatori}
+          giocatoreIds={giocatoreIds}
+          dataDa={dataDa}
+          dataA={dataA}
+          tipiSeduta={tipiSeduta}
+          eventoDate={eventoDateFiltro}
+          splitSelezionati={splitSelezionati}
+          coloreFlag={coloreFlag}
+        />
+      )}
+
+
     </div>
   );
 }

@@ -6,6 +6,11 @@ import { EyeOff, Loader2, Plus, Trash2 } from "lucide-react";
 
 import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
+import {
+  idsImportazioniPerTipoSeduta,
+  risolviTipiSeduta,
+  type TipoSedutaSingolo,
+} from "@/lib/performance/catapult-filtri";
 
 type TipoSeduta = "tutte" | "allenamento" | "partita";
 
@@ -58,10 +63,14 @@ type Props = {
   clubId: string;
   squadraId: string | null;
   giocatoreId?: string | null;
+  giocatoreIds?: string[];
   dataDa?: string;
   dataA?: string;
   tipoSeduta?: TipoSeduta;
+  tipiSeduta?: TipoSedutaSingolo[];
   eventoId?: string | null;
+  eventoDate?: string[];
+  splitSelezionati?: string[];
 };
 
 type BaseColumn = {
@@ -713,13 +722,19 @@ export default function ReportPerformanceSessioniClient({
   clubId,
   squadraId,
   giocatoreId = null,
+  giocatoreIds = [],
   dataDa = "",
   dataA = "",
   tipoSeduta = "tutte",
+  tipiSeduta = [],
   eventoId = null,
+  eventoDate = [],
+  splitSelezionati = [],
 }: Props) {
   const [rows, setRows] = useState<PerformanceRow[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const tipiSedutaEffettivi = risolviTipiSeduta(tipoSeduta, tipiSeduta);
 
   useEffect(() => {
     let cancelled = false;
@@ -728,6 +743,28 @@ export default function ReportPerformanceSessioniClient({
       setLoading(true);
 
       try {
+        /*
+         * catapult_data non ha una colonna che indica se la sessione è
+         * un allenamento o una partita: quel dato vive su
+         * catapult_importazioni.tipo_seduta, collegata via
+         * importazione_id. Recuperiamo prima gli id delle importazioni
+         * del tipo richiesto (query separata, niente embed fragili
+         * legati a foreign key), poi filtriamo catapult_data su quegli
+         * id.
+         */
+        const idsImportazioni = await idsImportazioniPerTipoSeduta({
+          clubId,
+          tipiSeduta: tipiSedutaEffettivi,
+        });
+
+        if (cancelled) return;
+
+        if (idsImportazioni !== null && idsImportazioni.length === 0) {
+          // Nessuna importazione del tipo richiesto: nessun dato possibile.
+          setRows([]);
+          return;
+        }
+
         let query = supabase
           .from("catapult_data")
           .select(`
@@ -757,8 +794,15 @@ export default function ReportPerformanceSessioniClient({
           query = query.or(`squadra_id.eq.${squadraId},squadra_id.is.null`);
         }
 
-        if (giocatoreId) {
-          query = query.eq("giocatore_id", giocatoreId);
+        const filtroGiocatori =
+          giocatoreIds.length > 0
+            ? giocatoreIds
+            : giocatoreId
+              ? [giocatoreId]
+              : null;
+
+        if (filtroGiocatori) {
+          query = query.in("giocatore_id", filtroGiocatori);
         }
 
         if (dataDa) {
@@ -769,16 +813,16 @@ export default function ReportPerformanceSessioniClient({
           query = query.lte("date", dataA);
         }
 
-        if (tipoSeduta === "allenamento") {
-          query = query.or(
-            "session_title.ilike.%training%,session_title.ilike.%allenamento%"
-          );
+        if (idsImportazioni !== null) {
+          query = query.in("importazione_id", idsImportazioni);
         }
 
-        if (tipoSeduta === "partita") {
-          query = query.or(
-            "session_title.ilike.%game%,session_title.ilike.%match%,session_title.ilike.%partita%"
-          );
+        if (eventoDate.length > 0) {
+          query = query.in("date", eventoDate);
+        }
+
+        if (splitSelezionati.length > 0) {
+          query = query.in("split_name", splitSelezionati);
         }
 
         void eventoId;
@@ -840,10 +884,13 @@ export default function ReportPerformanceSessioniClient({
     clubId,
     squadraId,
     giocatoreId,
+    giocatoreIds.join(","),
     dataDa,
     dataA,
-    tipoSeduta,
+    tipiSedutaEffettivi.join(","),
     eventoId,
+    eventoDate.join(","),
+    splitSelezionati.join(","),
   ]);
 
   if (loading) {

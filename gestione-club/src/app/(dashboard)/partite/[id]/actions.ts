@@ -32,6 +32,7 @@ type ConvocazioneInput = {
   convocato: boolean;
   titolare: boolean;
   capitano: boolean;
+  vicecapitano?: boolean;
   posizione:
     | "pilone_sx"
     | "tallonatore"
@@ -51,6 +52,7 @@ type ConvocazioneInput = {
     | "panchina";
   numero_maglia: number | null;
   ordine: number | null;
+  ruolo_panchina?: string | null;
   note?: string | null;
 };
 
@@ -176,9 +178,11 @@ export async function salvaConvocazioniPartita(
     convocato: convocazione.convocato,
     titolare: convocazione.titolare,
     capitano: convocazione.capitano,
+    vicecapitano: convocazione.vicecapitano ?? false,
     posizione: convocazione.posizione,
     numero_maglia: convocazione.numero_maglia,
     ordine: convocazione.ordine,
+    ruolo_panchina: convocazione.ruolo_panchina ?? null,
     note: convocazione.note ?? null,
     created_by: user.id,
     updated_at: new Date().toISOString(),

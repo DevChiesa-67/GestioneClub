@@ -24,12 +24,6 @@ export default async function ProgrammazionePage() {
 
   const isAdmin = String(profilo.tipo_profilo ?? "").toLowerCase() === "admin";
 
-  const { data: club } = await supabase
-    .from("club")
-    .select("id,nome,colore_flag")
-    .eq("id", profilo.last_club_id)
-    .single();
-
   let programmazioniQuery = supabase
   .from("programmazioni")
   .select(`
@@ -79,7 +73,14 @@ export default async function ProgrammazionePage() {
     );
   }
 
-  const { data: programmazioni, error } = await programmazioniQuery;
+  const [{ data: club }, { data: programmazioni }] = await Promise.all([
+    supabase
+      .from("club")
+      .select("id,nome,colore_flag")
+      .eq("id", profilo.last_club_id)
+      .single(),
+    programmazioniQuery,
+  ]);
 
   return (
     <ProgrammazioneClient
