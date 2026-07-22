@@ -7,7 +7,7 @@ import { EyeOff, Loader2, Plus, Trash2 } from "lucide-react";
 import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
 import {
-  idsImportazioniPerTipoSeduta,
+  tagsPerTipiSeduta,
   risolviTipiSeduta,
   type TipoSedutaSingolo,
 } from "@/lib/performance/catapult-filtri";
@@ -68,8 +68,7 @@ type Props = {
   dataA?: string;
   tipoSeduta?: TipoSeduta;
   tipiSeduta?: TipoSedutaSingolo[];
-  eventoId?: string | null;
-  eventoDate?: string[];
+  sessionTitles?: string[];
   splitSelezionati?: string[];
 };
 
@@ -727,8 +726,7 @@ export default function ReportPerformanceSessioniClient({
   dataA = "",
   tipoSeduta = "tutte",
   tipiSeduta = [],
-  eventoId = null,
-  eventoDate = [],
+  sessionTitles = [],
   splitSelezionati = [],
 }: Props) {
   const [rows, setRows] = useState<PerformanceRow[]>([]);
@@ -744,26 +742,12 @@ export default function ReportPerformanceSessioniClient({
 
       try {
         /*
-         * catapult_data non ha una colonna che indica se la sessione è
-         * un allenamento o una partita: quel dato vive su
-         * catapult_importazioni.tipo_seduta, collegata via
-         * importazione_id. Recuperiamo prima gli id delle importazioni
-         * del tipo richiesto (query separata, niente embed fragili
-         * legati a foreign key), poi filtriamo catapult_data su quegli
-         * id.
+         * Il tipo seduta (allenamento/partita) vive direttamente sulla
+         * colonna "tags" di catapult_data (valorizzata dai file
+         * Catapult), quindi filtriamo la query direttamente, senza
+         * passare da catapult_importazioni.
          */
-        const idsImportazioni = await idsImportazioniPerTipoSeduta({
-          clubId,
-          tipiSeduta: tipiSedutaEffettivi,
-        });
-
-        if (cancelled) return;
-
-        if (idsImportazioni !== null && idsImportazioni.length === 0) {
-          // Nessuna importazione del tipo richiesto: nessun dato possibile.
-          setRows([]);
-          return;
-        }
+        const tags = tagsPerTipiSeduta(tipiSedutaEffettivi);
 
         let query = supabase
           .from("catapult_data")
@@ -813,19 +797,17 @@ export default function ReportPerformanceSessioniClient({
           query = query.lte("date", dataA);
         }
 
-        if (idsImportazioni !== null) {
-          query = query.in("importazione_id", idsImportazioni);
+        if (tags !== null) {
+          query = query.in("tags", tags);
         }
 
-        if (eventoDate.length > 0) {
-          query = query.in("date", eventoDate);
+        if (sessionTitles.length > 0) {
+          query = query.in("session_title", sessionTitles);
         }
 
         if (splitSelezionati.length > 0) {
           query = query.in("split_name", splitSelezionati);
         }
-
-        void eventoId;
 
         query = query.order("date", { ascending: true });
 
@@ -888,8 +870,7 @@ export default function ReportPerformanceSessioniClient({
     dataDa,
     dataA,
     tipiSedutaEffettivi.join(","),
-    eventoId,
-    eventoDate.join(","),
+    sessionTitles.join(","),
     splitSelezionati.join(","),
   ]);
 

@@ -2,59 +2,96 @@ import { supabase } from "@/lib/supabase-client";
 
 export type TipoSedutaSingolo = "allenamento" | "partita";
 
-/**
- * catapult_data non ha una colonna che indica se una sessione è un
- * allenamento o una partita: quell'informazione vive su
- * catapult_importazioni.tipo_seduta, collegata via
- * catapult_data.importazione_id.
- *
- * In precedenza si usava un embed Supabase
- * (`catapult_importazioni!inner(tipo_seduta)`), ma richiede una foreign
- * key riconosciuta da PostgREST tra le due tabelle: se non è presente
- * nello schema, la query fallisce silenziosamente e non torna più
- * nessun dato. Questo helper evita il problema facendo due query
- * separate, sempre valide indipendentemente dalla presenza di una FK.
- *
- * Ritorna:
- * - null se non va applicato nessun filtro per tipo seduta (nessun tipo
- *   selezionato, oppure selezionati sia allenamento che partita).
- * - un array di importazione_id (anche vuoto) su cui filtrare
- *   catapult_data con `.in("importazione_id", ids)`.
+/*
+ * catapult_data viene popolato direttamente dai file esportati da
+ * Catapult: la colonna "tags" (proveniente dalla colonna "Tags" del
+ * CSV) è la fonte autoritativa per distinguere allenamento da
+ * partita — non il campo tipo_seduta impostato manualmente
+ * sull'importazione. Mapping confermato con il club: "Training" per
+ * gli allenamenti, "Game" per le partite.
  */
-export async function idsImportazioniPerTipoSeduta(params: {
-  clubId: string;
-  tipiSeduta: TipoSedutaSingolo[];
-}): Promise<string[] | null> {
-  const tipiValidi = Array.from(
+export const TAG_ALLENAMENTO = "Training";
+export const TAG_PARTITA = "Game";
+
+const TAG_PER_TIPO: Record<TipoSedutaSingolo, string> = {
+  allenamento: TAG_ALLENAMENTO,
+  partita: TAG_PARTITA,
+};
+
+function tipiValidiUnivoci(tipiSeduta: TipoSedutaSingolo[]): TipoSedutaSingolo[] {
+  return Array.from(
     new Set(
-      params.tipiSeduta.filter(
+      tipiSeduta.filter(
         (tipo): tipo is TipoSedutaSingolo =>
           tipo === "allenamento" || tipo === "partita"
       )
     )
   );
+}
 
-  // Nessun filtro, oppure entrambi i tipi selezionati: equivale a "tutte".
+/**
+ * Converte i tipi seduta selezionati ("allenamento"/"partita") nei
+ * tag Catapult corrispondenti ("Training"/"Game").
+ *
+ * Ritorna:
+ * - null se non va applicato nessun filtro (nessun tipo selezionato,
+ *   oppure selezionati sia allenamento che partita).
+ * - un array di tag (sempre non vuoto in questo caso) su cui
+ *   filtrare catapult_data con `.in("tags", tags)`.
+ */
+export function tagsPerTipiSeduta(
+  tipiSeduta: TipoSedutaSingolo[]
+): string[] | null {
+  const tipiValidi = tipiValidiUnivoci(tipiSeduta);
+
   if (tipiValidi.length === 0 || tipiValidi.length === 2) {
     return null;
   }
 
+  return tipiValidi.map((tipo) => TAG_PER_TIPO[tipo]);
+}
+
+/**
+ * catapult_acwr ha una riga per giocatore/giorno (medie mobili di
+ * carico) ma nessuna colonna tags propria: non è quindi possibile un
+ * filtro esatto per tipo seduta. Come approssimazione filtriamo per
+ * le date di catapult_data che hanno il tag richiesto: la riga ACWR
+ * di un giorno viene mostrata solo se quel giorno corrisponde a una
+ * seduta del tipo selezionato (funziona salvo più sedute di tipo
+ * diverso nello stesso giorno).
+ *
+ * Ritorna null se non va applicato nessun filtro.
+ */
+export async function dateCatapultPerTipiSeduta(params: {
+  clubId: string;
+  tipiSeduta: TipoSedutaSingolo[];
+}): Promise<string[] | null> {
+  const tags = tagsPerTipiSeduta(params.tipiSeduta);
+
+  if (tags === null) return null;
+
   const { data, error } = await supabase
-    .from("catapult_importazioni")
-    .select("id")
+    .from("catapult_data")
+    .select("date")
     .eq("club_id", params.clubId)
-    .in("tipo_seduta", tipiValidi);
+    .in("tags", tags);
 
   if (error) {
     console.error(
-      "Errore caricamento catapult_importazioni per filtro tipo seduta:",
+      "Errore caricamento date catapult_data per filtro tipo seduta (ACWR):",
       error
     );
 
     return [];
   }
 
-  return (data ?? []).map((row) => row.id);
+  return Array.from(
+    new Set(
+      (data ?? [])
+        .map((row) => row.date)
+        .filter((value): value is string => Boolean(value))
+    )
+  );
 }
 
 /**

@@ -40,8 +40,7 @@ tipoSeduta?: TipoSeduta;
 tipiSeduta?: TipoSedutaSingolo[];
 giocatoreId?: string | null;
 giocatoreIds?: string[];
-eventoId?: string | null;
-eventoIds?: string[];
+eventoDate?: string[];
 hideFilters?: boolean;
 };
 
@@ -250,8 +249,7 @@ tipoSeduta = "tutte",
 tipiSeduta = [],
 giocatoreId = null,
 giocatoreIds = [],
-eventoId = null,
-eventoIds = [],
+eventoDate = [],
 
 }: Props) {
 const [presenze, setPresenze] = useState<PresenzaRow[]>(
@@ -328,17 +326,6 @@ async function loadPresenze() {
     query = query.in("giocatore_id", filtroGiocatori);
   }
 
-  /*
-   * Filtro evento specifico (supporta selezione multipla).
-   * In questo componente l'evento è un allenamento.
-   */
-  const filtroEventi =
-    eventoIds.length > 0 ? eventoIds : eventoId ? [eventoId] : null;
-
-  if (filtroEventi) {
-    query = query.in("allenamento_id", filtroEventi);
-  }
-
   const { data, error } = await query;
 
   if (cancelled) return;
@@ -370,6 +357,15 @@ async function loadPresenze() {
       return false;
     }
 
+    /*
+     * Filtro evento (le sessioni Catapult selezionate): approssimato
+     * per data, dato che presenze_allenamenti non ha un riferimento a
+     * session_title.
+     */
+    if (eventoDate.length > 0 && !eventoDate.includes(dataAllenamento)) {
+      return false;
+    }
+
     return true;
   });
 
@@ -392,8 +388,7 @@ dataA,
 tipiSedutaEffettivi.join(","),
 giocatoreId,
 giocatoreIds.join(","),
-eventoId,
-eventoIds.join(","),
+eventoDate.join(","),
 ]);
 
 const totalePerStato = useMemo(() => {

@@ -6,7 +6,7 @@ import { ArrowRight, Loader2, Users } from "lucide-react";
 import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
 import {
-  idsImportazioniPerTipoSeduta,
+  tagsPerTipiSeduta,
   risolviTipiSeduta,
   type TipoSedutaSingolo,
 } from "@/lib/performance/catapult-filtri";
@@ -29,7 +29,7 @@ type Props = {
   dataA?: string;
   tipoSeduta?: TipoSeduta;
   tipiSeduta?: TipoSedutaSingolo[];
-  eventoDate?: string[];
+  sessionTitles?: string[];
   splitSelezionati?: string[];
   coloreFlag: string;
 };
@@ -106,17 +106,10 @@ async function fetchCatapultRows(params: {
   dataDa?: string;
   dataA?: string;
   tipiSeduta?: TipoSedutaSingolo[];
-  eventoDate?: string[];
+  sessionTitles?: string[];
   splitSelezionati?: string[];
 }) {
-  const idsImportazioni = await idsImportazioniPerTipoSeduta({
-    clubId: params.clubId,
-    tipiSeduta: params.tipiSeduta ?? [],
-  });
-
-  if (idsImportazioni !== null && idsImportazioni.length === 0) {
-    return [] as CatapultRow[];
-  }
+  const tags = tagsPerTipiSeduta(params.tipiSeduta ?? []);
 
   let query = supabase
     .from("catapult_data")
@@ -157,12 +150,12 @@ async function fetchCatapultRows(params: {
     query = query.lte("date", params.dataA);
   }
 
-  if (idsImportazioni !== null) {
-    query = query.in("importazione_id", idsImportazioni);
+  if (tags !== null) {
+    query = query.in("tags", tags);
   }
 
-  if (params.eventoDate && params.eventoDate.length > 0) {
-    query = query.in("date", params.eventoDate);
+  if (params.sessionTitles && params.sessionTitles.length > 0) {
+    query = query.in("session_title", params.sessionTitles);
   }
 
   if (params.splitSelezionati && params.splitSelezionati.length > 0) {
@@ -197,7 +190,7 @@ function ConfrontoTraGiocatori({
   dataA,
   tipoSeduta,
   tipiSeduta,
-  eventoDate = [],
+  sessionTitles = [],
   splitSelezionati = [],
   coloreFlag,
 }: Props) {
@@ -228,7 +221,7 @@ function ConfrontoTraGiocatori({
         dataDa,
         dataA,
         tipiSeduta: tipiSedutaEffettivi,
-        eventoDate,
+        sessionTitles,
         splitSelezionati,
       });
 
@@ -251,7 +244,7 @@ function ConfrontoTraGiocatori({
     dataDa,
     dataA,
     tipiSedutaEffettivi.join(","),
-    eventoDate.join(","),
+    sessionTitles.join(","),
     splitSelezionati.join(","),
   ]);
 

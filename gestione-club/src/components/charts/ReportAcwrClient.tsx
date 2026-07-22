@@ -5,6 +5,10 @@ import { Loader2 } from "lucide-react";
 
 import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
+import {
+  dateCatapultPerTipiSeduta,
+  type TipoSedutaSingolo,
+} from "@/lib/performance/catapult-filtri";
 
 type AcwrRow = {
   id: string;
@@ -45,6 +49,7 @@ type Props = {
   giocatoreIds?: string[];
   dataDa?: string;
   dataA?: string;
+  tipiSeduta?: TipoSedutaSingolo[];
   coloreFlag: string;
 };
 
@@ -69,6 +74,28 @@ function formatAcwr(value: number | null) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+/*
+ * Colora un valore ACWR in base alle soglie del modello attivo per il
+ * club/squadra (catapult_acwr_parametri_modello). Se il modello non è
+ * configurato, usiamo soglie standard di letteratura come fallback
+ * (0.8 / 1.3 / 1.5).
+ */
+function coloreZonaAcwr(
+  value: number | null,
+  parametri: AcwrParametriModello | null
+): string | undefined {
+  if (value === null || value === undefined) return undefined;
+
+  const sottoCaricoMax = parametri?.sotto_carico_max ?? 0.8;
+  const zonaOttimaleMax = parametri?.zona_ottimale_max ?? 1.3;
+  const attenzioneMax = parametri?.attenzione_max ?? 1.5;
+
+  if (value < sottoCaricoMax) return "#7dd3fc"; // sky-300, sotto-carico
+  if (value <= zonaOttimaleMax) return "#6ee7b7"; // emerald-300, zona ottimale
+  if (value <= attenzioneMax) return "#fcd34d"; // amber-300, attenzione
+  return "#fca5a5"; // red-300, rischio elevato
 }
 
 function AcwrChart({
@@ -306,7 +333,13 @@ function AcwrChart({
   );
 }
 
-function AcwrTable({ rows }: { rows: AcwrRow[] }) {
+function AcwrTable({
+  rows,
+  parametri,
+}: {
+  rows: AcwrRow[];
+  parametri: AcwrParametriModello | null;
+}) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-white/10">
       <table className="w-full min-w-[1350px] border-collapse">
@@ -375,7 +408,14 @@ function AcwrTable({ rows }: { rows: AcwrRow[] }) {
                 <td className="px-4 py-3 text-right text-sm font-semibold text-zinc-300">
                   {formatNumber(row.cronico_media_28gg)}
                 </td>
-                <td className="px-4 py-3 text-right text-sm font-black text-white">
+                <td
+                  className="px-4 py-3 text-right text-sm font-black"
+                  style={{
+                    color:
+                      coloreZonaAcwr(row.acwr_media_mobile, parametri) ??
+                      "#ffffff",
+                  }}
+                >
                   {formatAcwr(row.acwr_media_mobile)}
                 </td>
                 <td className="px-4 py-3 text-right text-sm font-semibold text-zinc-300">
@@ -384,7 +424,12 @@ function AcwrTable({ rows }: { rows: AcwrRow[] }) {
                 <td className="px-4 py-3 text-right text-sm font-semibold text-zinc-300">
                   {formatNumber(row.cronico_ewma)}
                 </td>
-                <td className="px-4 py-3 text-right text-sm font-black text-white">
+                <td
+                  className="px-4 py-3 text-right text-sm font-black"
+                  style={{
+                    color: coloreZonaAcwr(row.acwr_ewma, parametri) ?? "#ffffff",
+                  }}
+                >
                   {formatAcwr(row.acwr_ewma)}
                 </td>
               </tr>
@@ -493,6 +538,7 @@ export default function ReportAcwrClient({
   giocatoreIds = [],
   dataDa = "",
   dataA = "",
+  tipiSeduta = [],
   coloreFlag,
 }: Props) {
   const [rows, setRows] = useState<AcwrRow[]>([]);
@@ -575,6 +621,19 @@ export default function ReportAcwrClient({
     async function loadAcwr() {
       setLoading(true);
 
+      const dateSeduta = await dateCatapultPerTipiSeduta({
+        clubId,
+        tipiSeduta,
+      });
+
+      if (cancelled) return;
+
+      if (dateSeduta !== null && dateSeduta.length === 0) {
+        setRows([]);
+        setLoading(false);
+        return;
+      }
+
       let query = supabase
         .from("catapult_acwr")
         .select(
@@ -617,6 +676,10 @@ export default function ReportAcwrClient({
 
       if (dataA) {
         query = query.lte("data", dataA);
+      }
+
+      if (dateSeduta !== null) {
+        query = query.in("data", dateSeduta);
       }
 
       const { data, error } = await query;
@@ -663,7 +726,15 @@ export default function ReportAcwrClient({
     return () => {
       cancelled = true;
     };
-  }, [clubId, squadraId, giocatoreId, giocatoreIds.join(","), dataDa, dataA]);
+  }, [
+    clubId,
+    squadraId,
+    giocatoreId,
+    giocatoreIds.join(","),
+    dataDa,
+    dataA,
+    tipiSeduta.join(","),
+  ]);
 
   if (loading) {
     return (
@@ -686,7 +757,7 @@ export default function ReportAcwrClient({
 
   return (
     <AppCard title="ACWR">
-      <AcwrTable rows={rows} />
+      <AcwrTable rows={rows} parametri={parametri} />
       <AcwrRiskLegend parametri={parametri} />
     </AppCard>
   );

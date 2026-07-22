@@ -67,9 +67,15 @@ export default async function ProgrammazionePage() {
   .order("data_inizio", { ascending: false });
 
   if (profilo.last_squadra_id) {
-    programmazioniQuery = programmazioniQuery.eq(
-      "squadra_id",
-      profilo.last_squadra_id
+    /*
+     * Mostriamo sia le programmazioni della squadra attiva sia quelle
+     * create senza squadra specifica (squadra_id null, es. macrocicli
+     * validi per tutto il club). Un .eq() secco escluderebbe queste
+     * ultime, facendole sparire dalla vista non appena l'utente ha
+     * una squadra attiva selezionata.
+     */
+    programmazioniQuery = programmazioniQuery.or(
+      `squadra_id.eq.${profilo.last_squadra_id},squadra_id.is.null`
     );
   }
 

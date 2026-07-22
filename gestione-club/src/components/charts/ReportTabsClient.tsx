@@ -11,7 +11,11 @@ import ReportPerformanceSessioniClient from "@/components/charts/ReportPerforman
 import PerformanceDashboardChartsClient from "@/components/charts/PerformanceDashboardChartsClient";
 import ReportTestClient from "@/components/charts/ReportTestClient";
 import ConfrontoPerformanceClient from "@/components/charts/ConfrontoPerformanceClient";
-import type { TipoSedutaSingolo } from "@/lib/performance/catapult-filtri";
+import {
+  TAG_ALLENAMENTO,
+  TAG_PARTITA,
+  type TipoSedutaSingolo,
+} from "@/lib/performance/catapult-filtri";
 type TabKey =
   | "riepilogo"
   | "presenze"
@@ -20,7 +24,10 @@ type TabKey =
   | "test"
   | "confronto";
 
-type TempoPartita = "all" | "1 Half" | "2 Half";
+const TEMPO_PARTITA_OPZIONI: { value: string; label: string }[] = [
+  { value: "1 Half", label: "Primo Tempo" },
+  { value: "2 Half", label: "Secondo Tempo" },
+];
 
 type Giocatore = {
   id: string;
@@ -29,11 +36,17 @@ type Giocatore = {
   foto_url: string | null;
 };
 
-type EventoReport = {
-  id: string;
-  tipo: "allenamento" | "partita";
-  nome: string;
-  data: string;
+/*
+ * Le sessioni mostrabili nel filtro "Nome evento" vengono lette
+ * direttamente da Catapult (session_title/date/tags su catapult_data),
+ * non dal calendario interno allenamenti/partite: quest'ultimo può
+ * non corrispondere 1:1 alle sedute effettivamente registrate dal
+ * dispositivo GPS.
+ */
+type SessioneCatapult = {
+  titolo: string;
+  data: string | null;
+  tags: string | null;
 };
 
 type Props = {
@@ -42,9 +55,13 @@ type Props = {
   coloreFlag: string;
   giocatori: Giocatore[];
   splitNames: string[];
-  eventi: EventoReport[];
+  sessioni: SessioneCatapult[];
   giocatoreId?: string | null;
 };
+
+function chiaveSessione(sessione: SessioneCatapult) {
+  return `${sessione.titolo}__${sessione.data ?? ""}`;
+}
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "riepilogo", label: "Riepilogo" },
@@ -61,7 +78,7 @@ export default function ReportTabsClient({
   coloreFlag,
   giocatori,
   splitNames,
-  eventi,
+  sessioni,
   giocatoreId: giocatoreIdIniziale = null,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabKey>("riepilogo");
@@ -76,14 +93,11 @@ export default function ReportTabsClient({
     giocatoreIdIniziale ? [giocatoreIdIniziale] : []
   );
 
-  const [eventoIds, setEventoIds] = useState<string[]>([]);
+  const [titoliSelezionati, setTitoliSelezionati] = useState<string[]>([]);
 
   const [openGiocatori, setOpenGiocatori] = useState(false);
   const [openEventi, setOpenEventi] = useState(false);
   const [openSplit, setOpenSplit] = useState(false);
-
-  const [tempoPartita, setTempoPartita] =
-    useState<TempoPartita>("all");
 
   const [splitSelezionati, setSplitSelezionati] = useState<string[]>(
     []
@@ -97,11 +111,11 @@ export default function ReportTabsClient({
     );
   }
 
-  function toggleEvento(id: string) {
-    setEventoIds((prev) =>
-      prev.includes(id)
-        ? prev.filter((item) => item !== id)
-        : [...prev, id]
+  function toggleSessione(chiave: string) {
+    setTitoliSelezionati((prev) =>
+      prev.includes(chiave)
+        ? prev.filter((item) => item !== chiave)
+        : [...prev, chiave]
     );
   }
 
@@ -119,9 +133,8 @@ export default function ReportTabsClient({
         ? prev.filter((item) => item !== tipo)
         : [...prev, tipo]
     );
-    setTempoPartita("all");
     setSplitSelezionati([]);
-    setEventoIds([]);
+    setTitoliSelezionati([]);
   }
 
   const giocatoriSelezionati = useMemo(() => {
@@ -130,15 +143,26 @@ export default function ReportTabsClient({
     );
   }, [giocatori, giocatoreIds]);
 
-  const eventiFiltrati = useMemo(() => {
-    if (tipiSeduta.length === 0) {
-      return eventi;
+  const tagCorrispondenti = useMemo(() => {
+    return tipiSeduta.map((tipo) =>
+      tipo === "allenamento" ? TAG_ALLENAMENTO : TAG_PARTITA
+    );
+  }, [tipiSeduta]);
+
+  const sessioniFiltrate = useMemo(() => {
+    if (tagCorrispondenti.length === 0) {
+      return sessioni;
     }
 
-    return eventi.filter((evento) =>
-      tipiSeduta.includes(evento.tipo)
+    return sessioni.filter(
+      (sessione) =>
+        sessione.tags &&
+        tagCorrispondenti.some(
+          (tag) =>
+            sessione.tags!.trim().toLowerCase() === tag.toLowerCase()
+        )
     );
-  }, [eventi, tipiSeduta]);
+  }, [sessioni, tagCorrispondenti]);
 
   function nomeCompleto(giocatore: Giocatore) {
     return (
@@ -147,18 +171,32 @@ export default function ReportTabsClient({
     );
   }
 
-  const eventiSelezionati = useMemo(() => {
-    return eventi.filter((evento) => eventoIds.includes(evento.id));
-  }, [eventi, eventoIds]);
-
-  // catapult_data non ha un riferimento diretto a un allenamento o
-  // partita: come approssimazione, filtriamo per le date degli eventi
-  // selezionati (funziona salvo eventi diversi nello stesso giorno).
-  const eventoDateFiltro = useMemo(() => {
-    return Array.from(
-      new Set(eventiSelezionati.map((evento) => evento.data))
+  const sessioniSelezionate = useMemo(() => {
+    return sessioni.filter((sessione) =>
+      titoliSelezionati.includes(chiaveSessione(sessione))
     );
-  }, [eventiSelezionati]);
+  }, [sessioni, titoliSelezionati]);
+
+  // Filtro esatto per i componenti che leggono catapult_data
+  // direttamente (session_title).
+  const sessionTitlesFiltro = useMemo(() => {
+    return Array.from(
+      new Set(sessioniSelezionate.map((sessione) => sessione.titolo))
+    );
+  }, [sessioniSelezionate]);
+
+  // presenze_allenamenti non ha session_title: come approssimazione
+  // per quella tabella filtriamo per le date delle sessioni Catapult
+  // selezionate.
+  const sessioniSelezionateDate = useMemo(() => {
+    return Array.from(
+      new Set(
+        sessioniSelezionate
+          .map((sessione) => sessione.data)
+          .filter((value): value is string => Boolean(value))
+      )
+    );
+  }, [sessioniSelezionate]);
 
   const soloPartita =
     tipiSeduta.length === 1 && tipiSeduta[0] === "partita";
@@ -370,11 +408,11 @@ export default function ReportTabsClient({
               className="flex h-[52px] w-full items-center justify-between rounded-2xl border border-white/10 bg-zinc-950 px-4 text-left text-sm font-bold text-white outline-none transition hover:border-white/25 hover:bg-zinc-900"
             >
               <span className="truncate">
-                {eventoIds.length === 0
+                {titoliSelezionati.length === 0
                   ? "Tutti gli eventi"
-                  : eventoIds.length === 1
-                    ? (eventiSelezionati[0]?.nome ?? "1 evento")
-                    : `${eventoIds.length} eventi selezionati`}
+                  : titoliSelezionati.length === 1
+                    ? (sessioniSelezionate[0]?.titolo ?? "1 evento")
+                    : `${titoliSelezionati.length} eventi selezionati`}
               </span>
 
               <ChevronDown
@@ -387,29 +425,31 @@ export default function ReportTabsClient({
               <div className="absolute z-40 mt-2 max-h-80 w-full overflow-auto rounded-2xl border border-white/10 bg-zinc-950 p-2 shadow-2xl">
                 <button
                   type="button"
-                  onClick={() => setEventoIds([])}
+                  onClick={() => setTitoliSelezionati([])}
                   className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-bold text-white transition hover:bg-white/5"
                 >
                   Tutti gli eventi
-                  {eventoIds.length === 0 && (
+                  {titoliSelezionati.length === 0 && (
                     <span className="text-emerald-400">✓</span>
                   )}
                 </button>
 
-                {eventiFiltrati.map((evento) => {
-                  const selezionato = eventoIds.includes(evento.id);
+                {sessioniFiltrate.map((sessione) => {
+                  const chiave = chiaveSessione(sessione);
+                  const selezionato = titoliSelezionati.includes(chiave);
 
                   return (
                     <button
-                      key={`${evento.tipo}-${evento.id}`}
+                      key={chiave}
                       type="button"
-                      onClick={() => toggleEvento(evento.id)}
+                      onClick={() => toggleSessione(chiave)}
                       className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-white/5 hover:text-white ${
                         selezionato ? "text-white" : "text-zinc-300"
                       }`}
                     >
                       <span className="truncate">
-                        {evento.nome} - {evento.data}
+                        {sessione.titolo}
+                        {sessione.data ? ` - ${sessione.data}` : ""}
                       </span>
 
                       {selezionato && (
@@ -436,30 +476,81 @@ export default function ReportTabsClient({
 
           {/* DETTAGLIO */}
           {soloPartita ? (
-            <div>
+            <div className="relative">
               <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-500">
                 Tempo
               </label>
 
-              <select
-                value={tempoPartita}
-                onChange={(e) =>
-                  setTempoPartita(
-                    e.target.value as TempoPartita
-                  )
-                }
-                className="h-[52px] w-full rounded-2xl border border-white/10 bg-zinc-950 px-4 text-sm font-bold text-white outline-none transition focus:border-white/30"
+              <button
+                type="button"
+                onClick={() => setOpenSplit((value) => !value)}
+                className="flex h-[52px] w-full items-center justify-between rounded-2xl border border-white/10 bg-zinc-950 px-4 text-left text-sm font-bold text-white outline-none transition hover:border-white/25 hover:bg-zinc-900"
               >
-                <option value="all">
-                  Tutta la partita
-                </option>
-                <option value="1 Half">
-                  Primo Tempo
-                </option>
-                <option value="2 Half">
-                  Secondo Tempo
-                </option>
-              </select>
+                <span className="truncate">
+                  {splitSelezionati.length === 0
+                    ? "Tutta la partita"
+                    : splitSelezionati.length === 1
+                      ? (TEMPO_PARTITA_OPZIONI.find(
+                          (opzione) => opzione.value === splitSelezionati[0]
+                        )?.label ?? splitSelezionati[0])
+                      : `${splitSelezionati.length} tempi selezionati`}
+                </span>
+
+                <ChevronDown
+                  size={18}
+                  className="shrink-0 text-zinc-500"
+                />
+              </button>
+
+              {openSplit && (
+                <div className="absolute z-40 mt-2 w-full overflow-auto rounded-2xl border border-white/10 bg-zinc-950 p-2 shadow-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setSplitSelezionati([])}
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-bold text-white transition hover:bg-white/5"
+                  >
+                    Tutta la partita
+                    {splitSelezionati.length === 0 && (
+                      <span className="text-emerald-400">✓</span>
+                    )}
+                  </button>
+
+                  {TEMPO_PARTITA_OPZIONI.map((opzione) => {
+                    const selezionato = splitSelezionati.includes(
+                      opzione.value
+                    );
+
+                    return (
+                      <button
+                        key={opzione.value}
+                        type="button"
+                        onClick={() => toggleSplit(opzione.value)}
+                        className={`flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-white/5 hover:text-white ${
+                          selezionato ? "text-white" : "text-zinc-300"
+                        }`}
+                      >
+                        <span className="truncate">{opzione.label}</span>
+
+                        {selezionato && (
+                          <span className="shrink-0 text-emerald-400">
+                            ✓
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+
+                  <div className="mt-1 border-t border-white/10 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setOpenSplit(false)}
+                      className="w-full rounded-xl px-3 py-2 text-center text-xs font-bold text-zinc-400 transition hover:bg-white/5 hover:text-white"
+                    >
+                      Chiudi
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : soloAllenamento ? (
             <div className="relative">
@@ -557,8 +648,7 @@ export default function ReportTabsClient({
               setDataA("");
               setTipiSeduta([]);
               setGiocatoreIds([]);
-              setEventoIds([]);
-              setTempoPartita("all");
+              setTitoliSelezionati([]);
               setSplitSelezionati([]);
               setOpenGiocatori(false);
               setOpenEventi(false);
@@ -612,7 +702,7 @@ export default function ReportTabsClient({
             dataDa={dataDa}
             dataA={dataA}
             tipiSeduta={tipiSeduta}
-            eventoDate={eventoDateFiltro}
+            sessionTitles={sessionTitlesFiltro}
             splitSelezionati={splitSelezionati}
           />
 
@@ -623,6 +713,7 @@ export default function ReportTabsClient({
             giocatoreIds={giocatoreIds}
             dataDa={dataDa}
             dataA={dataA}
+            tipiSeduta={tipiSeduta}
             coloreFlag={coloreFlag}
           />
 
@@ -633,7 +724,7 @@ export default function ReportTabsClient({
             dataDa={dataDa}
             dataA={dataA}
             tipiSeduta={tipiSeduta}
-            eventoDate={eventoDateFiltro}
+            sessionTitles={sessionTitlesFiltro}
             splitSelezionati={splitSelezionati}
             coloreFlag={coloreFlag}
           />
@@ -648,7 +739,7 @@ export default function ReportTabsClient({
           dataA={dataA}
           tipiSeduta={tipiSeduta}
           giocatoreIds={giocatoreIds}
-          eventoIds={eventoIds}
+          eventoDate={sessioniSelezionateDate}
           hideFilters
         />
       )}
@@ -662,7 +753,7 @@ export default function ReportTabsClient({
           dataDa={dataDa}
           dataA={dataA}
           tipiSeduta={tipiSeduta}
-          eventoDate={eventoDateFiltro}
+          sessionTitles={sessionTitlesFiltro}
           splitSelezionati={splitSelezionati}
         />
       )}
@@ -675,6 +766,7 @@ export default function ReportTabsClient({
           giocatoreIds={giocatoreIds}
           dataDa={dataDa}
           dataA={dataA}
+          tipiSeduta={tipiSeduta}
           coloreFlag={coloreFlag}
         />
       )}
@@ -699,7 +791,7 @@ export default function ReportTabsClient({
           dataDa={dataDa}
           dataA={dataA}
           tipiSeduta={tipiSeduta}
-          eventoDate={eventoDateFiltro}
+          sessionTitles={sessionTitlesFiltro}
           splitSelezionati={splitSelezionati}
           coloreFlag={coloreFlag}
         />

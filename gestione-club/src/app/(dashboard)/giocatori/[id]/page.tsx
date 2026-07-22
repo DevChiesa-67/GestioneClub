@@ -19,7 +19,6 @@ type PageProps = {
     dataDa?: string;
     dataA?: string;
     tipoSeduta?: string;
-    eventoId?: string;
   }>;
 };
 
@@ -88,7 +87,6 @@ export default async function GiocatoreDetailPage({
    */
   const dataDa = filtri.dataDa || undefined;
   const dataA = filtri.dataA || undefined;
-  const eventoIdFiltro = filtri.eventoId || null;
 
   const tipoSeduta: TipoSeduta =
     filtri.tipoSeduta === "allenamento" ||
@@ -375,7 +373,6 @@ export default async function GiocatoreDetailPage({
         dataDa={dataDa}
         dataA={dataA}
         tipoSeduta={tipoSeduta}
-        eventoId={eventoIdFiltro}
         coloreFlag={coloreFlag}
       />
     </div>

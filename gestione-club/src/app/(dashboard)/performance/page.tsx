@@ -48,6 +48,50 @@ export default async function Page() {
     )
   ).sort();
 
+  /*
+   * Tipo seduta, Nome evento e Tempo/Split vanno presi direttamente
+   * da Catapult (colonne tags, session_title, split_name su
+   * catapult_data), non dal calendario interno allenamenti/partite:
+   * quest'ultimo può non corrispondere 1:1 alle sedute effettivamente
+   * registrate dal dispositivo GPS.
+   */
+  let sessioniQuery = supabase
+    .from("catapult_data")
+    .select("session_title, date, tags")
+    .eq("club_id", profilo.last_club_id)
+    .not("session_title", "is", null);
+
+  if (profilo.last_squadra_id) {
+    sessioniQuery = sessioniQuery.or(
+      `squadra_id.eq.${profilo.last_squadra_id},squadra_id.is.null`
+    );
+  }
+
+  const { data: sessioniRows } = await sessioniQuery;
+
+  const sessioniMap = new Map<
+    string,
+    { titolo: string; data: string | null; tags: string | null }
+  >();
+
+  for (const row of sessioniRows ?? []) {
+    if (!row.session_title) continue;
+
+    const chiave = `${row.session_title}__${row.date ?? ""}`;
+
+    if (!sessioniMap.has(chiave)) {
+      sessioniMap.set(chiave, {
+        titolo: row.session_title,
+        data: row.date,
+        tags: row.tags,
+      });
+    }
+  }
+
+  const sessioniCatapult = Array.from(sessioniMap.values()).sort((a, b) =>
+    (b.data ?? "").localeCompare(a.data ?? "")
+  );
+
   let giocatoriQuery = supabase
     .from("giocatori")
     .select("id, nome, cognome, foto_url")
@@ -63,61 +107,6 @@ export default async function Page() {
   }
 
   const { data: giocatori } = await giocatoriQuery;
-
-  let allenamentiQuery = supabase
-    .from("allenamenti")
-    .select("id, titolo, data_allenamento")
-    .eq("club_id", profilo.last_club_id)
-    .order("data_allenamento", { ascending: false });
-
-  if (profilo.last_squadra_id) {
-    allenamentiQuery = allenamentiQuery.eq(
-      "squadra_id",
-      profilo.last_squadra_id
-    );
-  }
-
-  const { data: allenamenti } = await allenamentiQuery;
-
-  let partiteQuery = supabase
-    .from("partite")
-    .select(`
-      id,
-      avversario,
-      data_partita,
-      squadra_casa:squadre_partite!partite_squadra_casa_id_fkey(nome),
-      squadra_fuori:squadre_partite!partite_squadra_fuori_id_fkey(nome)
-    `)
-    .eq("club_id", profilo.last_club_id)
-    .order("data_partita", { ascending: false });
-
-  if (profilo.last_squadra_id) {
-    partiteQuery = partiteQuery.eq(
-      "squadra_id",
-      profilo.last_squadra_id
-    );
-  }
-
-  const { data: partite } = await partiteQuery;
-
-  const eventi = [
-  ...(allenamenti ?? []).map((item) => ({
-    id: item.id,
-    tipo: "allenamento" as const,
-    nome: item.titolo,
-    data: item.data_allenamento,
-  })),
-  ...(partite ?? []).map((item) => ({
-    id: item.id,
-    tipo: "partita" as const,
-    nome:
-      item.avversario ||
-      item.squadra_casa?.[0]?.nome ||
-      item.squadra_fuori?.[0]?.nome ||
-      "Partita senza nome",
-    data: item.data_partita,
-  })),
-];
 
   return (
     <div className="space-y-6">
@@ -145,7 +134,7 @@ export default async function Page() {
         coloreFlag={coloreFlag}
         giocatori={giocatori ?? []}
         splitNames={splitNames}
-        eventi={eventi}
+        sessioni={sessioniCatapult}
       />
     </div>
   );
