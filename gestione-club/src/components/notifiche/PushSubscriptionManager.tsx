@@ -128,13 +128,16 @@ export function PushSubscriptionManager() {
         if (!response.ok) {
           const result = await response.json().catch(() => null);
 
+          const dettaglio = result?.error as string | undefined;
+          const messaggio = result?.message as string | undefined;
+
           showToast({
             type: "error",
             title: "Dispositivo non registrato",
-            message:
-              result?.message ||
-              result?.error ||
-              `Il server ha rifiutato la registrazione (HTTP ${response.status}).`,
+            message: dettaglio
+              ? `${messaggio ?? "Errore server"}: ${dettaglio}`
+              : messaggio ||
+                `Il server ha rifiutato la registrazione (HTTP ${response.status}).`,
           });
 
           return;

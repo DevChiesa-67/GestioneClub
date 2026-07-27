@@ -51,11 +51,24 @@ export async function POST(request: Request) {
 
     const { data: profilo, error: profiloError } = await supabase
       .from("profili")
-      .select("id,last_club_id,tipo_profilo")
+      .select("id,last_club_id,club_id,tipo_profilo")
       .eq("auth_user_id", user.id)
       .single();
 
-    if (profiloError || !profilo?.last_club_id) {
+    /*
+     * "Club attivo" per la richiesta: preferiamo last_club_id, ma
+     * ripieghiamo sul primo club della lista (club_id, array per i
+     * profili multi-club) se last_club_id non è ancora impostato.
+     * Stessa logica usata lato client (ComunicazioniClient): tenerle
+     * allineate evita che qui si consideri "attivo" un club diverso
+     * da quello effettivamente usato al momento della creazione.
+     */
+    const clubIdAttivo =
+      profilo?.last_club_id ??
+      (Array.isArray(profilo?.club_id) ? profilo.club_id[0] : null) ??
+      null;
+
+    if (profiloError || !profilo || !clubIdAttivo) {
       return NextResponse.json(
         { success: false, message: "Profilo o club attivo non trovato." },
         { status: 400 }
@@ -71,8 +84,6 @@ export async function POST(request: Request) {
         { status: 403 }
       );
     }
-
-    const clubId = profilo.last_club_id;
 
     /*
      * Da qui in poi operiamo per conto di TUTTI i destinatari del
@@ -91,6 +102,16 @@ export async function POST(request: Request) {
       );
     }
 
+    /*
+     * La comunicazione viene cercata SOLO per id (non filtrando già
+     * per club): filtrare subito per il "club attivo" dell'admin
+     * mascherava con un fuorviante "Comunicazione non trovata" ogni
+     * caso in cui last_club_id fosse anche solo momentaneamente
+     * disallineato rispetto al club_id con cui la riga era stata
+     * creata (es. cambio squadra/club tra la creazione e l'invio,
+     * più tab aperte, ecc.). Il controllo di appartenenza al club
+     * viene fatto subito dopo, con un messaggio esplicito.
+     */
     const { data: comunicazione, error: comunicazioneError } = await supabaseAdmin
       .from("comunicazioni")
       .select(
@@ -104,7 +125,6 @@ export async function POST(request: Request) {
       `
       )
       .eq("id", body.comunicazione_id)
-      .eq("club_id", clubId)
       .single();
 
     if (comunicazioneError || !comunicazione) {
@@ -113,6 +133,30 @@ export async function POST(request: Request) {
         { status: 404 }
       );
     }
+
+    const clubDelProfilo = Array.isArray(profilo.club_id) ? profilo.club_id : [];
+
+    const appartieneAlClub =
+      comunicazione.club_id === clubIdAttivo ||
+      clubDelProfilo.includes(comunicazione.club_id);
+
+    if (!appartieneAlClub) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Non hai i permessi per inviare notifiche per questa comunicazione (club diverso da quello attivo).",
+        },
+        { status: 403 }
+      );
+    }
+
+    /*
+     * Usiamo il club_id effettivo della comunicazione (non quello
+     * "attivo" dell'admin) per risolvere destinatari e subscription:
+     * è il dato autorevole, non soggetto a disallineamenti di stato.
+     */
+    const clubId = comunicazione.club_id;
 
     /*
      * Risoluzione destinatari:
@@ -194,11 +238,20 @@ export async function POST(request: Request) {
 
     /*
      * Push browser: solo per chi ha una subscription attiva.
+     *
+     * Filtriamo solo per profilo_id (già scoperto/scoperto sopra in
+     * base al club corretto), NON anche per club_id: la subscription
+     * salvata su un dispositivo riflette il club che era "attivo" nel
+     * browser al momento della registrazione, che può disallinearsi
+     * da quello con cui viene creata una comunicazione (stesso tipo di
+     * problema del controllo sopra su "Comunicazione non trovata").
+     * Un profilo appartiene comunque in modo univoco ai destinatari
+     * già filtrati per club, quindi il filtro extra è ridondante e,
+     * come visto, può far perdere dispositivi validi.
      */
     const { data: subscriptions, error: subscriptionsError } = await supabaseAdmin
       .from("push_subscriptions")
       .select("id,profilo_id,endpoint,p256dh,auth")
-      .eq("club_id", clubId)
       .in("profilo_id", profiloIds);
 
     if (subscriptionsError) {
@@ -246,8 +299,7 @@ export async function POST(request: Request) {
             await supabaseAdmin
               .from("push_subscriptions")
               .delete()
-              .eq("id", sub.id)
-              .eq("club_id", clubId);
+              .eq("id", sub.id);
           }
 
           console.error("Errore invio push:", error);
