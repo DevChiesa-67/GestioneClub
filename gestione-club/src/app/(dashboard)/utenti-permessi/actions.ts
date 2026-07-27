@@ -295,8 +295,10 @@ export async function creaTipoProfilo(
  * I valori dell'enum non possono essere eliminati in sicurezza dall'app.
  */
 export async function eliminaTipoProfilo(
-  _tipoProfiloId: string
+  tipoProfiloId: string
 ): Promise<ActionResult> {
+  void tipoProfiloId;
+
   await getContestoAdmin();
   throw new Error(
     "I tipi profilo definiti nell'enum sono protetti e non possono essere eliminati dall'applicazione."

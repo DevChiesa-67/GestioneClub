@@ -4,6 +4,7 @@ import { useState } from "react";
 import { X, Save, Loader2 } from "lucide-react";
 
 import { modificaDettagliPartita } from "@/app/(dashboard)/partite/[id]/actions";
+import { DateInput } from "@/components/ui/DateInput";
 
 export type SquadraPartitaOption = {
   id: string;
@@ -178,16 +179,12 @@ export default function ModificaDettagliPartitaModal({
 
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <label className="mb-2 block text-sm font-semibold text-zinc-300">
-                Data partita
-              </label>
-
-              <input
-                type="date"
+              <DateInput
+                label="Data partita"
                 required
                 value={dataPartita}
-                onChange={(e) => setDataPartita(e.target.value)}
-                className="h-12 w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-4 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
+                onChange={setDataPartita}
+                wrapperClassName="h-12 rounded-2xl border-zinc-700 bg-zinc-900 focus-within:ring-2 focus-within:ring-zinc-600"
               />
             </div>
 

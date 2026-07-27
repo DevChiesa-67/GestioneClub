@@ -5,12 +5,12 @@ import {
   X,
   Save,
   Loader2,
-  CalendarDays,
   Trophy,
   FileText,
 } from "lucide-react";
 
 import { creaProgrammazione } from "@/app/(dashboard)/allenamenti/programmazione/actions";
+import { DateInput as DateInputCampo } from "@/components/ui/DateInput";
 
 type Props = {
   open: boolean;
@@ -119,16 +119,22 @@ export default function NuovaProgrammazioneModal({
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <DateInput
-              id="data_inizio"
+            <DateInputCampo
               name="data_inizio"
               label="Data inizio macrociclo"
+              required
+              wrapperClassName="h-12 rounded-2xl border-zinc-300 bg-white focus-within:border-zinc-500 focus-within:ring-2 focus-within:ring-zinc-200"
+              inputClassName="text-zinc-900 placeholder:text-zinc-400"
+              iconClassName="text-zinc-500 hover:text-zinc-900"
             />
 
-            <DateInput
-              id="data_fine"
+            <DateInputCampo
               name="data_fine"
               label="Data fine macrociclo"
+              required
+              wrapperClassName="h-12 rounded-2xl border-zinc-300 bg-white focus-within:border-zinc-500 focus-within:ring-2 focus-within:ring-zinc-200"
+              inputClassName="text-zinc-900 placeholder:text-zinc-400"
+              iconClassName="text-zinc-500 hover:text-zinc-900"
             />
           </div>
 
@@ -193,38 +199,3 @@ export default function NuovaProgrammazioneModal({
   );
 }
 
-function DateInput({
-  id,
-  name,
-  label,
-}: {
-  id: string;
-  name: string;
-  label: string;
-}) {
-  return (
-    <div>
-      <label
-        htmlFor={id}
-        className="mb-2 block text-sm font-semibold text-zinc-800"
-      >
-        {label}
-      </label>
-
-      <div className="relative">
-        <CalendarDays
-          size={18}
-          className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-zinc-400"
-        />
-
-        <input
-          id={id}
-          name={name}
-          type="date"
-          required
-          className="block h-12 w-full rounded-2xl border border-zinc-300 bg-white py-3 pl-11 pr-4 text-sm text-zinc-900 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200"
-        />
-      </div>
-    </div>
-  );
-}

@@ -1,5 +1,3 @@
-import Link from "next/link";
-import { Upload } from "lucide-react";
 import { createClient } from "@/lib/supabase-server";
 import ReportTabsClient from "@/components/charts/ReportTabsClient";
 
@@ -28,25 +26,43 @@ export default async function Page() {
 
   const { data: club } = await supabase
     .from("club")
-    .select("id, colore_flag")
+    .select("id, colore_flag, logo_url")
     .eq("id", profilo.last_club_id)
     .single();
 
   const coloreFlag = club?.colore_flag ?? "#d71920";
 
+  /*
+   * Gli split di un allenamento (es. blocchi di lavoro) e i "tempi" di
+   * una partita condividono la stessa colonna split_name, ma sono
+   * concettualmente diversi: recuperiamo anche tags in modo che il
+   * client possa proporre solo gli split effettivamente presenti per
+   * il tipo seduta selezionato, invece di mescolarli tutti insieme.
+   */
   const { data: splitRows } = await supabase
     .from("catapult_data")
-    .select("split_name")
+    .select("split_name, tags")
     .eq("club_id", profilo.last_club_id)
     .not("split_name", "is", null);
 
-  const splitNames = Array.from(
-    new Set(
-      (splitRows ?? [])
-        .map((row) => row.split_name)
-        .filter(Boolean)
-    )
-  ).sort();
+  const splitOptionsMap = new Map<
+    string,
+    { nome: string; tags: string | null }
+  >();
+
+  for (const row of splitRows ?? []) {
+    if (!row.split_name) continue;
+
+    const chiave = `${row.split_name}__${row.tags ?? ""}`;
+
+    if (!splitOptionsMap.has(chiave)) {
+      splitOptionsMap.set(chiave, { nome: row.split_name, tags: row.tags });
+    }
+  }
+
+  const splitOptions = Array.from(splitOptionsMap.values()).sort((a, b) =>
+    a.nome.localeCompare(b.nome)
+  );
 
   /*
    * Tipo seduta, Nome evento e Tempo/Split vanno presi direttamente
@@ -109,33 +125,14 @@ export default async function Page() {
   const { data: giocatori } = await giocatoriQuery;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm text-zinc-400">Performance</p>
-          <h1 className="text-2xl font-semibold text-white">
-            Report performance
-          </h1>
-        </div>
-
-        <Link
-          href="/performance/importa-dati"
-          className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
-          style={{ backgroundColor: coloreFlag }}
-        >
-          <Upload className="h-4 w-4" />
-          Importa dati
-        </Link>
-      </div>
-
-      <ReportTabsClient
-        clubId={profilo.last_club_id}
-        squadraId={profilo.last_squadra_id}
-        coloreFlag={coloreFlag}
-        giocatori={giocatori ?? []}
-        splitNames={splitNames}
-        sessioni={sessioniCatapult}
-      />
-    </div>
+    <ReportTabsClient
+      clubId={profilo.last_club_id}
+      squadraId={profilo.last_squadra_id}
+      coloreFlag={coloreFlag}
+      clubLogoUrl={club?.logo_url ?? null}
+      giocatori={giocatori ?? []}
+      splitOptions={splitOptions}
+      sessioni={sessioniCatapult}
+    />
   );
 }

@@ -7,6 +7,7 @@ import {
   modificaSeduta,
   type Intensita,
 } from "@/app/(dashboard)/allenamenti/programmazione/actions";
+import { DateInput } from "@/components/ui/DateInput";
 
 const INTENSITA_OPTIONS: { value: Intensita; label: string }[] = [
   { value: "bassa", label: "Bassa" },
@@ -109,17 +110,13 @@ export default function ModificaSedutaModal({
         <form action={handleSubmit} className="space-y-5 bg-zinc-950 p-6">
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <label className="mb-2 block text-sm font-semibold text-zinc-300">
-                Data seduta
-              </label>
-
-              <input
+              <DateInput
+                label="Data seduta"
                 name="data_seduta"
-                type="date"
                 min={minData}
                 max={maxData}
                 defaultValue={seduta.data_seduta ?? ""}
-                className="h-12 w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-4 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
+                wrapperClassName="h-12 rounded-2xl border-zinc-700 bg-zinc-900 focus-within:ring-2 focus-within:ring-zinc-600"
               />
             </div>
 

@@ -3,15 +3,22 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AlertTriangle,
   CircleDot,
+  Layers,
   Pencil,
+  Repeat,
+  RefreshCw,
   Save,
   Shield,
+  ShieldCheck,
   Shirt,
+  Target,
   Trash2,
   Trophy,
   Users,
 } from "lucide-react";
+import type { ComponentType, CSSProperties, ReactNode } from "react";
 
 import {
   eliminaPartita,
@@ -78,6 +85,14 @@ type Statistiche = {
   calci_subiti: number;
   ammonizioni: number;
   espulsioni: number;
+  punti_incontro_vinti: number;
+  punti_incontro_persi: number;
+  touche_vinte: number;
+  touche_perse: number;
+  mischie_vinte: number;
+  mischie_perse: number;
+  placcaggi_efficaci: number;
+  placcaggi_non_efficaci: number;
   note: string | null;
 } | null;
 
@@ -173,26 +188,26 @@ const formazione: {
  * - parte bassa = trequarti / estremo
  */
 const fieldPosition: Record<number, string> = {
-  1: "left-[18%] top-[10%]",
-  2: "left-[36%] top-[10%]",
-  3: "left-[54%] top-[10%]",
+  1: "left-[15%] top-[6%]",
+  2: "left-[50%] top-[6%]",
+  3: "left-[85%] top-[6%]",
 
-  4: "left-[29%] top-[22%]",
-  5: "left-[47%] top-[22%]",
+  4: "left-[30%] top-[18%]",
+  5: "left-[70%] top-[18%]",
 
-  6: "left-[12%] top-[28%]",
-  7: "left-[64%] top-[28%]",
-  8: "left-[38%] top-[35%]",
+  6: "left-[10%] top-[28%]",
+  7: "left-[90%] top-[28%]",
+  8: "left-[50%] top-[34%]",
 
-  9: "left-[38%] top-[46%]",
-  10: "left-[48%] top-[58%]",
+  9: "left-[50%] top-[45%]",
+  10: "left-[50%] top-[57%]",
 
-  11: "left-[12%] top-[80%]",
-  12: "left-[64%] top-[64%]",
-  13: "left-[82%] top-[70%]",
-  14: "left-[88%] top-[80%]",
+  11: "left-[8%] top-[76%]",
+  12: "left-[32%] top-[68%]",
+  13: "left-[68%] top-[68%]",
+  14: "left-[92%] top-[76%]",
 
-  15: "left-[48%] top-[86%]",
+  15: "left-[50%] top-[88%]",
 };
 
 function nomeGiocatore(giocatore?: Giocatore | null) {
@@ -213,6 +228,80 @@ function toNumber(value: string) {
   const parsed = Number(value);
 
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+const TONE_CLASSES = {
+  positivo:
+    "border-emerald-900/50 bg-emerald-950/20 focus-within:border-emerald-500/70 focus-within:bg-emerald-950/30",
+  negativo:
+    "border-rose-900/50 bg-rose-950/20 focus-within:border-rose-500/70 focus-within:bg-rose-950/30",
+  neutro:
+    "border-zinc-800 bg-zinc-900 focus-within:border-zinc-600",
+} as const;
+
+const TONE_LABEL_CLASSES = {
+  positivo: "text-emerald-400/80",
+  negativo: "text-rose-400/80",
+  neutro: "text-zinc-500",
+} as const;
+
+function StatInput({
+  label,
+  value,
+  onChange,
+  tone = "neutro",
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  tone?: keyof typeof TONE_CLASSES;
+}) {
+  return (
+    <label
+      className={`block min-w-0 rounded-xl border px-3 py-2 transition ${TONE_CLASSES[tone]}`}
+    >
+      <span
+        className={`block truncate text-[11px] font-bold uppercase tracking-wide ${TONE_LABEL_CLASSES[tone]}`}
+      >
+        {label}
+      </span>
+
+      <input
+        type="number"
+        min={0}
+        inputMode="numeric"
+        value={value}
+        onChange={(event) => onChange(toNumber(event.target.value))}
+        className="mt-0.5 w-full min-w-0 bg-transparent text-lg font-black text-white outline-none"
+      />
+    </label>
+  );
+}
+
+function GruppoStatistiche({
+  icon: Icon,
+  titolo,
+  coloreClub,
+  children,
+}: {
+  icon: ComponentType<{ className?: string; style?: CSSProperties }>;
+  titolo: string;
+  coloreClub: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="min-w-0 rounded-2xl border border-zinc-800/80 bg-black/20 p-3 sm:p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <Icon className="h-4 w-4 shrink-0" style={{ color: coloreClub }} />
+
+        <h3 className="truncate text-xs font-bold uppercase tracking-wide text-zinc-400 sm:text-sm">
+          {titolo}
+        </h3>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2.5">{children}</div>
+    </div>
+  );
 }
 
 export default function PartitaEditorClient({
@@ -290,6 +379,38 @@ export default function PartitaEditorClient({
 
     espulsioni:
       statistiche?.espulsioni ??
+      0,
+
+    punti_incontro_vinti:
+      statistiche?.punti_incontro_vinti ??
+      0,
+
+    punti_incontro_persi:
+      statistiche?.punti_incontro_persi ??
+      0,
+
+    touche_vinte:
+      statistiche?.touche_vinte ??
+      0,
+
+    touche_perse:
+      statistiche?.touche_perse ??
+      0,
+
+    mischie_vinte:
+      statistiche?.mischie_vinte ??
+      0,
+
+    mischie_perse:
+      statistiche?.mischie_perse ??
+      0,
+
+    placcaggi_efficaci:
+      statistiche?.placcaggi_efficaci ??
+      0,
+
+    placcaggi_non_efficaci:
+      statistiche?.placcaggi_non_efficaci ??
       0,
 
     note:
@@ -1005,60 +1126,126 @@ function giocatoriPerPosizione(
             </h2>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-            {[
-              ["punti_fatti", "Punti fatti"],
-              ["punti_subiti", "Punti subiti"],
-              ["mete_fatte", "Mete fatte"],
-              ["mete_subite", "Mete subite"],
-              ["calci_fatti", "Calci fatti"],
-              ["calci_subiti", "Calci subiti"],
-              ["ammonizioni", "Ammonizioni"],
-              ["espulsioni", "Espulsioni"],
-            ].map(([key, label]) => (
-              <label
-                key={key}
-                className="min-w-0 space-y-2"
-              >
-                <span className="block truncate text-xs font-semibold text-zinc-300 sm:text-sm">
-                  {label}
-                </span>
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+            <GruppoStatistiche icon={Trophy} titolo="Punteggio" coloreClub={coloreClub}>
+              <StatInput
+                label="Fatti"
+                tone="positivo"
+                value={stats.punti_fatti}
+                onChange={(v) => setStats((prev) => ({ ...prev, punti_fatti: v }))}
+              />
+              <StatInput
+                label="Subiti"
+                tone="negativo"
+                value={stats.punti_subiti}
+                onChange={(v) => setStats((prev) => ({ ...prev, punti_subiti: v }))}
+              />
+            </GruppoStatistiche>
 
-                <input
-                  type="number"
-                  min={0}
-                  inputMode="numeric"
-                  value={
-                    stats[
-                      key as keyof typeof stats
-                    ] as number
-                  }
-                  onChange={(event) =>
-                    setStats((prev) => ({
-                      ...prev,
-                      [key]: toNumber(
-                        event.target.value
-                      ),
-                    }))
-                  }
-                  className="
-                    w-full
-                    min-w-0
-                    rounded-xl
-                    border border-zinc-800
-                    bg-zinc-900
-                    px-3
-                    py-3
-                    text-base
-                    font-bold
-                    text-white
-                    outline-none
-                    transition
-                    sm:px-4
-                  "
-                />
-              </label>
-            ))}
+            <GruppoStatistiche icon={CircleDot} titolo="Mete" coloreClub={coloreClub}>
+              <StatInput
+                label="Fatte"
+                tone="positivo"
+                value={stats.mete_fatte}
+                onChange={(v) => setStats((prev) => ({ ...prev, mete_fatte: v }))}
+              />
+              <StatInput
+                label="Subite"
+                tone="negativo"
+                value={stats.mete_subite}
+                onChange={(v) => setStats((prev) => ({ ...prev, mete_subite: v }))}
+              />
+            </GruppoStatistiche>
+
+            <GruppoStatistiche icon={Target} titolo="Calci piazzati" coloreClub={coloreClub}>
+              <StatInput
+                label="Fatti"
+                tone="positivo"
+                value={stats.calci_fatti}
+                onChange={(v) => setStats((prev) => ({ ...prev, calci_fatti: v }))}
+              />
+              <StatInput
+                label="Subiti"
+                tone="negativo"
+                value={stats.calci_subiti}
+                onChange={(v) => setStats((prev) => ({ ...prev, calci_subiti: v }))}
+              />
+            </GruppoStatistiche>
+
+            <GruppoStatistiche icon={AlertTriangle} titolo="Disciplina" coloreClub={coloreClub}>
+              <StatInput
+                label="Ammonizioni"
+                tone="neutro"
+                value={stats.ammonizioni}
+                onChange={(v) => setStats((prev) => ({ ...prev, ammonizioni: v }))}
+              />
+              <StatInput
+                label="Espulsioni"
+                tone="negativo"
+                value={stats.espulsioni}
+                onChange={(v) => setStats((prev) => ({ ...prev, espulsioni: v }))}
+              />
+            </GruppoStatistiche>
+
+            <GruppoStatistiche icon={Layers} titolo="Punti di incontro" coloreClub={coloreClub}>
+              <StatInput
+                label="Vinti"
+                tone="positivo"
+                value={stats.punti_incontro_vinti}
+                onChange={(v) => setStats((prev) => ({ ...prev, punti_incontro_vinti: v }))}
+              />
+              <StatInput
+                label="Persi"
+                tone="negativo"
+                value={stats.punti_incontro_persi}
+                onChange={(v) => setStats((prev) => ({ ...prev, punti_incontro_persi: v }))}
+              />
+            </GruppoStatistiche>
+
+            <GruppoStatistiche icon={RefreshCw} titolo="Touche" coloreClub={coloreClub}>
+              <StatInput
+                label="Vinte"
+                tone="positivo"
+                value={stats.touche_vinte}
+                onChange={(v) => setStats((prev) => ({ ...prev, touche_vinte: v }))}
+              />
+              <StatInput
+                label="Perse"
+                tone="negativo"
+                value={stats.touche_perse}
+                onChange={(v) => setStats((prev) => ({ ...prev, touche_perse: v }))}
+              />
+            </GruppoStatistiche>
+
+            <GruppoStatistiche icon={Repeat} titolo="Mischie" coloreClub={coloreClub}>
+              <StatInput
+                label="Vinte"
+                tone="positivo"
+                value={stats.mischie_vinte}
+                onChange={(v) => setStats((prev) => ({ ...prev, mischie_vinte: v }))}
+              />
+              <StatInput
+                label="Perse"
+                tone="negativo"
+                value={stats.mischie_perse}
+                onChange={(v) => setStats((prev) => ({ ...prev, mischie_perse: v }))}
+              />
+            </GruppoStatistiche>
+
+            <GruppoStatistiche icon={ShieldCheck} titolo="Placcaggi" coloreClub={coloreClub}>
+              <StatInput
+                label="Efficaci"
+                tone="positivo"
+                value={stats.placcaggi_efficaci}
+                onChange={(v) => setStats((prev) => ({ ...prev, placcaggi_efficaci: v }))}
+              />
+              <StatInput
+                label="Non efficaci"
+                tone="negativo"
+                value={stats.placcaggi_non_efficaci}
+                onChange={(v) => setStats((prev) => ({ ...prev, placcaggi_non_efficaci: v }))}
+              />
+            </GruppoStatistiche>
           </div>
 
           <label className="mt-4 block space-y-2">
@@ -1193,9 +1380,12 @@ function giocatoriPerPosizione(
             </div>
 
             {/* =================================================
-                MOBILE: TITOLARI 1-15
+                MOBILE/TABLET: TITOLARI 1-15
+                (elenco impilato: usato finché lo spazio
+                orizzontale non basta a mostrare il campo
+                senza sovrapporre le card dei giocatori)
             ================================================== */}
-            <div className="space-y-3 sm:hidden">
+            <div className="space-y-3 xl:hidden">
               {titolari.map((slot) => (
                 <div
                   key={slot.posizione}
@@ -1334,18 +1524,20 @@ function giocatoriPerPosizione(
             </div>
 
             {/* =================================================
-                DESKTOP:
+                DESKTOP (xl+):
                 PANCHINA SINISTRA + CAMPO DESTRA
+                Sotto xl lo spazio non basta a mostrare il
+                campo senza sovrapporre le card: si usa
+                l'elenco impilato sopra.
             ================================================== */}
             <div
               className="
                 hidden
-                sm:grid
-                sm:grid-cols-[280px_minmax(0,1fr)]
-                sm:gap-4
-                lg:grid-cols-[300px_minmax(0,1fr)]
-                lg:gap-5
-                xl:grid-cols-[340px_minmax(0,1fr)]
+                xl:grid
+                xl:grid-cols-[280px_minmax(0,1fr)]
+                xl:gap-5
+                2xl:grid-cols-[320px_minmax(0,1fr)]
+                2xl:gap-6
               "
             >
               {/* ===============================================
@@ -1672,14 +1864,16 @@ function giocatoriPerPosizione(
               <div className="min-w-0">
                 <div
                   className="
+                    @container
                     relative
-                    h-[900px]
+                    h-[760px]
                     w-full
                     overflow-hidden
                     rounded-[2rem]
                     border border-white/20
                     bg-[#68a51b]
                     shadow-2xl
+                    2xl:h-[900px]
                   "
                 >
                   {/* LINEE CAMPO */}
@@ -1754,8 +1948,14 @@ function giocatoriPerPosizione(
                         key={slot.posizione}
                         className={`
                           absolute
-                          w-[180px]
+                          w-[104px]
                           -translate-x-1/2
+                          @xs:w-[116px]
+                          @sm:w-[128px]
+                          @md:w-[140px]
+                          @lg:w-[150px]
+                          @2xl:w-[162px]
+                          @4xl:w-[180px]
                           ${fieldPosition[slot.numero]}
                         `}
                       >
@@ -1764,32 +1964,33 @@ function giocatoriPerPosizione(
                             rounded-2xl
                             border border-white/25
                             bg-zinc-950/90
-                            p-2
+                            p-1.5
                             shadow-2xl
                             backdrop-blur
+                            @sm:p-2
                           "
                         >
-                          <div className="mb-2 flex items-center justify-between gap-2">
+                          <div className="mb-1.5 flex items-center justify-between gap-1.5 @sm:mb-2 @sm:gap-2">
                             <div className="min-w-0">
                               <p
-                                className="text-xl font-black leading-none"
+                                className="text-sm font-black leading-none @sm:text-base @lg:text-lg @2xl:text-xl"
                                 style={{
                                   color:
                                     coloreClub,
                                 }}
                               >
                                 <span
-                                    className="shrink-0 text-xl font-black"
+                                    className="shrink-0 font-black"
                                     style={{ color: coloreClub }}
                                   >
                                     #{slot.numero}
                                   </span>
-                                 <span className="mt-1 truncate text-[10px] font-bold uppercase text-zinc-400">
+                                 <span className="mt-1 hidden truncate text-[10px] font-bold uppercase text-zinc-400 @md:inline">
                                    - {slot.label}
                               </span>
                               </p>
 
-                             
+
                             </div>
 
                             <button
@@ -1819,7 +2020,7 @@ function giocatoriPerPosizione(
                               "
                             >
                               <Shirt
-                                className="h-6 w-6"
+                                className="h-4 w-4 @sm:h-5 @sm:w-5 @lg:h-6 @lg:w-6"
                                 style={{
                                   color: slot
                                     .convocazione
@@ -1845,7 +2046,7 @@ function giocatoriPerPosizione(
                                 ?.capitano ||
                                 slot.convocazione
                                   ?.vicecapitano) && (
-                                <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[7px] font-black text-zinc-950">
+                                <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[6px] font-black text-zinc-950 @lg:text-[7px]">
                                   {slot.convocazione
                                     ?.capitano
                                     ? "C"
@@ -1876,14 +2077,18 @@ function giocatoriPerPosizione(
                             }}
                             className="
                               w-full
-                              rounded-xl
+                              rounded-lg
                               border border-zinc-800
                               bg-zinc-900
-                              px-2
-                              py-2
-                              text-xs
+                              px-1.5
+                              py-1.5
+                              text-[10px]
                               text-white
                               outline-none
+                              @sm:rounded-xl
+                              @sm:px-2
+                              @sm:py-2
+                              @sm:text-xs
                             "
                           >
                             <option value="">
@@ -1918,9 +2123,9 @@ function giocatoriPerPosizione(
             </div>
 
             {/* =================================================
-                MOBILE: PANCHINA
+                MOBILE/TABLET: PANCHINA
             ================================================== */}
-            <div className="mt-4 sm:hidden">
+            <div className="mt-4 xl:hidden">
               <div className="rounded-2xl border border-zinc-800 bg-zinc-950">
                 <div className="mb-4">
                   <div className="flex items-center gap-2">

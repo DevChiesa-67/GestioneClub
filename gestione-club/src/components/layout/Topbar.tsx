@@ -818,16 +818,40 @@ export function Topbar() {
 
         {/* DESKTOP TOPBAR */}
         <div className="mx-auto hidden min-h-[72px] w-full max-w-[1700px] items-center justify-between gap-3 px-4 py-3 sm:px-5 lg:flex lg:min-h-20 lg:px-8 lg:py-0">
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-2xl font-black leading-tight text-white sm:text-3xl lg:text-4xl">
-              {pageInfo.title}
-            </h1>
-
-            {pageInfo.subtitle && (
-              <p className="mt-1 hidden truncate text-sm text-zinc-400 sm:block">
-                {pageInfo.subtitle}
-              </p>
+          <div className="flex min-w-0 flex-1 items-center gap-3 lg:gap-4">
+            {clubLogoUrl ? (
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center lg:h-14 lg:w-14">
+                <Image
+                  src={clubLogoUrl}
+                  alt={`Logo ${clubName}`}
+                  width={112}
+                  height={112}
+                  className="h-12 w-12 object-contain lg:h-14 lg:w-14"
+                />
+              </div>
+            ) : (
+              <div
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xs font-black text-white lg:h-14 lg:w-14 lg:text-sm"
+                style={{
+                  backgroundColor: themeColor,
+                  boxShadow: `0 10px 25px ${themeColor}33`,
+                }}
+              >
+                {getClubInitials(clubName)}
+              </div>
             )}
+
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-2xl font-black leading-tight text-white sm:text-3xl lg:text-4xl">
+                {pageInfo.title}
+              </h1>
+
+              {pageInfo.subtitle && (
+                <p className="mt-1 hidden truncate text-sm text-zinc-400 sm:block">
+                  {pageInfo.subtitle}
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3 lg:gap-5">

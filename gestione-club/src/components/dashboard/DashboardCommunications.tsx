@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Megaphone } from "lucide-react";
 import { getRecentCommunications } from "@/lib/services/dashboard.service";
+import { formatDataIT } from "@/lib/date";
 
 export default async function DashboardCommunications() {
   const communications = await getRecentCommunications();
@@ -36,7 +37,7 @@ export default async function DashboardCommunications() {
               </p>
 
               <p className="mt-1 text-sm text-zinc-500">
-                {new Date(item.created_at).toLocaleDateString("it-IT")}
+                {formatDataIT(item.created_at)}
               </p>
             </div>
           </Link>

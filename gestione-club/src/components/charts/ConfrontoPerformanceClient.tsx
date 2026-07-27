@@ -7,9 +7,12 @@ import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
 import {
   tagsPerTipiSeduta,
+  filtroTagIlike,
   risolviTipiSeduta,
+  SPLIT_TUTTA_SEDUTA,
   type TipoSedutaSingolo,
 } from "@/lib/performance/catapult-filtri";
+import { COLORE_POSITIVO, COLORE_NEGATIVO } from "@/lib/colore-report";
 
 type TipoSeduta = "tutte" | "allenamento" | "partita";
 
@@ -151,7 +154,7 @@ async function fetchCatapultRows(params: {
   }
 
   if (tags !== null) {
-    query = query.in("tags", tags);
+    query = query.or(filtroTagIlike(tags));
   }
 
   if (params.sessionTitles && params.sessionTitles.length > 0) {
@@ -160,6 +163,11 @@ async function fetchCatapultRows(params: {
 
   if (params.splitSelezionati && params.splitSelezionati.length > 0) {
     query = query.in("split_name", params.splitSelezionati);
+  } else {
+    // Nessuno split/tempo selezionato esplicitamente: di default si
+    // vuole il totale seduta ("all"), non la somma di tutte le righe
+    // (che includerebbe anche i sotto-split, gonfiando i dati).
+    query = query.ilike("split_name", SPLIT_TUTTA_SEDUTA);
   }
 
   const { data, error } = await query.order("date", { ascending: false });
@@ -169,7 +177,18 @@ async function fetchCatapultRows(params: {
     return [] as CatapultRow[];
   }
 
-  return (data ?? []) as CatapultRow[];
+  const righe = (data ?? []) as CatapultRow[];
+
+  // Il campo "Duration" del CSV Catapult arriva in secondi (unico campo
+  // tempo dell'export senza unità nel nome), ma la metrica "Durata" qui
+  // sotto è etichettata "min": convertiamo appena letto dal DB.
+  return righe.map((riga) => ({
+    ...riga,
+    duration:
+      riga.duration === null || riga.duration === undefined
+        ? null
+        : Number(riga.duration) / 60,
+  }));
 }
 
 function avg(values: number[]) {
@@ -421,6 +440,13 @@ function AndamentoSedute({
   clubId,
   squadraId,
   giocatori,
+  giocatoreIds,
+  dataDa,
+  dataA,
+  tipoSeduta,
+  tipiSeduta,
+  sessionTitles = [],
+  splitSelezionati = [],
   coloreFlag,
 }: Props) {
   const [giocatoreId, setGiocatoreId] = useState("");
@@ -428,6 +454,23 @@ function AndamentoSedute({
   const [loading, setLoading] = useState(false);
   const [sedutaA, setSedutaA] = useState("");
   const [sedutaB, setSedutaB] = useState("");
+
+  const tipiSedutaEffettivi = risolviTipiSeduta(tipoSeduta, tipiSeduta);
+
+  // Il menu "Giocatore" di questa modalità deve restare coerente con il
+  // filtro "Giocatore" globale del report: se sono selezionati dei
+  // giocatori specifici, si può scegliere solo tra quelli.
+  const giocatoriDisponibili = useMemo(() => {
+    return giocatoreIds && giocatoreIds.length > 0
+      ? giocatori.filter((g) => giocatoreIds.includes(g.id))
+      : giocatori;
+  }, [giocatori, giocatoreIds]);
+
+  useEffect(() => {
+    if (giocatoreId && !giocatoriDisponibili.some((g) => g.id === giocatoreId)) {
+      setGiocatoreId("");
+    }
+  }, [giocatoriDisponibili, giocatoreId]);
 
   useEffect(() => {
     if (!giocatoreId) {
@@ -444,6 +487,11 @@ function AndamentoSedute({
         clubId,
         squadraId,
         giocatoreIds: [giocatoreId],
+        dataDa,
+        dataA,
+        tipiSeduta: tipiSedutaEffettivi,
+        sessionTitles,
+        splitSelezionati,
       });
 
       if (!cancelled) {
@@ -459,7 +507,16 @@ function AndamentoSedute({
     return () => {
       cancelled = true;
     };
-  }, [clubId, squadraId, giocatoreId]);
+  }, [
+    clubId,
+    squadraId,
+    giocatoreId,
+    dataDa,
+    dataA,
+    tipiSedutaEffettivi.join(","),
+    sessionTitles.join(","),
+    splitSelezionati.join(","),
+  ]);
 
   const sessioni = useMemo(() => aggregaSessioni(rows), [rows]);
 
@@ -487,7 +544,7 @@ function AndamentoSedute({
               className="h-[48px] w-full rounded-2xl border border-white/10 bg-zinc-950 px-4 text-sm font-bold text-white outline-none transition focus:border-white/30"
             >
               <option value="">Seleziona giocatore</option>
-              {giocatori.map((g) => (
+              {giocatoriDisponibili.map((g) => (
                 <option key={g.id} value={g.id}>
                   {nomeCompleto(g)}
                 </option>
@@ -631,8 +688,8 @@ function AndamentoSedute({
                             delta === null
                               ? undefined
                               : delta >= 0
-                                ? coloreFlag
-                                : "#f87171",
+                                ? COLORE_POSITIVO
+                                : COLORE_NEGATIVO,
                         }}
                       >
                         {delta === null

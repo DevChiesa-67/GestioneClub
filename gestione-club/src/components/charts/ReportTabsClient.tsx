@@ -2,15 +2,28 @@
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
-import { ChevronDown, UserRound } from "lucide-react";
+import Link from "next/link";
+import { ChevronDown, Download, Loader2, UserRound, Upload } from "lucide-react";
 
 import ReportPerformanceClient from "@/components/charts/ReportPerformanceClient";
 import ReportAcwrClient from "@/components/charts/ReportAcwrClient";
 import { AppCard } from "@/components/ui/AppCard";
-import ReportPerformanceSessioniClient from "@/components/charts/ReportPerformanceSessioniClient";
+import { DateInput } from "@/components/ui/DateInput";
+import { formatDataIT } from "@/lib/date";
+import ReportPerformanceSessioniClient, {
+  BASE_COLUMNS,
+  fetchPerformanceRows,
+  formatDate as formatDataPerformance,
+  formatNumber as formatNumeroPerformance,
+  type PerformanceRow,
+} from "@/components/charts/ReportPerformanceSessioniClient";
 import PerformanceDashboardChartsClient from "@/components/charts/PerformanceDashboardChartsClient";
 import ReportTestClient from "@/components/charts/ReportTestClient";
 import ConfrontoPerformanceClient from "@/components/charts/ConfrontoPerformanceClient";
+import {
+  generaPdfPerformance,
+  type AndamentoSessionePdf,
+} from "@/lib/pdf-performance";
 import {
   TAG_ALLENAMENTO,
   TAG_PARTITA,
@@ -24,10 +37,30 @@ type TabKey =
   | "test"
   | "confronto";
 
-const TEMPO_PARTITA_OPZIONI: { value: string; label: string }[] = [
-  { value: "1 Half", label: "Primo Tempo" },
-  { value: "2 Half", label: "Secondo Tempo" },
-];
+// I valori reali di split_name per le partite dipendono da come Catapult
+// esporta il CSV (varia da dispositivo/versione: "1st Half", "H1", "1",
+// ecc.): invece di assumere una stringa fissa, mostriamo sempre i valori
+// effettivamente presenti nei dati (vedi splitOpzioniPartita) e proviamo
+// solo a etichettarli in modo leggibile quando riconosciamo un pattern
+// comune. Se non riconosciamo nulla, mostriamo il valore così com'è,
+// così il filtro funziona comunque.
+function etichettaSplitPartita(nome: string): string {
+  const normalizzato = nome.trim().toLowerCase();
+
+  if (/^1(st)?\b|primo|first|h1\b/.test(normalizzato)) {
+    return "Primo Tempo";
+  }
+
+  if (/^2(nd)?\b|secondo|second|h2\b/.test(normalizzato)) {
+    return "Secondo Tempo";
+  }
+
+  return nome;
+}
+
+function corrispondeATag(tagsValue: string | null, tag: string) {
+  return !!tagsValue && tagsValue.trim().toLowerCase() === tag.toLowerCase();
+}
 
 type Giocatore = {
   id: string;
@@ -49,18 +82,112 @@ type SessioneCatapult = {
   tags: string | null;
 };
 
+// Split di allenamento e "tempi" di partita condividono la stessa colonna
+// split_name, ma vanno proposti separatamente in base al tag della riga
+// (Training/Game), altrimenti si mescolano nella stessa lista.
+type SplitOption = {
+  nome: string;
+  tags: string | null;
+};
+
 type Props = {
   clubId: string;
   squadraId: string | null;
   coloreFlag: string;
+  clubLogoUrl?: string | null;
   giocatori: Giocatore[];
-  splitNames: string[];
+  splitOptions: SplitOption[];
   sessioni: SessioneCatapult[];
   giocatoreId?: string | null;
 };
 
 function chiaveSessione(sessione: SessioneCatapult) {
   return `${sessione.titolo}__${sessione.data ?? ""}`;
+}
+
+// Stesse statistiche aggregate mostrate nella card "Riepilogo statistiche"
+// / "Ultima sessione" della tab Riepilogo (ReportPerformanceSessioniClient
+// in mode="summary"), calcolate qui per poterle riportare anche nel PDF.
+function calcolaRiepilogoPerformance(rows: PerformanceRow[]) {
+  const numeroSessioni = rows.length;
+
+  const distanzaTotale = rows.reduce(
+    (sum, row) => sum + (row.distance ?? 0),
+    0
+  );
+
+  const distanzaMedia = numeroSessioni > 0 ? distanzaTotale / numeroSessioni : 0;
+
+  const topSpeedMassimo = Math.max(0, ...rows.map((row) => row.top_speed ?? 0));
+
+  const playerLoadTotale = rows.reduce(
+    (sum, row) => sum + (row.player_load ?? 0),
+    0
+  );
+
+  const playerLoadMedio =
+    numeroSessioni > 0 ? playerLoadTotale / numeroSessioni : 0;
+
+  const ultimaSessione =
+    rows.length > 0
+      ? [...rows]
+          .filter((row) => row.date)
+          .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""))[0] ?? null
+      : null;
+
+  return {
+    numeroSessioni,
+    distanzaMedia,
+    topSpeedMassimo,
+    playerLoadMedio,
+    playerLoadTotale,
+    ultimaSessione,
+  };
+}
+
+// Le righe di catapult_data possono includere più split per la stessa
+// sessione (es. primo/secondo tempo, o più giocatori): per il grafico
+// "andamento per sessione" del PDF le aggreghiamo per data+titolo,
+// sommando distanza e player load, e le ordiniamo cronologicamente.
+function calcolaAndamentoSessioni(
+  rows: PerformanceRow[]
+): AndamentoSessionePdf[] {
+  const gruppi = new Map<
+    string,
+    {
+      data: string | null;
+      titolo: string | null;
+      distanza: number;
+      playerLoad: number;
+    }
+  >();
+
+  rows.forEach((row) => {
+    const chiave = `${row.date ?? ""}__${row.session_title ?? ""}`;
+    const esistente = gruppi.get(chiave);
+
+    if (esistente) {
+      esistente.distanza += row.distance ?? 0;
+      esistente.playerLoad += row.player_load ?? 0;
+    } else {
+      gruppi.set(chiave, {
+        data: row.date,
+        titolo: row.session_title,
+        distanza: row.distance ?? 0,
+        playerLoad: row.player_load ?? 0,
+      });
+    }
+  });
+
+  return Array.from(gruppi.values())
+    .sort((a, b) => (a.data ?? "").localeCompare(b.data ?? ""))
+    .map((gruppo) => ({
+      etichetta: gruppo.data
+        ? formatDataPerformance(gruppo.data).slice(0, 5)
+        : gruppo.titolo ?? "—",
+      distanza: gruppo.distanza,
+      playerLoad: gruppo.playerLoad,
+    }));
 }
 
 const TABS: { key: TabKey; label: string }[] = [
@@ -76,8 +203,9 @@ export default function ReportTabsClient({
   clubId,
   squadraId,
   coloreFlag,
+  clubLogoUrl = null,
   giocatori,
-  splitNames,
+  splitOptions,
   sessioni,
   giocatoreId: giocatoreIdIniziale = null,
 }: Props) {
@@ -102,6 +230,8 @@ export default function ReportTabsClient({
   const [splitSelezionati, setSplitSelezionati] = useState<string[]>(
     []
   );
+
+  const [scaricandoPdf, setScaricandoPdf] = useState(false);
 
   function toggleGiocatore(id: string) {
     setGiocatoreIds((prev) =>
@@ -148,6 +278,38 @@ export default function ReportTabsClient({
       tipo === "allenamento" ? TAG_ALLENAMENTO : TAG_PARTITA
     );
   }, [tipiSeduta]);
+
+  // Split disponibili per gli allenamenti: solo i valori di split_name
+  // presenti su righe con tag "Training", mai mescolati con quelli delle
+  // partite.
+  const splitOpzioniAllenamento = useMemo(() => {
+    return Array.from(
+      new Set(
+        splitOptions
+          .filter((opzione) => corrispondeATag(opzione.tags, TAG_ALLENAMENTO))
+          .map((opzione) => opzione.nome)
+      )
+    ).sort();
+  }, [splitOptions]);
+
+  // "Tempi" disponibili per le partite: solo i valori di split_name
+  // presenti su righe con tag "Game", con un'etichetta leggibile quando
+  // possibile (altrimenti il valore grezzo, per non nascondere dati reali
+  // dietro etichette hardcoded che potrebbero non corrispondere).
+  const splitOpzioniPartita = useMemo(() => {
+    const nomi = Array.from(
+      new Set(
+        splitOptions
+          .filter((opzione) => corrispondeATag(opzione.tags, TAG_PARTITA))
+          .map((opzione) => opzione.nome)
+      )
+    ).sort();
+
+    return nomi.map((nome) => ({
+      value: nome,
+      label: etichettaSplitPartita(nome),
+    }));
+  }, [splitOptions]);
 
   const sessioniFiltrate = useMemo(() => {
     if (tagCorrispondenti.length === 0) {
@@ -198,6 +360,52 @@ export default function ReportTabsClient({
     );
   }, [sessioniSelezionate]);
 
+  // Riepilogo testuale dei filtri attivi, usato come sottotitolo nel PDF
+  // scaricato dalla tabella Performance, così il file resta comprensibile
+  // anche fuori dal contesto dell'app.
+  const filtroDescrizionePerformance = useMemo(() => {
+    const parti: string[] = [];
+
+    if (giocatoriSelezionati.length > 0) {
+      parti.push(
+        `Giocatori: ${giocatoriSelezionati.map((g) => nomeCompleto(g)).join(", ")}`
+      );
+    }
+
+    if (dataDa || dataA) {
+      parti.push(
+        `Periodo: ${dataDa ? formatDataIT(dataDa) : "..."} - ${
+          dataA ? formatDataIT(dataA) : "..."
+        }`
+      );
+    }
+
+    if (tipiSeduta.length === 1) {
+      parti.push(
+        `Tipo seduta: ${tipiSeduta[0] === "allenamento" ? "Allenamento" : "Partita"}`
+      );
+    }
+
+    if (sessioniSelezionate.length > 0) {
+      parti.push(
+        `Eventi: ${sessioniSelezionate.map((s) => s.titolo).join(", ")}`
+      );
+    }
+
+    if (splitSelezionati.length > 0) {
+      parti.push(`Split: ${splitSelezionati.join(", ")}`);
+    }
+
+    return parti.length > 0 ? parti.join("  |  ") : "Nessun filtro applicato";
+  }, [
+    giocatoriSelezionati,
+    dataDa,
+    dataA,
+    tipiSeduta,
+    sessioniSelezionate,
+    splitSelezionati,
+  ]);
+
   const soloPartita =
     tipiSeduta.length === 1 && tipiSeduta[0] === "partita";
 
@@ -210,8 +418,152 @@ export default function ReportTabsClient({
       ? "Nome allenamento"
       : "Nome evento";
 
+  async function handleDownloadPdf() {
+    if (scaricandoPdf) return;
+
+    setScaricandoPdf(true);
+
+    try {
+      const performanceRows = await fetchPerformanceRows({
+        clubId,
+        squadraId,
+        giocatoreIds,
+        dataDa,
+        dataA,
+        tipiSeduta,
+        sessionTitles: sessionTitlesFiltro,
+        splitSelezionati,
+      });
+
+      const colonnePdf = BASE_COLUMNS.map((column) => ({
+        label: column.label,
+        align: column.align ?? ("left" as const),
+      }));
+
+      const righePdf = performanceRows.map((row) =>
+        BASE_COLUMNS.map((column) => {
+          const value = row[column.key];
+
+          if (column.type === "date") {
+            return formatDataPerformance(value as string | null);
+          }
+
+          if (column.type === "number") {
+            return formatNumeroPerformance(
+              value as number | null,
+              column.decimals ?? 0
+            );
+          }
+
+          return value ? String(value) : "—";
+        })
+      );
+
+      const riepilogo = calcolaRiepilogoPerformance(performanceRows);
+
+      const righeRiepilogo = [
+        {
+          label: "Numero sessioni registrate",
+          value: String(riepilogo.numeroSessioni),
+        },
+        {
+          label: "Distanza media (m)",
+          value: formatNumeroPerformance(riepilogo.distanzaMedia, 0),
+        },
+        {
+          label: "Top Speed massimo (m/s)",
+          value: formatNumeroPerformance(riepilogo.topSpeedMassimo, 2),
+        },
+        {
+          label: "Player Load medio",
+          value: formatNumeroPerformance(riepilogo.playerLoadMedio, 0),
+        },
+        {
+          label: "Player Load totale",
+          value: formatNumeroPerformance(riepilogo.playerLoadTotale, 0),
+        },
+      ];
+
+      if (riepilogo.ultimaSessione) {
+        righeRiepilogo.push(
+          {
+            label: "Ultima sessione — Data",
+            value: formatDataPerformance(riepilogo.ultimaSessione.date),
+          },
+          {
+            label: "Ultima sessione — Nome",
+            value: riepilogo.ultimaSessione.session_title ?? "—",
+          },
+          {
+            label: "Ultima sessione — Player Load",
+            value: formatNumeroPerformance(
+              riepilogo.ultimaSessione.player_load,
+              0
+            ),
+          },
+          {
+            label: "Ultima sessione — Top Speed (m/s)",
+            value: formatNumeroPerformance(
+              riepilogo.ultimaSessione.top_speed,
+              2
+            ),
+          }
+        );
+      }
+
+      const andamentoSessioni = calcolaAndamentoSessioni(performanceRows);
+
+      await generaPdfPerformance(
+        "SCHEDA PERFORMANCE",
+        filtroDescrizionePerformance,
+        colonnePdf,
+        righePdf,
+        { logo_url: clubLogoUrl },
+        `performance-${new Date().toISOString().slice(0, 10)}.pdf`,
+        righeRiepilogo,
+        andamentoSessioni
+      );
+    } finally {
+      setScaricandoPdf(false);
+    }
+  }
+
   return (
     <div className="space-y-6 p-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm text-zinc-400">Performance</p>
+          <h1 className="text-2xl font-semibold text-white">
+            Report performance
+          </h1>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            disabled={scaricandoPdf}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {scaricandoPdf ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            Scarica PDF
+          </button>
+
+          <Link
+            href="/performance/importa-dati"
+            className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+            style={{ backgroundColor: coloreFlag }}
+          >
+            <Upload className="h-4 w-4" />
+            Importa dati
+          </Link>
+        </div>
+      </div>
+
       <AppCard title="Filtri report">
         <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1.4fr_1fr]">
           {/* GIOCATORE (multiselezione) */}
@@ -335,29 +687,21 @@ export default function ReportTabsClient({
 
           {/* DATA DA */}
           <div>
-            <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-500">
-              Data da
-            </label>
-
-            <input
-              type="date"
+            <DateInput
+              label="Data da"
               value={dataDa}
-              onChange={(e) => setDataDa(e.target.value)}
-              className="h-[52px] w-full rounded-2xl border border-white/10 bg-zinc-950 px-4 text-sm font-semibold text-white outline-none [color-scheme:dark] transition focus:border-white/30"
+              onChange={setDataDa}
+              wrapperClassName="h-[52px] rounded-2xl border-white/10 bg-zinc-950 focus-within:border-white/30"
             />
           </div>
 
           {/* DATA A */}
           <div>
-            <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-500">
-              Data a
-            </label>
-
-            <input
-              type="date"
+            <DateInput
+              label="Data a"
               value={dataA}
-              onChange={(e) => setDataA(e.target.value)}
-              className="h-[52px] w-full rounded-2xl border border-white/10 bg-zinc-950 px-4 text-sm font-semibold text-white outline-none [color-scheme:dark] transition focus:border-white/30"
+              onChange={setDataA}
+              wrapperClassName="h-[52px] rounded-2xl border-white/10 bg-zinc-950 focus-within:border-white/30"
             />
           </div>
 
@@ -449,7 +793,7 @@ export default function ReportTabsClient({
                     >
                       <span className="truncate">
                         {sessione.titolo}
-                        {sessione.data ? ` - ${sessione.data}` : ""}
+                        {sessione.data ? ` - ${formatDataIT(sessione.data)}` : ""}
                       </span>
 
                       {selezionato && (
@@ -490,7 +834,7 @@ export default function ReportTabsClient({
                   {splitSelezionati.length === 0
                     ? "Tutta la partita"
                     : splitSelezionati.length === 1
-                      ? (TEMPO_PARTITA_OPZIONI.find(
+                      ? (splitOpzioniPartita.find(
                           (opzione) => opzione.value === splitSelezionati[0]
                         )?.label ?? splitSelezionati[0])
                       : `${splitSelezionati.length} tempi selezionati`}
@@ -515,7 +859,7 @@ export default function ReportTabsClient({
                     )}
                   </button>
 
-                  {TEMPO_PARTITA_OPZIONI.map((opzione) => {
+                  {splitOpzioniPartita.map((opzione) => {
                     const selezionato = splitSelezionati.includes(
                       opzione.value
                     );
@@ -539,6 +883,13 @@ export default function ReportTabsClient({
                       </button>
                     );
                   })}
+
+                  {splitOpzioniPartita.length === 0 && (
+                    <p className="px-3 py-2.5 text-xs font-semibold text-zinc-500">
+                      Nessun dato per tempo disponibile per le partite
+                      importate.
+                    </p>
+                  )}
 
                   <div className="mt-1 border-t border-white/10 pt-2">
                     <button
@@ -590,7 +941,7 @@ export default function ReportTabsClient({
                     )}
                   </button>
 
-                  {splitNames.map((split) => {
+                  {splitOpzioniAllenamento.map((split) => {
                     const selezionato =
                       splitSelezionati.includes(split);
 

@@ -8,7 +8,9 @@ import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
 import {
   tagsPerTipiSeduta,
+  filtroTagIlike,
   risolviTipiSeduta,
+  SPLIT_TUTTA_SEDUTA,
   type TipoSedutaSingolo,
 } from "@/lib/performance/catapult-filtri";
 
@@ -161,7 +163,7 @@ export default function PerformanceDashboardChartsClient({
         }
 
         if (tags !== null) {
-          query = query.in("tags", tags);
+          query = query.or(filtroTagIlike(tags));
         }
 
         if (sessionTitles.length > 0) {
@@ -170,6 +172,12 @@ export default function PerformanceDashboardChartsClient({
 
         if (splitSelezionati.length > 0) {
           query = query.in("split_name", splitSelezionati);
+        } else {
+          // Nessuno split/tempo selezionato esplicitamente: di default
+          // si vuole il totale seduta ("all"), non la somma di tutte le
+          // righe (che includerebbe anche i sotto-split, gonfiando i
+          // grafici).
+          query = query.ilike("split_name", SPLIT_TUTTA_SEDUTA);
         }
 
         query = query.order("date", { ascending: true });

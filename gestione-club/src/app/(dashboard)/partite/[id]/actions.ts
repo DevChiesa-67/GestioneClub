@@ -13,6 +13,14 @@ type SalvaStatisticheInput = {
   calci_subiti: number;
   ammonizioni: number;
   espulsioni: number;
+  punti_incontro_vinti: number;
+  punti_incontro_persi: number;
+  touche_vinte: number;
+  touche_perse: number;
+  mischie_vinte: number;
+  mischie_perse: number;
+  placcaggi_efficaci: number;
+  placcaggi_non_efficaci: number;
   note?: string | null;
 };
 
@@ -121,6 +129,14 @@ export async function salvaStatistichePartita(input: SalvaStatisticheInput) {
         calci_subiti: input.calci_subiti,
         ammonizioni: input.ammonizioni,
         espulsioni: input.espulsioni,
+        punti_incontro_vinti: input.punti_incontro_vinti,
+        punti_incontro_persi: input.punti_incontro_persi,
+        touche_vinte: input.touche_vinte,
+        touche_perse: input.touche_perse,
+        mischie_vinte: input.mischie_vinte,
+        mischie_perse: input.mischie_perse,
+        placcaggi_efficaci: input.placcaggi_efficaci,
+        placcaggi_non_efficaci: input.placcaggi_non_efficaci,
         note: input.note ?? null,
         updated_by: user.id,
         updated_at: new Date().toISOString(),

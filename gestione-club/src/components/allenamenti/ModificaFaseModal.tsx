@@ -51,7 +51,7 @@ export default function ModificaFaseModal({
 
       onClose();
     } catch {
-      setErrore("Errore durante l'aggiornamento della fase.");
+      setErrore("Errore durante l'aggiornamento del mesociclo.");
     } finally {
       setLoading(false);
     }
@@ -65,9 +65,9 @@ export default function ModificaFaseModal({
           style={{ backgroundColor: brand }}
         >
           <div>
-            <h2 className="text-lg font-bold">Modifica fase</h2>
+            <h2 className="text-lg font-bold">Modifica mesociclo</h2>
             <p className="mt-1 text-sm text-white/75">
-              Aggiorna nome, colore e obiettivo della fase.
+              Aggiorna nome, colore e obiettivo del mesociclo.
             </p>
           </div>
 
@@ -84,7 +84,7 @@ export default function ModificaFaseModal({
         <form action={handleSubmit} className="space-y-5 bg-zinc-950 p-6">
           <div>
             <label className="mb-2 block text-sm font-semibold text-zinc-300">
-              Nome fase
+              Nome mesociclo
             </label>
 
             <div className="relative">
@@ -105,7 +105,7 @@ export default function ModificaFaseModal({
 
           <div>
             <label className="mb-2 block text-sm font-semibold text-zinc-300">
-              Colore fase
+              Colore mesociclo
             </label>
 
             <input
@@ -118,7 +118,7 @@ export default function ModificaFaseModal({
 
           <div>
             <label className="mb-2 block text-sm font-semibold text-zinc-300">
-              Obiettivo fase
+              Obiettivo mesociclo
             </label>
 
             <div className="relative">
@@ -131,7 +131,7 @@ export default function ModificaFaseModal({
                 name="obiettivo"
                 rows={4}
                 defaultValue={fase.obiettivo ?? ""}
-                placeholder="Obiettivi della fase..."
+                placeholder="Obiettivi del mesociclo..."
                 className="block min-h-28 w-full resize-none rounded-2xl border border-zinc-700 bg-zinc-900 py-3 pl-11 pr-4 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
               />
             </div>

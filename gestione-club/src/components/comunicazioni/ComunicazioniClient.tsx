@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase-client";
 import { AppCard } from "@/components/ui/AppCard";
 import Link from "next/link";
 import { comunicazioneVisibilePerProfilo } from "@/lib/comunicazioni/destinatari";
+import { useToast } from "@/components/ui/Toast";
 
 type Profilo = {
   id: string;
@@ -49,6 +50,8 @@ function normalize(value: string | null | undefined) {
 }
 
 export default function ComunicazioniClient() {
+  const { showToast } = useToast();
+
   const [userId, setUserId] = useState<string | null>(null);
   const [profiloId, setProfiloId] = useState<string | null>(null);
   const [tipoProfilo, setTipoProfilo] = useState<string | null>(null);
@@ -412,9 +415,52 @@ export default function ComunicazioniClient() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ comunicazione_id: creata.id }),
-        }).catch((err) => {
-          console.error("Errore invio notifiche comunicazione:", err);
-        });
+        })
+          .then(async (res) => {
+            const result = await res.json().catch(() => null);
+
+            if (!res.ok || !result?.success) {
+              showToast({
+                type: "error",
+                title: "Notifiche push non inviate",
+                message:
+                  result?.message ||
+                  "Errore durante l'invio delle notifiche push.",
+              });
+
+              return;
+            }
+
+            const { destinatari = 0, dispositivi = 0, sent = 0, failed = 0 } =
+              result;
+
+            if (dispositivi === 0) {
+              showToast({
+                type: "info",
+                title: "Comunicazione pubblicata",
+                message: `Notifica in-app creata per ${destinatari} destinatari. Nessun dispositivo con notifiche push attive: chi deve riceverle deve prima aprire il gestionale e concedere il permesso "Notifiche" quando richiesto.`,
+              });
+
+              return;
+            }
+
+            showToast({
+              type: failed > 0 ? "error" : "success",
+              title: "Comunicazione pubblicata",
+              message: `Push inviata a ${sent} dispositivi su ${dispositivi}${
+                failed > 0 ? ` (${failed} falliti)` : ""
+              }.`,
+            });
+          })
+          .catch((err) => {
+            console.error("Errore invio notifiche comunicazione:", err);
+
+            showToast({
+              type: "error",
+              title: "Notifiche push non inviate",
+              message: "Errore di rete durante l'invio delle notifiche push.",
+            });
+          });
       }
     }
 

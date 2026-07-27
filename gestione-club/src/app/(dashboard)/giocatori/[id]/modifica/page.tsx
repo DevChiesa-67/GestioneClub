@@ -6,6 +6,7 @@ import { Camera, Upload, X } from "lucide-react";
 import { supabase } from "@/lib/supabase-client";
 import { aggiornaGiocatoreAction } from "../actions";
 import { useToast } from "@/components/ui/Toast";
+import { DateInput } from "@/components/ui/DateInput";
 
 type Squadra = {
   id: string;
@@ -494,7 +495,7 @@ export default function ModificaGiocatorePage() {
                     onChange={(v) => updateField("cognome", v)}
                   />
 
-                  <DataNascitaInput
+                  <DateInput
                     label="Data di nascita"
                     value={form.data_nascita}
                     onChange={(v) => updateField("data_nascita", v)}
@@ -761,85 +762,6 @@ function Input({
         max={max}
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition placeholder:text-zinc-600 focus:border-[#d71920] focus:ring-4 focus:ring-[#d71920]/10 disabled:cursor-not-allowed disabled:opacity-40"
-      />
-    </label>
-  );
-}
-
-function isoToGiornoMeseAnno(iso: string) {
-  const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
-
-  if (!match) return "";
-
-  const [, anno, mese, giorno] = match;
-
-  return `${giorno}-${mese}-${anno}`;
-}
-
-function giornoMeseAnnoToIso(valore: string) {
-  const match = valore.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-
-  if (!match) return null;
-
-  const [, giorno, mese, anno] = match;
-
-  return `${anno}-${mese}-${giorno}`;
-}
-
-function DataNascitaInput({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (isoValue: string) => void;
-}) {
-  const [testo, setTesto] = useState(() => isoToGiornoMeseAnno(value));
-
-  useEffect(() => {
-    setTesto(isoToGiornoMeseAnno(value));
-  }, [value]);
-
-  function handleChange(raw: string) {
-    const cifre = raw.replace(/\D/g, "").slice(0, 8);
-
-    let formattato = cifre;
-
-    if (cifre.length > 4) {
-      formattato = `${cifre.slice(0, 2)}-${cifre.slice(2, 4)}-${cifre.slice(4)}`;
-    } else if (cifre.length > 2) {
-      formattato = `${cifre.slice(0, 2)}-${cifre.slice(2)}`;
-    }
-
-    setTesto(formattato);
-
-    if (formattato === "") {
-      onChange("");
-      return;
-    }
-
-    const iso = giornoMeseAnnoToIso(formattato);
-
-    if (iso) {
-      onChange(iso);
-    }
-  }
-
-  return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-medium text-zinc-400">
-        {label}
-      </span>
-
-      <input
-        type="text"
-        inputMode="numeric"
-        placeholder="GG-MM-YYYY"
-        maxLength={10}
-        value={testo}
-        onChange={(e) => handleChange(e.target.value)}
-        className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition placeholder:text-zinc-600 focus:border-[#d71920] focus:ring-4 focus:ring-[#d71920]/10"
       />
     </label>
   );

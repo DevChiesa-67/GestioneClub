@@ -234,6 +234,7 @@ export default function MisurazioniGiocatoreClient({
               ? new Intl.DateTimeFormat("it-IT", {
                   day: "2-digit",
                   month: "2-digit",
+                  year: "numeric",
                 }).format(new Date(`${ultimoBenessere.data_compilazione}T12:00:00`))
               : "—"
           }

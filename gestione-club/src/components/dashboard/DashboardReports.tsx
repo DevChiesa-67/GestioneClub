@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase-server";
 import { FileText, ChevronRight } from "lucide-react";
 import { getRecentReports } from "@/lib/services/dashboard.service";
+import { formatDataIT } from "@/lib/date";
 
 async function getThemeColor() {
   const supabase = await createClient();
@@ -63,7 +64,7 @@ export default async function DashboardReports() {
 
               <p className="text-sm text-zinc-500">
                 Generato il{" "}
-                {new Date(report.created_at).toLocaleDateString("it-IT")}
+                {formatDataIT(report.created_at)}
               </p>
             </div>
 

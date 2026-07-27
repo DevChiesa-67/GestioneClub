@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
 import { AppCard } from "@/components/ui/AppCard";
+import { DateInput } from "@/components/ui/DateInput";
+import { formatDataIT } from "@/lib/date";
 import {
   aggiungiValutazioneFisioterapista,
   aggiungiValutazioneMedico,
@@ -212,28 +214,22 @@ function DettagliTab({
         </div>
 
         <div>
-          <label className="mb-1 block text-sm text-zinc-300">
-            Data infortunio
-          </label>
-          <input
-            type="date"
+          <DateInput
+            label="Data infortunio"
             name="data_infortunio"
             defaultValue={infortunio.data_infortunio}
             disabled={!isAdmin}
-            className="min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-base text-white disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
+            wrapperClassName="min-h-11 rounded-xl border-zinc-700 bg-zinc-950"
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-sm text-zinc-300">
-            Data rientro
-          </label>
-          <input
-            type="date"
+          <DateInput
+            label="Data rientro"
             name="data_rientro"
             defaultValue={infortunio.data_rientro ?? ""}
             disabled={!isAdmin}
-            className="min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-base text-white disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm"
+            wrapperClassName="min-h-11 rounded-xl border-zinc-700 bg-zinc-950"
           />
         </div>
 
@@ -270,7 +266,7 @@ function MedicoTab({
       fields={
         <>
           <input name="medico_nome" placeholder="Nome medico" className={input} />
-          <input type="date" name="medico_data_valutazione" required className={input} />
+          <DateInput name="medico_data_valutazione" required wrapperClassName={input} />
           <textarea name="medico_terapia" placeholder="Terapia" className={textarea} />
           <textarea name="medico_commento" placeholder="Commento" className={textarea} />
           <textarea
@@ -315,11 +311,10 @@ function FisioterapistaTab({
             placeholder="Nome fisioterapista"
             className={input}
           />
-          <input
-            type="date"
+          <DateInput
             name="fisioterapista_data_visita"
             required
-            className={input}
+            wrapperClassName={input}
           />
           <textarea
             name="fisioterapista_commento"
@@ -361,11 +356,10 @@ function PreparatoreTab({
             placeholder="Nome preparatore"
             className={input}
           />
-          <input
-            type="date"
+          <DateInput
             name="preparatore_data_valutazione"
             required
-            className={input}
+            wrapperClassName={input}
           />
           <textarea
             name="preparatore_allenamento_recupero_infortunio"
@@ -455,7 +449,7 @@ function LogTab({
             >
               <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <h3 className="break-words font-semibold text-white">{item.title}</h3>
-                <span className="shrink-0 text-xs text-zinc-500 sm:text-sm">{item.date}</span>
+                <span className="shrink-0 text-xs text-zinc-500 sm:text-sm">{formatDataIT(item.date)}</span>
               </div>
 
               {item.extra && (

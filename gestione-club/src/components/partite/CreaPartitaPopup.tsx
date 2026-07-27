@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { Plus, X, Upload } from "lucide-react";
+import { DateInput } from "@/components/ui/DateInput";
 
 export type SquadraPartita = {
   id: string;
@@ -541,19 +542,13 @@ if (!res.ok) {
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
   <div>
-    <label className="mb-1 block text-sm font-medium text-zinc-300">
-      Data partita
-    </label>
-
-    <input
-      type="date"
+    <DateInput
+      label="Data partita"
       value={dataPartita}
-      onChange={(e) => setDataPartita(e.target.value)}
+      onChange={setDataPartita}
       required
-      className="w-full rounded-xl border bg-zinc-900 px-3 py-2 text-sm text-white outline-none transition"
-      style={{
-        borderColor: `${clubColor}45`,
-      }}
+      wrapperClassName="bg-zinc-900"
+      wrapperStyle={{ borderColor: `${clubColor}45` }}
     />
   </div>
 

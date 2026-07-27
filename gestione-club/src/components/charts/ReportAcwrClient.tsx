@@ -9,6 +9,7 @@ import {
   dateCatapultPerTipiSeduta,
   type TipoSedutaSingolo,
 } from "@/lib/performance/catapult-filtri";
+import { sceglieColoreSecondario } from "@/lib/colore-report";
 
 type AcwrRow = {
   id: string;
@@ -105,6 +106,8 @@ function AcwrChart({
   rows: AcwrRow[];
   coloreFlag: string;
 }) {
+  const coloreEwma = sceglieColoreSecondario(coloreFlag);
+
   const width = 1200;
   const height = 430;
 
@@ -281,7 +284,7 @@ function AcwrChart({
               key={`ewma-${index}`}
               points={segment.join(" ")}
               fill="none"
-              stroke="#ef4444"
+              stroke={coloreEwma}
               strokeWidth="4"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -323,7 +326,10 @@ function AcwrChart({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="h-[3px] w-8 rounded-full bg-red-500" />
+            <span
+              className="h-[3px] w-8 rounded-full"
+              style={{ backgroundColor: coloreEwma }}
+            />
 
             <span className="text-sm font-bold text-zinc-300">ACWR EWMA</span>
           </div>

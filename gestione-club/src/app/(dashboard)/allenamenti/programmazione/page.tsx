@@ -49,17 +49,12 @@ export default async function ProgrammazionePage() {
         focus_settimana,
         obiettivo_settimana,
         note,
-        programmazione_sedute (
-          id,
-          data_seduta,
-          tipo_sessione,
-          tema,
-          volume_min,
-          durata_min,
-          intensita,
-          carico,
-          note
-        )
+        data_seduta,
+        focus_tecnico,
+        intensita,
+        rpe_target,
+        focus_avanti,
+        focus_trequarti
       )
     )
   `)
@@ -79,14 +74,21 @@ export default async function ProgrammazionePage() {
     );
   }
 
-  const [{ data: club }, { data: programmazioni }] = await Promise.all([
-    supabase
-      .from("club")
-      .select("id,nome,colore_flag")
-      .eq("id", profilo.last_club_id)
-      .single(),
-    programmazioniQuery,
-  ]);
+  const [{ data: club }, { data: programmazioni, error: programmazioniError }] =
+    await Promise.all([
+      supabase
+        .from("club")
+        .select("id,nome,colore_flag")
+        .eq("id", profilo.last_club_id)
+        .single(),
+      programmazioniQuery,
+    ]);
+
+  if (programmazioniError) {
+    throw new Error(
+      `Errore nel caricamento delle programmazioni: ${programmazioniError.message}`
+    );
+  }
 
   return (
     <ProgrammazioneClient

@@ -18,6 +18,7 @@ import {
 import {
   creaMisurazioneAntropometricaAction,
 } from "@/app/(dashboard)/misurazioni/actions";
+import { DateInput } from "@/components/ui/DateInput";
 
 import type {
   GiocatoreMisurazioni,
@@ -324,35 +325,19 @@ function chiudiModal() {
             <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
           </label>
 
-          <label className="block">
-            <span className="mb-1 block text-xs text-zinc-500">
-              Dal
-            </span>
+          <DateInput
+            label="Dal"
+            value={dataDa}
+            onChange={setDataDa}
+            wrapperClassName="min-h-11 rounded-xl border-zinc-800 bg-zinc-900 focus-within:border-zinc-600"
+          />
 
-            <input
-              type="date"
-              value={dataDa}
-              onChange={(event) =>
-                setDataDa(event.target.value)
-              }
-              className="min-h-11 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-white outline-none focus:border-zinc-600"
-            />
-          </label>
-
-          <label className="block">
-            <span className="mb-1 block text-xs text-zinc-500">
-              Al
-            </span>
-
-            <input
-              type="date"
-              value={dataA}
-              onChange={(event) =>
-                setDataA(event.target.value)
-              }
-              className="min-h-11 w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-sm text-white outline-none focus:border-zinc-600"
-            />
-          </label>
+          <DateInput
+            label="Al"
+            value={dataA}
+            onChange={setDataA}
+            wrapperClassName="min-h-11 rounded-xl border-zinc-800 bg-zinc-900 focus-within:border-zinc-600"
+          />
         </div>
       </section>
 
@@ -602,12 +587,11 @@ function chiudiModal() {
     </div>
 
     <Field label="Data misurazione" required>
-      <input
+      <DateInput
         name="data_misurazione"
-        type="date"
         required
         defaultValue={getToday()}
-        className={inputClass}
+        wrapperClassName={inputClass}
       />
     </Field>
 

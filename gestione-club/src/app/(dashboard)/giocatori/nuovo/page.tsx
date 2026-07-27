@@ -6,6 +6,7 @@ import { Camera, Upload, X } from "lucide-react";
 import { supabase } from "@/lib/supabase-client";
 import { creaNuovoGiocatoreAction } from "./actions";
 import { useToast } from "@/components/ui/Toast";
+import { DateInput } from "@/components/ui/DateInput";
 type Squadra = {
   id: string;
   nome: string;
@@ -367,8 +368,7 @@ export default function NuovoGiocatorePage() {
                     onChange={(v) => updateField("cognome", v)}
                   />
 
-                  <Input
-                    type="date"
+                  <DateInput
                     label="Data di nascita"
                     value={form.data_nascita}
                     onChange={(v) => updateField("data_nascita", v)}

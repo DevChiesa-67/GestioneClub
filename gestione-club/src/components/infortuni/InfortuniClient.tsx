@@ -15,6 +15,8 @@ ArrowRight,
 
 import { creaInfortunio } from "@/app/(dashboard)/infortuni/actions";
 import { AppCard } from "@/components/ui/AppCard";
+import { DateInput } from "@/components/ui/DateInput";
+import { formatDataIT } from "@/lib/date";
 
 type Giocatore = {
 id: string;
@@ -166,27 +168,19 @@ Infortuni </h1>
         </div>
 
         <div className="min-w-0">
-          <label className="mb-1.5 block text-sm text-zinc-300">
-            Data infortunio
-          </label>
-
-          <input
-            type="date"
+          <DateInput
+            label="Data infortunio"
             name="data_infortunio"
             required
-            className="min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-base text-white outline-none transition focus:border-zinc-500 sm:text-sm"
+            wrapperClassName="min-h-11 rounded-xl border-zinc-700 bg-zinc-950 focus-within:border-zinc-500"
           />
         </div>
 
         <div className="min-w-0">
-          <label className="mb-1.5 block text-sm text-zinc-300">
-            Data rientro prevista
-          </label>
-
-          <input
-            type="date"
+          <DateInput
+            label="Data rientro prevista"
             name="data_rientro"
-            className="min-h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-base text-white outline-none transition focus:border-zinc-500 sm:text-sm"
+            wrapperClassName="min-h-11 rounded-xl border-zinc-700 bg-zinc-950 focus-within:border-zinc-500"
           />
         </div>
 
@@ -370,11 +364,11 @@ Infortuni </h1>
               </td>
 
               <td className="px-4 py-3">
-                {item.data_infortunio}
+                {formatDataIT(item.data_infortunio)}
               </td>
 
               <td className="px-4 py-3">
-                {item.data_rientro ?? "-"}
+                {formatDataIT(item.data_rientro)}
               </td>
 
               <td className="px-4 py-3">

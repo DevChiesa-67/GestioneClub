@@ -77,7 +77,7 @@ export default async function ModificaAllenamentoPage({
   const { data: lavori, error: lavoriError } = await supabase
     .from("lavori_allenamento")
     .select(
-      "id, allenamento_id, sezione, descrizione, obbiettivo, tempo_lavoro, ripetizione, tempo_recupero, tempo_totale, ordine"
+      "id, allenamento_id, sezione, descrizione, obbiettivo, obbiettivo_tag, rango, immagine_lavoro, tempo_lavoro, ripetizione, tempo_recupero, tempo_totale, contemporaneo, gruppo_contemporaneo, ordine"
     )
     .eq("allenamento_id", id)
     .order("ordine", { ascending: true });

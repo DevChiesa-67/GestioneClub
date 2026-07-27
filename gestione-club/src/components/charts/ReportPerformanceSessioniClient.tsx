@@ -8,13 +8,15 @@ import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
 import {
   tagsPerTipiSeduta,
+  filtroTagIlike,
   risolviTipiSeduta,
+  SPLIT_TUTTA_SEDUTA,
   type TipoSedutaSingolo,
 } from "@/lib/performance/catapult-filtri";
 
 type TipoSeduta = "tutte" | "allenamento" | "partita";
 
-type PerformanceRow = {
+export type PerformanceRow = {
   id: string;
   club_id: string;
   squadra_id: string | null;
@@ -72,7 +74,7 @@ type Props = {
   splitSelezionati?: string[];
 };
 
-type BaseColumn = {
+export type BaseColumn = {
   key: keyof PerformanceRow;
   label: string;
   align?: "left" | "right";
@@ -87,7 +89,7 @@ type CustomColumn = {
   decimals: number;
 };
 
-const BASE_COLUMNS: BaseColumn[] = [
+export const BASE_COLUMNS: BaseColumn[] = [
   { key: "date", label: "Data", type: "date" },
   { key: "session_title", label: "Sessione", type: "text" },
   { key: "player_name", label: "Giocatore", type: "text" },
@@ -107,14 +109,14 @@ const BASE_COLUMNS: BaseColumn[] = [
 
 const NUMERIC_FIELDS = BASE_COLUMNS.filter((column) => column.type === "number");
 
-function formatDate(value: string | null) {
+export function formatDate(value: string | null) {
   if (!value) return "—";
   const [year, month, day] = value.split("-");
   if (!year || !month || !day) return value;
   return `${day}/${month}/${year}`;
 }
 
-function formatNumber(value: number | null | undefined, decimals = 0) {
+export function formatNumber(value: number | null | undefined, decimals = 0) {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
 
   return new Intl.NumberFormat("it-IT", {
@@ -127,6 +129,145 @@ function normalizeNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+/**
+ * Il campo "Duration" del CSV Catapult (colonna catapult_data.duration)
+ * arriva in SECONDI: è l'unico campo tempo dell'export senza unità nel
+ * nome (a differenza di "Time In Red Zone (min)" o delle zone "(secs)"),
+ * ma i suoi valori (es. 7318 per un'intera partita) tornano solo in
+ * secondi (~122 min), non in minuti. La tabella lo mostra come
+ * "Durata (min)", quindi va convertito qui, una sola volta, appena
+ * letto dal DB.
+ */
+function secondiInMinuti(value: unknown): number | null {
+  const numero = normalizeNumber(value);
+  return numero === null ? null : numero / 60;
+}
+
+/**
+ * Interroga catapult_data con lo stesso set di filtri usato dalla tabella
+ * Performance (giocatori, periodo, tipo seduta, eventi, split) e ritorna
+ * le righe normalizzate. Estratta come funzione a sé in modo da poter
+ * essere richiamata anche fuori dal ciclo di vita di questo componente,
+ * ad esempio dal pulsante "Scarica PDF" nell'header della pagina, che
+ * deve sempre esportare i dati coerenti con i filtri correnti anche se
+ * la tab "Performance" non è quella attiva.
+ */
+export async function fetchPerformanceRows(params: {
+  clubId: string;
+  squadraId: string | null;
+  giocatoreId?: string | null;
+  giocatoreIds?: string[];
+  dataDa?: string;
+  dataA?: string;
+  tipiSeduta?: TipoSedutaSingolo[];
+  sessionTitles?: string[];
+  splitSelezionati?: string[];
+}): Promise<PerformanceRow[]> {
+  const tags = tagsPerTipiSeduta(params.tipiSeduta ?? []);
+
+  let query = supabase
+    .from("catapult_data")
+    .select(`
+      id,
+      club_id,
+      squadra_id,
+      giocatore_id,
+      date,
+      session_title,
+      player_name,
+      split_name,
+      duration,
+      distance_metres,
+      sprint_distance_m,
+      top_speed_m_s,
+      distance_per_min_m_min,
+      power_score_w_kg,
+      work_ratio,
+      player_load,
+      impacts,
+      max_acceleration_m_s_s,
+      max_deceleration_m_s_s
+    `)
+    .eq("club_id", params.clubId);
+
+  if (params.squadraId) {
+    query = query.or(`squadra_id.eq.${params.squadraId},squadra_id.is.null`);
+  }
+
+  const filtroGiocatori =
+    params.giocatoreIds && params.giocatoreIds.length > 0
+      ? params.giocatoreIds
+      : params.giocatoreId
+        ? [params.giocatoreId]
+        : null;
+
+  if (filtroGiocatori) {
+    query = query.in("giocatore_id", filtroGiocatori);
+  }
+
+  if (params.dataDa) {
+    query = query.gte("date", params.dataDa);
+  }
+
+  if (params.dataA) {
+    query = query.lte("date", params.dataA);
+  }
+
+  if (tags !== null) {
+    query = query.or(filtroTagIlike(tags));
+  }
+
+  if (params.sessionTitles && params.sessionTitles.length > 0) {
+    query = query.in("session_title", params.sessionTitles);
+  }
+
+  if (params.splitSelezionati && params.splitSelezionati.length > 0) {
+    query = query.in("split_name", params.splitSelezionati);
+  } else {
+    // Nessuno split/tempo selezionato esplicitamente ("Tutti"): di
+    // default si vuole il totale seduta ("all"), non la somma di tutte
+    // le righe (che includerebbe anche i sotto-split, gonfiando i dati).
+    query = query.ilike("split_name", SPLIT_TUTTA_SEDUTA);
+  }
+
+  query = query.order("date", { ascending: true });
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error(
+      "Errore caricamento performance:",
+      JSON.stringify(error, null, 2)
+    );
+
+    return [];
+  }
+
+  const catapultRows = (data ?? []) as CatapultRow[];
+
+  return catapultRows.map((row) => ({
+    id: row.id,
+    club_id: row.club_id,
+    squadra_id: row.squadra_id,
+    giocatore_id: row.giocatore_id,
+    date: row.date,
+    session_title: row.session_title,
+    player_name: row.player_name,
+    split_name: row.split_name,
+    duration: secondiInMinuti(row.duration),
+    distance: normalizeNumber(row.distance_metres),
+    sprint_distance: normalizeNumber(row.sprint_distance_m),
+    top_speed: normalizeNumber(row.top_speed_m_s),
+    distance_per_minute: normalizeNumber(row.distance_per_min_m_min),
+    power_score: normalizeNumber(row.power_score_w_kg),
+    work_ratio: normalizeNumber(row.work_ratio),
+    player_load: normalizeNumber(row.player_load),
+    impacts: normalizeNumber(row.impacts),
+    max_acc: normalizeNumber(row.max_acceleration_m_s_s),
+    max_dec: normalizeNumber(row.max_deceleration_m_s_s),
+  }));
 }
 
 function safeCalculateFormula(row: PerformanceRow, formula: string): number | null {
@@ -741,115 +882,21 @@ export default function ReportPerformanceSessioniClient({
       setLoading(true);
 
       try {
-        /*
-         * Il tipo seduta (allenamento/partita) vive direttamente sulla
-         * colonna "tags" di catapult_data (valorizzata dai file
-         * Catapult), quindi filtriamo la query direttamente, senza
-         * passare da catapult_importazioni.
-         */
-        const tags = tagsPerTipiSeduta(tipiSedutaEffettivi);
-
-        let query = supabase
-          .from("catapult_data")
-          .select(`
-            id,
-            club_id,
-            squadra_id,
-            giocatore_id,
-            date,
-            session_title,
-            player_name,
-            split_name,
-            duration,
-            distance_metres,
-            sprint_distance_m,
-            top_speed_m_s,
-            distance_per_min_m_min,
-            power_score_w_kg,
-            work_ratio,
-            player_load,
-            impacts,
-            max_acceleration_m_s_s,
-            max_deceleration_m_s_s
-          `)
-          .eq("club_id", clubId);
-
-        if (squadraId) {
-          query = query.or(`squadra_id.eq.${squadraId},squadra_id.is.null`);
-        }
-
-        const filtroGiocatori =
-          giocatoreIds.length > 0
-            ? giocatoreIds
-            : giocatoreId
-              ? [giocatoreId]
-              : null;
-
-        if (filtroGiocatori) {
-          query = query.in("giocatore_id", filtroGiocatori);
-        }
-
-        if (dataDa) {
-          query = query.gte("date", dataDa);
-        }
-
-        if (dataA) {
-          query = query.lte("date", dataA);
-        }
-
-        if (tags !== null) {
-          query = query.in("tags", tags);
-        }
-
-        if (sessionTitles.length > 0) {
-          query = query.in("session_title", sessionTitles);
-        }
-
-        if (splitSelezionati.length > 0) {
-          query = query.in("split_name", splitSelezionati);
-        }
-
-        query = query.order("date", { ascending: true });
-
-        const { data, error } = await query;
+        const performanceRows = await fetchPerformanceRows({
+          clubId,
+          squadraId,
+          giocatoreId,
+          giocatoreIds,
+          dataDa,
+          dataA,
+          tipiSeduta: tipiSedutaEffettivi,
+          sessionTitles,
+          splitSelezionati,
+        });
 
         if (cancelled) return;
 
-        if (error) {
-          console.error(
-            "Errore caricamento performance:",
-            JSON.stringify(error, null, 2)
-          );
-
-          setRows([]);
-          return;
-        }
-
-        const catapultRows = (data ?? []) as CatapultRow[];
-
-        setRows(
-          catapultRows.map((row) => ({
-            id: row.id,
-            club_id: row.club_id,
-            squadra_id: row.squadra_id,
-            giocatore_id: row.giocatore_id,
-            date: row.date,
-            session_title: row.session_title,
-            player_name: row.player_name,
-            split_name: row.split_name,
-            duration: normalizeNumber(row.duration),
-            distance: normalizeNumber(row.distance_metres),
-            sprint_distance: normalizeNumber(row.sprint_distance_m),
-            top_speed: normalizeNumber(row.top_speed_m_s),
-            distance_per_minute: normalizeNumber(row.distance_per_min_m_min),
-            power_score: normalizeNumber(row.power_score_w_kg),
-            work_ratio: normalizeNumber(row.work_ratio),
-            player_load: normalizeNumber(row.player_load),
-            impacts: normalizeNumber(row.impacts),
-            max_acc: normalizeNumber(row.max_acceleration_m_s_s),
-            max_dec: normalizeNumber(row.max_deceleration_m_s_s),
-          }))
-        );
+        setRows(performanceRows);
       } finally {
         if (!cancelled) {
           setLoading(false);

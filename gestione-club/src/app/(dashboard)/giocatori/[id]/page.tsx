@@ -7,6 +7,7 @@ import { GiocatorePresenzeCharts } from "@/components/giocatori/GiocatorePresenz
 import { DeleteGiocatoreButton } from "@/components/giocatori/DeleteGiocatoreButton";
 import ReportAcwrClient from "@/components/charts/ReportAcwrClient";
 import PerformanceDashboardChartsClient from "@/components/charts/PerformanceDashboardChartsClient";
+import { formatDataIT } from "@/lib/date";
 
 type TipoSeduta = "tutte" | "allenamento" | "partita";
 
@@ -301,7 +302,7 @@ export default async function GiocatoreDetailPage({
               <InfoCard title="Ruolo 2°" value={giocatore.ruolo_2} />
               <InfoCard
                 title="Data nascita"
-                value={giocatore.data_nascita}
+                value={formatDataIT(giocatore.data_nascita)}
               />
               <InfoCard
                 title="Mano/Piede dominante"

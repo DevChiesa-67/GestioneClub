@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   X,
   Save,
@@ -8,9 +8,8 @@ import {
   CalendarDays,
   Layers,
   FileText,
-  Plus,
-  Trash2,
 } from "lucide-react";
+import { formatDataIT, parseDataIT } from "@/lib/date";
 
 import {
   creaFaseConSettimane,
@@ -28,16 +27,20 @@ type Programmazione = {
   titolo: string;
 };
 
-type SedutaDraft = {
-  id: string;
-  settimana_index: number;
-  data_seduta: string;
-  tipo_sessione: string;
-  tema: string;
-  durata_min: string;
-  volume_min: string;
+type SettimanaDati = {
+  focus_tecnico: string;
   intensita: string;
-  note: string;
+  rpe_target: string;
+  focus_avanti: string;
+  focus_trequarti: string;
+};
+
+const SETTIMANA_DATI_VUOTA: SettimanaDati = {
+  focus_tecnico: "",
+  intensita: "",
+  rpe_target: "",
+  focus_avanti: "",
+  focus_trequarti: "",
 };
 
 type Props = {
@@ -130,7 +133,9 @@ export default function NuovaFaseProgrammazioneModal({
 
   const [dataInizio, setDataInizio] = useState("");
   const [dataFine, setDataFine] = useState("");
-  const [sedute, setSedute] = useState<SedutaDraft[]>([]);
+  const [settimaneDati, setSettimaneDati] = useState<
+    Record<number, SettimanaDati>
+  >({});
 
   const settimanePreview = useMemo(() => {
     return generaSettimanePreview(dataInizio, dataFine);
@@ -138,37 +143,18 @@ export default function NuovaFaseProgrammazioneModal({
 
   if (!open) return null;
 
-  function aggiungiSeduta(settimanaIndex: number) {
-  setSedute((prev) => [
-    ...prev,
-    {
-      id: crypto.randomUUID(),
-      settimana_index: settimanaIndex,
-      data_seduta: "",
-      tipo_sessione: "",
-      tema: "",
-      durata_min: "",
-      volume_min: "",
-      intensita: "",
-      note: "",
-    },
-  ]);
-}
-
-  function aggiornaSeduta(
-    id: string,
-    field: keyof Omit<SedutaDraft, "id" | "settimana_index">,
+  function aggiornaSettimanaDati(
+    settimanaIndex: number,
+    field: keyof SettimanaDati,
     value: string
   ) {
-    setSedute((prev) =>
-      prev.map((seduta) =>
-        seduta.id === id ? { ...seduta, [field]: value } : seduta
-      )
-    );
-  }
-
-  function eliminaSeduta(id: string) {
-    setSedute((prev) => prev.filter((seduta) => seduta.id !== id));
+    setSettimaneDati((prev) => ({
+      ...prev,
+      [settimanaIndex]: {
+        ...(prev[settimanaIndex] ?? SETTIMANA_DATI_VUOTA),
+        [field]: value,
+      },
+    }));
   }
 
   async function handleSubmit(formData: FormData) {
@@ -188,18 +174,18 @@ export default function NuovaFaseProgrammazioneModal({
         data_inizio: String(formData.get("data_inizio") ?? ""),
         data_fine: String(formData.get("data_fine") ?? ""),
         obiettivo: String(formData.get("obiettivo") ?? "") || null,
-        sedute: sedute.map((seduta) => ({
-          settimana_index: seduta.settimana_index,
-          data_seduta: seduta.data_seduta || null,
-          tipo_sessione: seduta.tipo_sessione || null,
-          tema: seduta.tema || null,
-          durata_min: Number(seduta.durata_min) || null,
-          volume_min: Number(seduta.volume_min) || null,
-          intensita: seduta.intensita
-            ? (seduta.intensita as Intensita)
-            : null,
-          note: seduta.note || null,
-        })),
+        settimane_dettagli: settimanePreview.map((settimana) => {
+          const dati = settimaneDati[settimana.index] ?? SETTIMANA_DATI_VUOTA;
+
+          return {
+            settimana_index: settimana.index,
+            focus_tecnico: dati.focus_tecnico || null,
+            intensita: dati.intensita ? (dati.intensita as Intensita) : null,
+            rpe_target: dati.rpe_target ? Number(dati.rpe_target) : null,
+            focus_avanti: dati.focus_avanti || null,
+            focus_trequarti: dati.focus_trequarti || null,
+          };
+        }),
       });
 
       if (!res.success) {
@@ -207,12 +193,12 @@ export default function NuovaFaseProgrammazioneModal({
         return;
       }
 
-      setSedute([]);
+      setSettimaneDati({});
       setDataInizio("");
       setDataFine("");
       onClose();
     } catch {
-      setErrore("Errore durante la creazione della fase.");
+      setErrore("Errore durante la creazione del mesociclo.");
     } finally {
       setLoading(false);
     }
@@ -226,9 +212,9 @@ export default function NuovaFaseProgrammazioneModal({
           style={{ backgroundColor: brand }}
         >
           <div>
-            <h2 className="text-lg font-bold">Nuova fase</h2>
+            <h2 className="text-lg font-bold">Nuovo mesociclo</h2>
             <p className="mt-1 text-sm text-white/75">
-              Crea la fase, genera le settimane e programma subito le sedute.
+              Crea il mesociclo, genera le settimane e definisci subito il focus di ciascuna.
             </p>
           </div>
 
@@ -255,7 +241,7 @@ export default function NuovaFaseProgrammazioneModal({
 
           <div>
             <label className="mb-2 block text-sm font-semibold text-zinc-800">
-              Nome fase
+              Nome mesociclo
             </label>
 
             <div className="relative">
@@ -277,20 +263,22 @@ export default function NuovaFaseProgrammazioneModal({
           <div className="grid gap-4 md:grid-cols-3">
             <DateInput
               name="data_inizio"
-              label="Data inizio fase"
+              label="Data inizio mesociclo"
               value={dataInizio}
               onChange={setDataInizio}
+              required
             />
 
             <DateInput
               name="data_fine"
-              label="Data fine fase"
+              label="Data fine mesociclo"
               value={dataFine}
               onChange={setDataFine}
+              required
             />
             <div>
             <label className="mb-2 block text-sm font-semibold text-zinc-800">
-              Colore fase
+              Colore mesociclo
             </label>
             <input
               name="colore"
@@ -305,7 +293,7 @@ export default function NuovaFaseProgrammazioneModal({
 
           <div>
             <label className="mb-2 block text-sm font-semibold text-zinc-800">
-              Obiettivo fase
+              Obiettivo mesociclo
             </label>
 
             <div className="relative">
@@ -317,7 +305,7 @@ export default function NuovaFaseProgrammazioneModal({
               <textarea
                 name="obiettivo"
                 rows={4}
-                placeholder="Obiettivi della fase..."
+                placeholder="Obiettivi del mesociclo..."
                 className="block min-h-28 w-full resize-none rounded-2xl border border-zinc-300 bg-zinc-950 py-3 pl-11 pr-4 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-200"
               />
             </div>
@@ -330,239 +318,142 @@ export default function NuovaFaseProgrammazioneModal({
                   Slot settimanali generati
                 </h3>
                 <p className="text-sm text-zinc-400">
-                  Inserisci qui le sedute previste per ogni settimana.
+                  Definisci il focus tecnico, l&apos;intensità e il lavoro di reparto per ogni settimana.
                 </p>
               </div>
 
               {settimanePreview.map((settimana) => {
-                const seduteSettimana = sedute.filter(
-                  (seduta) => seduta.settimana_index === settimana.index
-                );
+                const dati = settimaneDati[settimana.index] ?? SETTIMANA_DATI_VUOTA;
 
                 return (
                   <div
                     key={settimana.index}
-                    className="rounded-3xl border border-zinc-800 bg-zinc-950 p-4"
+                    className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950"
                   >
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <div>
-                        <h4 className="font-bold text-white">
-                          Settimana {settimana.numero_settimana}
-                        </h4>
-                        <p className="text-sm text-zinc-400">
-                          {settimana.label}
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => aggiungiSeduta(settimana.index)}
-                        className="inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white"
-                        style={{ backgroundColor: brand }}
-                      >
-                        <Plus size={16} />
-                        Aggiungi seduta
-                      </button>
+                    <div className="border-b border-zinc-800 bg-zinc-900 px-5 py-4">
+                      <h4 className="font-bold text-white">
+                        Settimana {settimana.numero_settimana}
+                      </h4>
+                      <p className="text-sm text-zinc-400">
+                        {settimana.label}
+                      </p>
                     </div>
 
-                    <div className="mt-4 space-y-3">
-                      {seduteSettimana.length === 0 ? (
-                        <div className="rounded-2xl border border-dashed border-zinc-800 bg-zinc-900 p-4 text-sm text-zinc-400">
-                          Nessuna seduta programmata per questa settimana.
+                    <div className="space-y-5 p-5">
+                      {/* RIGA 1: FOCUS TECNICO */}
+                      <div>
+                        <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
+                          Focus tecnico
+                        </label>
+
+                        <textarea
+                          rows={3}
+                          placeholder="Es. Difesa, possesso, transizione..."
+                          value={dati.focus_tecnico}
+                          onChange={(e) =>
+                            aggiornaSettimanaDati(
+                              settimana.index,
+                              "focus_tecnico",
+                              e.target.value
+                            )
+                          }
+                          className="w-full resize-y rounded-2xl border border-zinc-300 bg-zinc-950 px-4 py-3 text-sm text-white outline-none transition focus:ring-2 focus:ring-zinc-200"
+                        />
+                      </div>
+
+                      {/* RIGA 2: INTENSITÀ + RPE TARGET */}
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                          <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
+                            Intensità
+                          </label>
+
+                          <select
+                            value={dati.intensita}
+                            onChange={(e) =>
+                              aggiornaSettimanaDati(
+                                settimana.index,
+                                "intensita",
+                                e.target.value
+                              )
+                            }
+                            className="h-12 w-full rounded-2xl border border-zinc-300 bg-zinc-950 px-4 text-sm text-white outline-none transition focus:ring-2 focus:ring-zinc-200"
+                          >
+                            <option value="">Seleziona</option>
+
+                            {INTENSITA_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
                         </div>
-                      ) : (
-                        seduteSettimana.map((seduta) => {
-  return (
-    <div
-      key={seduta.id}
-      className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950"
-    >
-      {/* HEADER SEDUTA */}
-      <div className="flex flex-col gap-4 border-b border-zinc-800 bg-zinc-900 px-5 py-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-zinc-400">
-            Seduta
-          </p>
 
-          <h5 className="mt-1 text-base font-bold text-white">
-            Seduta programmata
-          </h5>
-        </div>
+                        <div>
+                          <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
+                            RPE target/seduta
+                          </label>
 
-        <div className="flex items-end gap-2">
-          <div className="min-w-44">
-  <label className="mb-1.5 block text-xs font-semibold text-zinc-500">
-    Data seduta
-  </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={10}
+                            placeholder="Es. 7"
+                            value={dati.rpe_target}
+                            onChange={(e) =>
+                              aggiornaSettimanaDati(
+                                settimana.index,
+                                "rpe_target",
+                                e.target.value
+                              )
+                            }
+                            className="h-12 w-full rounded-2xl border border-zinc-300 bg-zinc-950 px-4 text-sm text-white outline-none transition focus:ring-2 focus:ring-zinc-200"
+                          />
+                        </div>
+                      </div>
 
-  <input
-    type="date"
-    min={settimana.data_inizio}
-    max={settimana.data_fine}
-    value={seduta.data_seduta}
-    onChange={(e) =>
-      aggiornaSeduta(seduta.id, "data_seduta", e.target.value)
-    }
-    className="h-11 w-full rounded-2xl border border-zinc-300 bg-white px-4 text-sm text-zinc-900 outline-none transition focus:ring-2 focus:ring-zinc-200"
-  />
-</div>
+                      {/* RIGA 3: REPARTO SPECIALISTICO AVANTI / TREQUARTI */}
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                          <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
+                            Reparto specialistico — Avanti
+                          </label>
 
-          <div className="w-32">
-  <label className="mb-1.5 block text-xs font-semibold text-zinc-500">
-    Durata (min)
-  </label>
+                          <textarea
+                            rows={3}
+                            placeholder="Es. Mischia chiusa, touche..."
+                            value={dati.focus_avanti}
+                            onChange={(e) =>
+                              aggiornaSettimanaDati(
+                                settimana.index,
+                                "focus_avanti",
+                                e.target.value
+                              )
+                            }
+                            className="w-full resize-y rounded-2xl border border-zinc-300 bg-zinc-950 px-4 py-3 text-sm text-white outline-none transition focus:ring-2 focus:ring-zinc-200"
+                          />
+                        </div>
 
-  <input
-    type="number"
-    min={0}
-    placeholder="90"
-    value={seduta.durata_min}
-    onChange={(e) =>
-      aggiornaSeduta(seduta.id, "durata_min", e.target.value)
-    }
-    className="h-11 w-full rounded-2xl border border-zinc-300 bg-white px-4 text-sm text-zinc-900 outline-none transition focus:ring-2 focus:ring-zinc-200"
-  />
-</div>
+                        <div>
+                          <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
+                            Reparto specialistico — Trequarti
+                          </label>
 
-          <button
-            type="button"
-            onClick={() => eliminaSeduta(seduta.id)}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-red-200 bg-red-50 text-red-600 transition hover:bg-red-100"
-            title="Elimina seduta"
-          >
-            <Trash2 size={17} />
-          </button>
-        </div>
-      </div>
-
-      <div className="space-y-5 p-5">
-        {/* RIGA 1 */}
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* TIPO STRUTTURA */}
-          <div>
-            <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
-              Tipo della struttura
-            </label>
-
-            <input
-              type="text"
-              placeholder="Es. Tecnica, tattica, atletica..."
-              value={seduta.tipo_sessione}
-              onChange={(e) =>
-                aggiornaSeduta(
-                  seduta.id,
-                  "tipo_sessione",
-                  e.target.value
-                )
-              }
-              className="h-12 w-full rounded-2xl border border-zinc-300 bg-zinc-950 px-4 text-sm text-white outline-none transition focus:ring-2 focus:ring-zinc-200"
-            />
-          </div>
-
-          {/* TEMA */}
-          <div>
-            <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
-              Tema tecnico / tattico
-            </label>
-
-            <input
-              type="text"
-              placeholder="Es. Difesa, possesso, transizione..."
-              value={seduta.tema}
-              onChange={(e) =>
-                aggiornaSeduta(
-                  seduta.id,
-                  "tema",
-                  e.target.value
-                )
-              }
-              className="h-12 w-full rounded-2xl border border-zinc-300 bg-zinc-950 px-4 text-sm text-white outline-none transition focus:ring-2 focus:ring-zinc-200"
-            />
-          </div>
-        </div>
-
-        {/* RIGA 2 */}
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* VOLUME */}
-          <div>
-            <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
-              Volume
-              <span className="ml-1 normal-case font-medium text-zinc-400">
-                (min lavoro)
-              </span>
-            </label>
-
-            <div className="relative">
-              <input
-                type="number"
-                min={0}
-                placeholder="60"
-                value={seduta.volume_min}
-                onChange={(e) =>
-                  aggiornaSeduta(
-                    seduta.id,
-                    "volume_min",
-                    e.target.value
-                  )
-                }
-                className="h-12 w-full rounded-2xl border border-zinc-300 bg-zinc-950 px-4 pr-14 text-sm text-white outline-none transition focus:ring-2 focus:ring-zinc-200"
-              />
-
-              <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-400">
-                min
-              </span>
-            </div>
-          </div>
-
-          {/* INTENSITÀ */}
-          <div>
-            <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
-              Intensità
-            </label>
-
-            <select
-              value={seduta.intensita}
-              onChange={(e) =>
-                aggiornaSeduta(seduta.id, "intensita", e.target.value)
-              }
-              className="h-12 w-full rounded-2xl border border-zinc-300 bg-zinc-950 px-4 text-sm text-white outline-none transition focus:ring-2 focus:ring-zinc-200"
-            >
-              <option value="">Seleziona</option>
-
-              {INTENSITA_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* NOTE */}
-        <div>
-          <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-400">
-            Note
-          </label>
-
-          <textarea
-            rows={3}
-            placeholder="Inserisci note sulla seduta..."
-            value={seduta.note}
-            onChange={(e) =>
-              aggiornaSeduta(
-                seduta.id,
-                "note",
-                e.target.value
-              )
-            }
-            className="w-full resize-none rounded-2xl border border-zinc-300 bg-zinc-950 px-4 py-3 text-sm text-white outline-none transition focus:ring-2 focus:ring-zinc-200"
-          />
-        </div>
-      </div>
-    </div>
-  );
-})
-                      )}
+                          <textarea
+                            rows={3}
+                            placeholder="Es. Attacco a due fasce, difesa scivolata..."
+                            value={dati.focus_trequarti}
+                            onChange={(e) =>
+                              aggiornaSettimanaDati(
+                                settimana.index,
+                                "focus_trequarti",
+                                e.target.value
+                              )
+                            }
+                            className="w-full resize-y rounded-2xl border border-zinc-300 bg-zinc-950 px-4 py-3 text-sm text-white outline-none transition focus:ring-2 focus:ring-zinc-200"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
@@ -597,7 +488,7 @@ export default function NuovaFaseProgrammazioneModal({
               ) : (
                 <Save size={17} />
               )}
-              {loading ? "Creazione..." : "Crea fase, settimane e sedute"}
+              {loading ? "Creazione..." : "Crea mesociclo e settimane"}
             </button>
           </div>
         </form>
@@ -611,12 +502,71 @@ function DateInput({
   label,
   value,
   onChange,
+  min,
+  max,
+  required = false,
 }: {
   name: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
+  min?: string;
+  max?: string;
+  required?: boolean;
 }) {
+  const nativeRef = useRef<HTMLInputElement>(null);
+
+  const [testo, setTesto] = useState(() => {
+    const formattata = formatDataIT(value);
+    return formattata === "-" ? "" : formattata;
+  });
+
+  useEffect(() => {
+    const formattata = formatDataIT(value);
+    setTesto(formattata === "-" ? "" : formattata);
+  }, [value]);
+
+  function handleTextChange(raw: string) {
+    const cifre = raw.replace(/\D/g, "").slice(0, 8);
+    let formattato = cifre;
+
+    if (cifre.length > 4) {
+      formattato = `${cifre.slice(0, 2)}/${cifre.slice(2, 4)}/${cifre.slice(4)}`;
+    } else if (cifre.length > 2) {
+      formattato = `${cifre.slice(0, 2)}/${cifre.slice(2)}`;
+    }
+
+    setTesto(formattato);
+
+    if (formattato === "") {
+      onChange("");
+      return;
+    }
+
+    const iso = parseDataIT(formattato);
+
+    if (iso) {
+      onChange(iso);
+    }
+  }
+
+  function openPicker() {
+    const input = nativeRef.current;
+    if (!input) return;
+
+    if (typeof input.showPicker === "function") {
+      try {
+        input.showPicker();
+        return;
+      } catch {
+        // fallback sotto
+      }
+    }
+
+    input.focus();
+    input.click();
+  }
+
   return (
     <div>
       <label className="mb-2 block text-sm font-semibold text-zinc-800">
@@ -624,18 +574,38 @@ function DateInput({
       </label>
 
       <div className="relative">
-        <CalendarDays
-          size={18}
-          className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-zinc-400"
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={openPicker}
+          aria-label="Apri calendario"
+          className="absolute left-4 top-1/2 z-10 -translate-y-1/2 text-zinc-400 transition hover:text-white"
+        >
+          <CalendarDays size={18} />
+        </button>
+
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder="GG/MM/AAAA"
+          maxLength={10}
+          value={testo}
+          onChange={(e) => handleTextChange(e.target.value)}
+          className="block h-12 w-full rounded-2xl border border-zinc-300 bg-zinc-950 py-3 pl-11 pr-4 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-200"
         />
 
         <input
+          ref={nativeRef}
           name={name}
           type="date"
-          required
+          tabIndex={-1}
+          required={required}
+          min={min}
+          max={max}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="block h-12 w-full rounded-2xl border border-zinc-300 bg-zinc-950 py-3 pl-11 pr-4 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-200"
+          className="pointer-events-none absolute inset-0 h-0 w-0 opacity-0"
+          aria-hidden="true"
         />
       </div>
     </div>

@@ -10,10 +10,15 @@ type LavoroInput = {
   sezione: string;
   descrizione?: string | null;
   obbiettivo?: string | null;
+  obbiettivo_tag?: string | null;
+  rango?: string | null;
+  immagine_lavoro?: string | null;
   tempo_lavoro?: number | null;
   ripetizione?: number | null;
   tempo_recupero?: number | null;
   tempo_totale?: number | null;
+  contemporaneo?: boolean | null;
+  gruppo_contemporaneo?: string | null;
 };
 
 type AggiornaAllenamentoInput = {
@@ -129,21 +134,34 @@ export async function aggiornaAllenamento(
       }
     }
 
-    const esistenti = input.lavori.filter((lavoro) => lavoro.id);
+    // L'ordine deve riflettere la posizione reale nell'elenco mostrato in
+    // UI (input.lavori), non l'ordine separato di "esistenti" ed "nuovi":
+    // altrimenti, appena si aggiunge un lavoro nuovo in mezzo a lavori già
+    // salvati (es. un lavoro parallelo di un gruppo contemporaneo), tutti
+    // i nuovi finirebbero in coda scombinando la sequenza reale.
     const nuovi = input.lavori.filter((lavoro) => !lavoro.id);
 
-    for (const [index, lavoro] of esistenti.entries()) {
+    for (const [ordine, lavoro] of input.lavori.entries()) {
+      if (!lavoro.id) continue;
+
       const { error } = await supabase
         .from("lavori_allenamento")
         .update({
           sezione: lavoro.sezione,
           descrizione: lavoro.descrizione || null,
           obbiettivo: lavoro.obbiettivo || null,
+          obbiettivo_tag: lavoro.obbiettivo_tag || null,
+          rango: lavoro.rango || null,
+          immagine_lavoro: lavoro.immagine_lavoro || null,
           tempo_lavoro: lavoro.tempo_lavoro ?? null,
           ripetizione: lavoro.ripetizione ?? null,
           tempo_recupero: lavoro.tempo_recupero ?? null,
           tempo_totale: lavoro.tempo_totale ?? null,
-          ordine: index,
+          contemporaneo: lavoro.contemporaneo ?? false,
+          gruppo_contemporaneo: lavoro.contemporaneo
+            ? lavoro.gruppo_contemporaneo || null
+            : null,
+          ordine,
         })
         .eq("id", lavoro.id)
         .eq("allenamento_id", input.allenamento_id);
@@ -155,19 +173,23 @@ export async function aggiornaAllenamento(
 
     if (nuovi.length > 0) {
       const { error } = await supabase.from("lavori_allenamento").insert(
-        nuovi.map((lavoro, index) => ({
+        nuovi.map((lavoro) => ({
           allenamento_id: input.allenamento_id,
           sezione: lavoro.sezione,
           descrizione: lavoro.descrizione || null,
           obbiettivo: lavoro.obbiettivo || null,
-          obbiettivo_tag: null,
-          rango: null,
-          immagine_lavoro: null,
+          obbiettivo_tag: lavoro.obbiettivo_tag || null,
+          rango: lavoro.rango || null,
+          immagine_lavoro: lavoro.immagine_lavoro || null,
           tempo_lavoro: lavoro.tempo_lavoro ?? null,
           ripetizione: lavoro.ripetizione ?? null,
           tempo_recupero: lavoro.tempo_recupero ?? null,
           tempo_totale: lavoro.tempo_totale ?? null,
-          ordine: esistenti.length + index,
+          contemporaneo: lavoro.contemporaneo ?? false,
+          gruppo_contemporaneo: lavoro.contemporaneo
+            ? lavoro.gruppo_contemporaneo || null
+            : null,
+          ordine: input.lavori.indexOf(lavoro),
         }))
       );
 

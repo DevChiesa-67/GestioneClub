@@ -18,15 +18,14 @@ function intensitaToRpe(intensita?: Intensita | null): number | null {
   return INTENSITA_RPE[intensita] ?? null;
 }
 
-type CreaSedutaFaseInput = {
+type DettagliSettimanaInput = {
   settimana_index: number;
   data_seduta?: string | null;
-  tipo_sessione?: string | null;
-  tema?: string | null;
-  volume_min?: number | null;
-  durata_min?: number | null;
+  focus_tecnico?: string | null;
   intensita?: Intensita | null;
-  note?: string | null;
+  rpe_target?: number | null;
+  focus_avanti?: string | null;
+  focus_trequarti?: string | null;
 };
 
 type CreaFaseInput = {
@@ -36,7 +35,17 @@ type CreaFaseInput = {
   data_inizio: string;
   data_fine: string;
   obiettivo?: string | null;
-  sedute?: CreaSedutaFaseInput[];
+  settimane_dettagli?: DettagliSettimanaInput[];
+};
+
+type ModificaDettagliSettimanaInput = {
+  settimana_id: string;
+  data_seduta?: string | null;
+  focus_tecnico?: string | null;
+  intensita?: Intensita | null;
+  rpe_target?: number | null;
+  focus_avanti?: string | null;
+  focus_trequarti?: string | null;
 };
 
 type CreaSedutaInput = {
@@ -220,7 +229,7 @@ export async function creaFaseConSettimane(input: CreaFaseInput) {
   if (!isAdmin) {
     return {
       success: false,
-      message: "Non hai i permessi per creare una fase.",
+      message: "Non hai i permessi per creare un mesociclo.",
     };
   }
 
@@ -234,7 +243,7 @@ export async function creaFaseConSettimane(input: CreaFaseInput) {
   if (!input.nome.trim()) {
     return {
       success: false,
-      message: "Inserisci il nome della fase.",
+      message: "Inserisci il nome del mesociclo.",
     };
   }
 
@@ -293,89 +302,118 @@ export async function creaFaseConSettimane(input: CreaFaseInput) {
   if (faseError || !fase) {
     return {
       success: false,
-      message: faseError?.message ?? "Errore durante la creazione della fase.",
+      message: faseError?.message ?? "Errore durante la creazione del mesociclo.",
     };
   }
 
   const settimane = generaSettimane(input.data_inizio, input.data_fine);
 
-  const { data: settimaneCreate, error: settimaneError } = await supabase
-  .from("programmazione_settimane")
-  .insert(
-    settimane.map((settimana) => ({
-      club_id: clubId,
-      squadra_id: squadraId,
-      fase_id: fase.id,
-      ...settimana,
-    }))
-  )
-  .select("id,numero_settimana,data_inizio,data_fine");
-
-if (settimaneError || !settimaneCreate) {
-  return {
-    success: false,
-    message:
-      settimaneError?.message ??
-      "Fase creata, ma errore nella generazione settimane.",
-  };
-}
-
-const settimaneOrdinate = [...settimaneCreate].sort(
-  (a, b) => a.numero_settimana - b.numero_settimana
-);
-
-const seduteDaInserire = (input.sedute ?? [])
-  .map((seduta) => {
-    const settimana = settimaneOrdinate[seduta.settimana_index];
-
-    if (!settimana) return null;
-
-    const volume = Number(seduta.volume_min ?? 0);
-    const durata = Number(seduta.durata_min ?? 0);
-    const rpe = intensitaToRpe(seduta.intensita);
-    const carico = volume > 0 && rpe ? volume * rpe : null;
-
-    return {
-      club_id: clubId,
-      squadra_id: squadraId,
-      settimana_id: settimana.id,
-      fase_id: fase.id,
-      data_seduta: seduta.data_seduta || null,
-      tipo_sessione: seduta.tipo_sessione?.trim() || null,
-      tema: seduta.tema?.trim() || null,
-      volume_min: volume > 0 ? volume : null,
-      durata_min: durata > 0 ? durata : null,
-      intensita: seduta.intensita || null,
-      rpe,
-      carico,
-      note: seduta.note?.trim() || null,
-    };
-  })
-  .filter(
-    (seduta): seduta is NonNullable<typeof seduta> => seduta !== null
+  const dettagliPerIndice = new Map(
+    (input.settimane_dettagli ?? []).map((dettaglio) => [
+      dettaglio.settimana_index,
+      dettaglio,
+    ])
   );
 
-if (seduteDaInserire.length > 0) {
-  const { error: seduteError } = await supabase
-    .from("programmazione_sedute")
-    .insert(seduteDaInserire);
+  const { data: settimaneCreate, error: settimaneError } = await supabase
+    .from("programmazione_settimane")
+    .insert(
+      settimane.map((settimana, index) => {
+        const dettaglio = dettagliPerIndice.get(index);
 
-  if (seduteError) {
+        return {
+          club_id: clubId,
+          squadra_id: squadraId,
+          fase_id: fase.id,
+          ...settimana,
+          data_seduta: dettaglio?.data_seduta || null,
+          focus_tecnico: dettaglio?.focus_tecnico?.trim() || null,
+          intensita: dettaglio?.intensita || null,
+          rpe_target: dettaglio?.rpe_target ?? null,
+          focus_avanti: dettaglio?.focus_avanti?.trim() || null,
+          focus_trequarti: dettaglio?.focus_trequarti?.trim() || null,
+        };
+      })
+    )
+    .select("id,numero_settimana,data_inizio,data_fine");
+
+  if (settimaneError || !settimaneCreate) {
     return {
       success: false,
       message:
-        seduteError.message ??
-        "Fase e settimane create, ma errore nel salvataggio sedute.",
+        settimaneError?.message ??
+        "Mesociclo creato, ma errore nella generazione settimane.",
     };
   }
+
+  revalidatePath("/allenamenti/programmazione");
+
+  return {
+    success: true,
+    message: "Mesociclo e settimane create correttamente.",
+  };
 }
 
-revalidatePath("/allenamenti/programmazione");
+export async function modificaDettagliSettimana(
+  input: ModificaDettagliSettimanaInput
+) {
+  const { supabase, clubId, isAdmin } = await getProfiloCorrente();
 
-return {
-  success: true,
-  message: "Fase, settimane e sedute create correttamente.",
-};
+  if (!isAdmin) {
+    return {
+      success: false,
+      message: "Non hai i permessi per modificare la settimana.",
+    };
+  }
+
+  const { data: settimana, error: settimanaError } = await supabase
+    .from("programmazione_settimane")
+    .select("id,data_inizio,data_fine")
+    .eq("id", input.settimana_id)
+    .eq("club_id", clubId)
+    .maybeSingle();
+
+  if (settimanaError || !settimana) {
+    return { success: false, message: "Settimana non trovata." };
+  }
+
+  if (
+    input.data_seduta &&
+    (input.data_seduta < settimana.data_inizio ||
+      input.data_seduta > settimana.data_fine)
+  ) {
+    return {
+      success: false,
+      message: "La data deve rientrare nella settimana selezionata.",
+    };
+  }
+
+  const { error } = await supabase
+    .from("programmazione_settimane")
+    .update({
+      data_seduta: input.data_seduta || null,
+      focus_tecnico: input.focus_tecnico?.trim() || null,
+      intensita: input.intensita || null,
+      rpe_target: input.rpe_target ?? null,
+      focus_avanti: input.focus_avanti?.trim() || null,
+      focus_trequarti: input.focus_trequarti?.trim() || null,
+    })
+    .eq("id", input.settimana_id)
+    .eq("club_id", clubId);
+
+  if (error) {
+    return {
+      success: false,
+      message: error.message,
+    };
+  }
+
+  revalidatePath("/allenamenti/programmazione");
+
+  return {
+    success: true,
+    message: "Settimana aggiornata correttamente.",
+  };
 }
 
 export async function creaSedutaSettimana(input: CreaSedutaInput) {
@@ -607,7 +645,7 @@ export async function modificaFase(input: ModificaFaseInput) {
   if (!isAdmin) {
     return {
       success: false,
-      message: "Non hai i permessi per modificare la fase.",
+      message: "Non hai i permessi per modificare il mesociclo.",
     };
   }
 
@@ -616,7 +654,7 @@ export async function modificaFase(input: ModificaFaseInput) {
   if (!nome) {
     return {
       success: false,
-      message: "Inserisci il nome della fase.",
+      message: "Inserisci il nome del mesociclo.",
     };
   }
 
@@ -641,7 +679,7 @@ export async function modificaFase(input: ModificaFaseInput) {
 
   return {
     success: true,
-    message: "Fase aggiornata correttamente.",
+    message: "Mesociclo aggiornato correttamente.",
   };
 }
 
@@ -651,7 +689,7 @@ export async function eliminaFase(faseId: string) {
   if (!isAdmin) {
     return {
       success: false,
-      message: "Non hai i permessi per eliminare la fase.",
+      message: "Non hai i permessi per eliminare il mesociclo.",
     };
   }
 
@@ -703,7 +741,7 @@ export async function eliminaFase(faseId: string) {
 
   return {
     success: true,
-    message: "Fase eliminata correttamente.",
+    message: "Mesociclo eliminato correttamente.",
   };
 }
 

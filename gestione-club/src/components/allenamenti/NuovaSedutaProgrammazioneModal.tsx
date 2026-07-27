@@ -6,6 +6,8 @@ import {
   creaSedutaSettimana,
   type Intensita,
 } from "@/app/(dashboard)/allenamenti/programmazione/actions";
+import { DateInput } from "@/components/ui/DateInput";
+import { formatDataIT } from "@/lib/date";
 
 const INTENSITA_OPTIONS: { value: Intensita; label: string }[] = [
   { value: "bassa", label: "Bassa" },
@@ -110,8 +112,8 @@ export default function NuovaSedutaProgrammazioneModal({
               {settimane.map((settimana) => (
                 <option key={settimana.id} value={settimana.id}>
                   {settimana.fase_nome} - Settimana{" "}
-                  {settimana.numero_settimana} ({settimana.data_inizio} →{" "}
-                  {settimana.data_fine})
+                  {settimana.numero_settimana} ({formatDataIT(settimana.data_inizio)} →{" "}
+                  {formatDataIT(settimana.data_fine)})
                 </option>
               ))}
             </select>
@@ -119,12 +121,14 @@ export default function NuovaSedutaProgrammazioneModal({
 
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <Input
+              <DateInput
                 label="Data seduta"
                 name="data_seduta"
-                type="date"
                 min={settimanaSelezionata?.data_inizio}
                 max={settimanaSelezionata?.data_fine}
+                wrapperClassName="border-zinc-300 bg-white"
+                inputClassName="text-zinc-900 placeholder:text-zinc-400"
+                iconClassName="text-zinc-500 hover:text-zinc-900"
               />
 
               <p className="mt-2 text-xs text-zinc-500">

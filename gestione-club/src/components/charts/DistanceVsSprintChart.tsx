@@ -1,6 +1,7 @@
 // src/components/charts/DistanceVsSprintChart.tsx
 
 import { AppCard } from "@/components/ui/AppCard";
+import { sceglieColoreSecondario } from "@/lib/colore-report";
 
 export type ChartRow = {
   id: string;
@@ -30,6 +31,8 @@ export default function DistanceVsSprintChart<T extends ChartRow>({
   coloreFlag,
   title = "Distanza totale vs Sprint Distance",
 }: Props<T>) {
+  const coloreSprint = sceglieColoreSecondario(coloreFlag);
+
   const width = 900;
   const height = 330;
 
@@ -124,7 +127,7 @@ export default function DistanceVsSprintChart<T extends ChartRow>({
                   width={barW}
                   height={sprintH}
                   rx={Math.min(4, barW / 2)}
-                  fill="#ef4444"
+                  fill={coloreSprint}
                 >
                   <title>
                     {`${formatDate(row.date)} - Sprint Distance: ${sprint}`}
@@ -154,7 +157,7 @@ export default function DistanceVsSprintChart<T extends ChartRow>({
               Distanza (m)
             </text>
 
-            <rect y="24" width="10" height="10" fill="#ef4444" rx="2" />
+            <rect y="24" width="10" height="10" fill={coloreSprint} rx="2" />
 
             <text x="18" y="34" fontSize="12" fill="#d4d4d8">
               Sprint Distance (m)

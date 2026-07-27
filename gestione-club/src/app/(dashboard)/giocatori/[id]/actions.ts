@@ -126,18 +126,42 @@ export async function aggiornaGiocatoreAction(
       };
     }
 
-    const { data: giocatoreEsistente, error: giocatoreEsistenteError } =
+    /*
+     * La verifica di esistenza viene fatta in due passi per non
+     * mascherare la causa reale dietro un generico "non trovato":
+     * 1) il giocatore esiste con questo id, a prescindere dal club?
+     * 2) se sì, appartiene al club attivo dell'amministratore?
+     * In questo modo un mismatch di club (es. admin con più club,
+     * o cambio del club attivo in un'altra scheda mentre questa era
+     * aperta) produce un messaggio chiaro invece di sembrare un bug
+     * di ricerca legato ai dati appena modificati (es. il cognome).
+     */
+    const { data: giocatoreQualsiasiClub, error: giocatoreLookupError } =
       await supabaseAdmin
         .from("giocatori")
-        .select("id")
+        .select("id, club_id")
         .eq("id", input.giocatoreId)
-        .eq("club_id", profilo.last_club_id)
         .maybeSingle();
 
-    if (giocatoreEsistenteError || !giocatoreEsistente) {
+    if (giocatoreLookupError) {
+      return {
+        success: false,
+        error: `Errore durante la verifica del giocatore: ${giocatoreLookupError.message}`,
+      };
+    }
+
+    if (!giocatoreQualsiasiClub) {
       return {
         success: false,
         error: "Giocatore non trovato.",
+      };
+    }
+
+    if (giocatoreQualsiasiClub.club_id !== profilo.last_club_id) {
+      return {
+        success: false,
+        error:
+          "Il giocatore non appartiene al club attualmente attivo. Controlla di aver selezionato il club corretto (in alto) e riprova.",
       };
     }
 

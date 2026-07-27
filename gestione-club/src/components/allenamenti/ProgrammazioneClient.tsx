@@ -11,18 +11,18 @@ import {
   Activity,ChevronDown,
   BarChart3,
   Pencil,
+  Save,
   Trash2,
 } from "lucide-react";
 
+import { formatDataIT } from "@/lib/date";
 import NuovaProgrammazioneModal from "@/components/allenamenti/NuovaProgrammazioneModal";
 import NuovaFaseProgrammazioneModal from "@/components/allenamenti/NuovaFaseProgrammazioneModal";
-import NuovaSedutaProgrammazioneModal from "@/components/allenamenti/NuovaSedutaProgrammazioneModal";
 import ModificaFaseModal from "@/components/allenamenti/ModificaFaseModal";
-import ModificaSedutaModal from "@/components/allenamenti/ModificaSedutaModal";
 import {
   eliminaProgrammazione,
   eliminaFase,
-  eliminaSeduta,
+  modificaDettagliSettimana,
 } from "@/app/(dashboard)/allenamenti/programmazione/actions";
 
 type Club = {
@@ -51,18 +51,6 @@ const INTENSITA_COLOR: Record<Intensita, string> = {
   alta: "#ef4444",
 };
 
-type Seduta = {
-  id: string;
-  data_seduta: string | null;
-  tipo_sessione: string | null;
-  tema: string | null;
-  volume_min: number | null;
-  durata_min: number | null;
-  intensita: Intensita | null;
-  carico: number | null;
-  note: string | null;
-};
-
 type Settimana = {
   id: string;
   numero_settimana: number;
@@ -71,7 +59,12 @@ type Settimana = {
   focus_settimana: string | null;
   obiettivo_settimana: string | null;
   note: string | null;
-  programmazione_sedute?: Seduta[] | null;
+  data_seduta: string | null;
+  focus_tecnico: string | null;
+  intensita: Intensita | null;
+  rpe_target: number | null;
+  focus_avanti: string | null;
+  focus_trequarti: string | null;
 };
 
 type Fase = {
@@ -114,13 +107,7 @@ export default function ProgrammazioneClient({
   const [openNuovaProgrammazione, setOpenNuovaProgrammazione] =
     useState(!hasProgrammazioni);
   const [openNuovaFase, setOpenNuovaFase] = useState(false);
-  const [openNuovaSeduta, setOpenNuovaSeduta] = useState(false);
   const [faseInModifica, setFaseInModifica] = useState<Fase | null>(null);
-  const [sedutaInModifica, setSedutaInModifica] = useState<Seduta | null>(
-    null
-  );
-  const [settimanaSedutaInModifica, setSettimanaSedutaInModifica] =
-    useState<Settimana | null>(null);
   const [isDeleting, startDeleteTransition] = useTransition();
 
   const [programmazioneAttiva, setProgrammazioneAttiva] =
@@ -130,7 +117,7 @@ export default function ProgrammazioneClient({
     if (!programmazioneAttiva) return;
 
     const conferma = window.confirm(
-      `Eliminare definitivamente la programmazione "${programmazioneAttiva.titolo}"? Verranno eliminate anche tutte le fasi, settimane e sedute collegate.`
+      `Eliminare definitivamente la programmazione "${programmazioneAttiva.titolo}"? Verranno eliminati anche tutti i mesocicli e le settimane collegate.`
     );
 
     if (!conferma) return;
@@ -150,7 +137,7 @@ export default function ProgrammazioneClient({
 
   function handleEliminaFase(fase: Fase) {
     const conferma = window.confirm(
-      `Eliminare definitivamente la fase "${fase.nome}"? Verranno eliminate anche le settimane e le sedute collegate.`
+      `Eliminare definitivamente il mesociclo "${fase.nome}"? Verranno eliminate anche le settimane collegate.`
     );
 
     if (!conferma) return;
@@ -167,71 +154,31 @@ export default function ProgrammazioneClient({
     });
   }
 
-  function handleEliminaSeduta(seduta: Seduta) {
-    const conferma = window.confirm(
-      "Eliminare definitivamente questa seduta?"
-    );
-
-    if (!conferma) return;
-
-    startDeleteTransition(async () => {
-      const res = await eliminaSeduta(seduta.id);
-
-      if (!res.success) {
-        window.alert(res.message);
-        return;
-      }
-
-      router.refresh();
-    });
-  }
-
   const fasi = useMemo(() => {
     return [...(programmazioneAttiva?.programmazione_fasi ?? [])].sort(
       (a, b) => Number(a.ordine ?? 0) - Number(b.ordine ?? 0)
     );
   }, [programmazioneAttiva]);
 
-  const settimane = useMemo(() => {
-    return fasi.flatMap((fase) =>
-      [...(fase.programmazione_settimane ?? [])].map((settimana) => ({
-        id: settimana.id,
-        numero_settimana: settimana.numero_settimana,
-        data_inizio: settimana.data_inizio,
-        data_fine: settimana.data_fine,
-        fase_nome: fase.nome,
-      }))
+  const totaleSettimane = useMemo(() => {
+    return fasi.reduce(
+      (totale, fase) =>
+        totale + [...(fase.programmazione_settimane ?? [])].length,
+      0
     );
   }, [fasi]);
 
-  const totaleSedute = useMemo(() => {
-    return fasi.reduce((totale, fase) => {
-      return (
-        totale +
-        [...(fase.programmazione_settimane ?? [])].reduce(
-          (sum, settimana) =>
-            sum + [...(settimana.programmazione_sedute ?? [])].length,
-          0
-        )
-      );
-    }, 0);
-  }, [fasi]);
+  const rpeMedio = useMemo(() => {
+    const valori = fasi
+      .flatMap((fase) => [...(fase.programmazione_settimane ?? [])])
+      .map((settimana) => settimana.rpe_target)
+      .filter((valore): valore is number => typeof valore === "number");
 
-  const totaleCarico = useMemo(() => {
-    return fasi.reduce((totale, fase) => {
-      return (
-        totale +
-        [...(fase.programmazione_settimane ?? [])].reduce(
-          (sumSettimane, settimana) =>
-            sumSettimane +
-            [...(settimana.programmazione_sedute ?? [])].reduce(
-              (sumSedute, seduta) => sumSedute + Number(seduta.carico ?? 0),
-              0
-            ),
-          0
-        )
-      );
-    }, 0);
+    if (valori.length === 0) return null;
+
+    return Math.round(
+      valori.reduce((sum, valore) => sum + valore, 0) / valori.length
+    );
   }, [fasi]);
 
   return (
@@ -338,22 +285,22 @@ export default function ProgrammazioneClient({
 
           <StatCard
             icon={<Dumbbell size={20} />}
-            label="Fasi"
+            label="Mesocicli"
             value={String(fasi.length)}
             coloreClub={coloreClub}
           />
 
           <StatCard
             icon={<Activity size={20} />}
-            label="Sedute"
-            value={String(totaleSedute)}
+            label="Settimane"
+            value={String(totaleSettimane)}
             coloreClub={coloreClub}
           />
 
           <StatCard
             icon={<BarChart3 size={20} />}
-            label="Carico totale"
-            value={String(totaleCarico)}
+            label="RPE medio"
+            value={rpeMedio === null ? "—" : String(rpeMedio)}
             coloreClub={coloreClub}
           />
         </section>
@@ -369,14 +316,9 @@ export default function ProgrammazioneClient({
           fase={fase}
           coloreClub={coloreClub}
           isAdmin={isAdmin}
-          onAddSeduta={() => setOpenNuovaSeduta(true)}
           onEditFase={() => setFaseInModifica(fase)}
           onDeleteFase={() => handleEliminaFase(fase)}
-          onEditSeduta={(settimana, seduta) => {
-            setSettimanaSedutaInModifica(settimana);
-            setSedutaInModifica(seduta);
-          }}
-          onDeleteSeduta={handleEliminaSeduta}
+          onSettimanaSalvata={() => router.refresh()}
         />
       ))}
 
@@ -387,7 +329,7 @@ export default function ProgrammazioneClient({
         style={{ backgroundColor: coloreClub }}
       >
         <Plus size={17} />
-        Aggiungi fase
+        Aggiungi mesociclo
       </button>
     </div>
   ) : (
@@ -421,13 +363,6 @@ export default function ProgrammazioneClient({
         }
       />
 
-      <NuovaSedutaProgrammazioneModal
-        open={openNuovaSeduta}
-        onClose={() => setOpenNuovaSeduta(false)}
-        brand={coloreClub}
-        settimane={settimane}
-      />
-
       <ModificaFaseModal
         open={Boolean(faseInModifica)}
         onClose={() => {
@@ -436,19 +371,6 @@ export default function ProgrammazioneClient({
         }}
         brand={coloreClub}
         fase={faseInModifica}
-      />
-
-      <ModificaSedutaModal
-        open={Boolean(sedutaInModifica)}
-        onClose={() => {
-          setSedutaInModifica(null);
-          setSettimanaSedutaInModifica(null);
-          router.refresh();
-        }}
-        brand={coloreClub}
-        seduta={sedutaInModifica}
-        minData={settimanaSedutaInModifica?.data_inizio}
-        maxData={settimanaSedutaInModifica?.data_fine}
       />
     </>
   );
@@ -488,20 +410,16 @@ function FaseProspetto({
   fase,
   coloreClub,
   isAdmin,
-  onAddSeduta,
   onEditFase,
   onDeleteFase,
-  onEditSeduta,
-  onDeleteSeduta,
+  onSettimanaSalvata,
 }: {
   fase: Fase;
   coloreClub: string;
   isAdmin: boolean;
-  onAddSeduta: () => void;
   onEditFase: () => void;
   onDeleteFase: () => void;
-  onEditSeduta: (settimana: Settimana, seduta: Seduta) => void;
-  onDeleteSeduta: (seduta: Seduta) => void;
+  onSettimanaSalvata: () => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -525,7 +443,7 @@ function FaseProspetto({
           </h3>
 
           <p className="text-sm text-white/75">
-            {fase.data_inizio} → {fase.data_fine}
+            {formatDataIT(fase.data_inizio)} → {formatDataIT(fase.data_fine)}
           </p>
 
           {fase.obiettivo && (
@@ -539,7 +457,7 @@ function FaseProspetto({
               <button
                 type="button"
                 onClick={onEditFase}
-                title="Modifica fase"
+                title="Modifica mesociclo"
                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-white/20"
               >
                 <Pencil size={15} />
@@ -548,7 +466,7 @@ function FaseProspetto({
               <button
                 type="button"
                 onClick={onDeleteFase}
-                title="Elimina fase"
+                title="Elimina mesociclo"
                 className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white transition hover:bg-red-500/60"
               >
                 <Trash2 size={15} />
@@ -575,14 +493,12 @@ function FaseProspetto({
                 settimana={settimana}
                 coloreClub={coloreClub}
                 isAdmin={isAdmin}
-                onAddSeduta={onAddSeduta}
-                onEditSeduta={onEditSeduta}
-                onDeleteSeduta={onDeleteSeduta}
+                onSalvata={onSettimanaSalvata}
               />
             ))
           ) : (
             <div className="rounded-2xl border border-dashed border-zinc-700 bg-zinc-950 p-5 text-sm text-zinc-400">
-              Nessuna settimana generata per questa fase.
+              Nessuna settimana generata per questo mesociclo.
             </div>
           )}
         </div>
@@ -595,23 +511,55 @@ function SettimanaCard({
   settimana,
   coloreClub,
   isAdmin,
-  onAddSeduta,
-  onEditSeduta,
-  onDeleteSeduta,
+  onSalvata,
 }: {
   settimana: Settimana;
   coloreClub: string;
   isAdmin: boolean;
-  onAddSeduta: () => void;
-  onEditSeduta: (settimana: Settimana, seduta: Seduta) => void;
-  onDeleteSeduta: (seduta: Seduta) => void;
+  onSalvata: () => void;
 }) {
-  const sedute = settimana.programmazione_sedute ?? [];
-
-  const caricoSettimana = sedute.reduce(
-    (sum, seduta) => sum + Number(seduta.carico ?? 0),
-    0
+  const [focusTecnico, setFocusTecnico] = useState(
+    settimana.focus_tecnico ?? ""
   );
+  const [intensita, setIntensita] = useState<Intensita | "">(
+    settimana.intensita ?? ""
+  );
+  const [rpeTarget, setRpeTarget] = useState(
+    settimana.rpe_target !== null ? String(settimana.rpe_target) : ""
+  );
+  const [focusAvanti, setFocusAvanti] = useState(
+    settimana.focus_avanti ?? ""
+  );
+  const [focusTrequarti, setFocusTrequarti] = useState(
+    settimana.focus_trequarti ?? ""
+  );
+  const [errore, setErrore] = useState<string | null>(null);
+  const [salvataggio, startSalvataggio] = useTransition();
+
+  const inputClass =
+    "w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-white outline-none transition focus:border-zinc-600 disabled:cursor-not-allowed disabled:opacity-60";
+
+  function handleSalva() {
+    setErrore(null);
+
+    startSalvataggio(async () => {
+      const res = await modificaDettagliSettimana({
+        settimana_id: settimana.id,
+        focus_tecnico: focusTecnico || null,
+        intensita: intensita || null,
+        rpe_target: rpeTarget ? Number(rpeTarget) : null,
+        focus_avanti: focusAvanti || null,
+        focus_trequarti: focusTrequarti || null,
+      });
+
+      if (!res.success) {
+        setErrore(res.message);
+        return;
+      }
+
+      onSalvata();
+    });
+  }
 
   return (
     <div className="flex min-h-80 flex-col rounded-3xl border border-zinc-800 bg-zinc-950 p-4 shadow-sm">
@@ -622,132 +570,116 @@ function SettimanaCard({
           </h4>
 
           <p className="text-xs text-zinc-400">
-            {settimana.data_inizio} → {settimana.data_fine}
+            {formatDataIT(settimana.data_inizio)} → {formatDataIT(settimana.data_fine)}
           </p>
         </div>
 
-        <span
-          className="rounded-full px-3 py-1 text-xs font-bold text-white"
-          style={{ backgroundColor: coloreClub }}
-        >
-          {caricoSettimana}
-        </span>
-      </div>
-
-      <div className="mt-4 flex-1 space-y-3">
-        {sedute.length > 0 ? (
-          sedute.map((seduta) => (
-            <SedutaItem
-              key={seduta.id}
-              seduta={seduta}
-              isAdmin={isAdmin}
-              onEdit={() => onEditSeduta(settimana, seduta)}
-              onDelete={() => onDeleteSeduta(seduta)}
-            />
-          ))
-        ) : (
-          <div className="flex h-32 items-center justify-center rounded-2xl border border-dashed border-zinc-700 bg-zinc-900 p-4 text-center text-sm text-zinc-500">
-            Nessuna seduta inserita.
-          </div>
+        {intensita && (
+          <span
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold text-white"
+            style={{ backgroundColor: INTENSITA_COLOR[intensita] }}
+          >
+            {INTENSITA_LABEL[intensita]}
+          </span>
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={onAddSeduta}
-        className="mt-4 inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-700 px-4 py-2 text-sm font-semibold transition hover:bg-zinc-900"
-        style={{ color: coloreClub }}
-      >
-        <Plus size={16} />
-        Aggiungi seduta
-      </button>
+      <div className="mt-4 flex-1 space-y-3">
+        <Campo label="Focus tecnico">
+          <textarea
+            rows={3}
+            disabled={!isAdmin}
+            placeholder="Es. Difesa, possesso, transizione..."
+            value={focusTecnico}
+            onChange={(e) => setFocusTecnico(e.target.value)}
+            className={`${inputClass} resize-y`}
+          />
+        </Campo>
+
+        <div className="grid grid-cols-2 gap-2.5">
+          <Campo label="Intensità">
+            <select
+              disabled={!isAdmin}
+              value={intensita}
+              onChange={(e) => setIntensita(e.target.value as Intensita | "")}
+              className={inputClass}
+            >
+              <option value="">—</option>
+              <option value="bassa">Bassa</option>
+              <option value="media">Media</option>
+              <option value="alta">Alta</option>
+            </select>
+          </Campo>
+
+          <Campo label="RPE target/seduta">
+            <input
+              type="number"
+              min={0}
+              max={10}
+              disabled={!isAdmin}
+              placeholder="Es. 7"
+              value={rpeTarget}
+              onChange={(e) => setRpeTarget(e.target.value)}
+              className={inputClass}
+            />
+          </Campo>
+        </div>
+
+        <Campo label="Reparto specialistico — Avanti">
+          <textarea
+            rows={3}
+            disabled={!isAdmin}
+            placeholder="Es. Mischia chiusa, touche..."
+            value={focusAvanti}
+            onChange={(e) => setFocusAvanti(e.target.value)}
+            className={`${inputClass} resize-y`}
+          />
+        </Campo>
+
+        <Campo label="Reparto specialistico — Trequarti">
+          <textarea
+            rows={3}
+            disabled={!isAdmin}
+            placeholder="Es. Attacco a due fasce, difesa scivolata..."
+            value={focusTrequarti}
+            onChange={(e) => setFocusTrequarti(e.target.value)}
+            className={`${inputClass} resize-y`}
+          />
+        </Campo>
+      </div>
+
+      {errore && (
+        <p className="mt-3 text-xs font-medium text-red-400">{errore}</p>
+      )}
+
+      {isAdmin && (
+        <button
+          type="button"
+          onClick={handleSalva}
+          disabled={salvataggio}
+          className="mt-4 inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-700 px-4 py-2 text-sm font-semibold transition hover:bg-zinc-900 disabled:cursor-not-allowed disabled:opacity-60"
+          style={{ color: coloreClub }}
+        >
+          <Save size={16} />
+          {salvataggio ? "Salvataggio..." : "Salva settimana"}
+        </button>
+      )}
     </div>
   );
 }
 
-function SedutaItem({
-  seduta,
-  isAdmin,
-  onEdit,
-  onDelete,
+function Campo({
+  label,
+  children,
 }: {
-  seduta: Seduta;
-  isAdmin: boolean;
-  onEdit: () => void;
-  onDelete: () => void;
+  label: string;
+  children: React.ReactNode;
 }) {
-  const carico = Number(seduta.carico ?? 0);
-
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="text-sm font-bold text-white">
-            {seduta.data_seduta ?? "Tutta la settimana"}
-          </p>
-
-          <p className="text-xs text-zinc-400">
-            {seduta.tipo_sessione ?? "Sessione"} ·{" "}
-            {seduta.tema ?? "Tema libero"}
-          </p>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-1.5">
-          <span className="rounded-full bg-white/10 px-2 py-1 text-xs font-bold text-white">
-            {carico}
-          </span>
-
-          {isAdmin && (
-            <>
-              <button
-                type="button"
-                onClick={onEdit}
-                title="Modifica seduta"
-                className="flex h-6 w-6 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-white/10 hover:text-white"
-              >
-                <Pencil size={12} />
-              </button>
-
-              <button
-                type="button"
-                onClick={onDelete}
-                title="Elimina seduta"
-                className="flex h-6 w-6 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-red-500/20 hover:text-red-300"
-              >
-                <Trash2 size={12} />
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-zinc-400">
-        <span>Volume: {seduta.volume_min ?? "—"} min</span>
-        <span>Durata: {seduta.durata_min ?? "—"} min</span>
-
-        <span className="flex items-center gap-1.5">
-          Intensità:
-          {seduta.intensita ? (
-            <span
-              className="inline-flex items-center gap-1 font-bold"
-              style={{ color: INTENSITA_COLOR[seduta.intensita] }}
-            >
-              <span
-                className="h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: INTENSITA_COLOR[seduta.intensita] }}
-              />
-              {INTENSITA_LABEL[seduta.intensita]}
-            </span>
-          ) : (
-            "—"
-          )}
-        </span>
-      </div>
-
-      {seduta.note && (
-        <p className="mt-2 text-xs text-zinc-500">{seduta.note}</p>
-      )}
-    </div>
+    <label className="block">
+      <span className="mb-1.5 block text-xs text-zinc-500">{label}</span>
+      {children}
+    </label>
   );
 }
 
@@ -773,14 +705,14 @@ function EmptyFasi({
 
       <h3 className="mt-4 font-bold text-white">
         {hasProgrammazione
-          ? "Nessuna fase configurata"
+          ? "Nessun mesociclo configurato"
           : "Nessuna programmazione"}
       </h3>
 
       <p className="mt-1 max-w-md text-sm text-zinc-400">
         {hasProgrammazione
-          ? "Crea una fase per generare automaticamente settimane e sedute."
-          : "Crea prima una programmazione, poi potrai aggiungere fasi, settimane e sedute."}
+          ? "Crea un mesociclo per generare automaticamente le settimane."
+          : "Crea prima una programmazione, poi potrai aggiungere mesocicli e settimane."}
       </p>
 
       <button
@@ -790,7 +722,7 @@ function EmptyFasi({
         style={{ backgroundColor: coloreClub }}
       >
         <Plus size={17} />
-        {hasProgrammazione ? "Crea fase" : "Crea programmazione"}
+        {hasProgrammazione ? "Crea mesociclo" : "Crea programmazione"}
       </button>
     </div>
   );

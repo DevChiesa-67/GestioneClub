@@ -6,6 +6,7 @@ import {
   caricaGiocatoriPresenti,
   salvaMisurazioniTest,
 } from "@/app/(dashboard)/test/actions";
+import { DateInput } from "@/components/ui/DateInput";
 
 type TestPerformance = {
   id: string;
@@ -190,30 +191,22 @@ export default function AggiungiTestModal({
               </label>
 
               <div className="relative">
-                <input
-                  type="date"
+                <DateInput
                   value={dataTest}
-                  onChange={(e) => {
-                    setDataTest(e.target.value);
+                  onChange={(v) => {
+                    setDataTest(v);
                     setGiocatori([]);
                     setRighe({});
                     setErrore(null);
                   }}
-                  style={{
+                  wrapperStyle={{
                     borderColor: dataTest ? `${coloreFlag}80` : undefined,
                     boxShadow: dataTest
                       ? `0 0 0 1px ${coloreFlag}40`
                       : undefined,
                   }}
-                  className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition [color-scheme:dark] focus:border-white/30 sm:text-base"
+                  wrapperClassName="rounded-2xl border-white/10 bg-black"
                 />
-
-                {dataTest && (
-                  <div
-                    className="pointer-events-none absolute right-4 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full"
-                    style={{ backgroundColor: coloreFlag }}
-                  />
-                )}
               </div>
             </div>
 

@@ -13,6 +13,20 @@ export type TipoSedutaSingolo = "allenamento" | "partita";
 export const TAG_ALLENAMENTO = "Training";
 export const TAG_PARTITA = "Game";
 
+/*
+ * Ogni seduta importata da Catapult produce più righe in catapult_data
+ * per lo stesso giocatore: una riga con split_name = "all" che contiene
+ * i totali dell'intera seduta, più eventuali righe aggiuntive per i
+ * sotto-split configurati sul dispositivo (es. 1°/2° tempo, blocchi di
+ * lavoro). Se non si filtra esplicitamente per split_name, una query
+ * prende TUTTE queste righe insieme, sommando/mediando sia il totale
+ * "all" sia i suoi sotto-split e gonfiando ogni statistica. Per questo,
+ * quando l'utente non ha selezionato uno split/tempo specifico, va
+ * sempre applicato il filtro sullo split "all" (già usato altrove
+ * nell'app, vedi dashboard.service.ts).
+ */
+export const SPLIT_TUTTA_SEDUTA = "all";
+
 const TAG_PER_TIPO: Record<TipoSedutaSingolo, string> = {
   allenamento: TAG_ALLENAMENTO,
   partita: TAG_PARTITA,
@@ -36,8 +50,9 @@ function tipiValidiUnivoci(tipiSeduta: TipoSedutaSingolo[]): TipoSedutaSingolo[]
  * Ritorna:
  * - null se non va applicato nessun filtro (nessun tipo selezionato,
  *   oppure selezionati sia allenamento che partita).
- * - un array di tag (sempre non vuoto in questo caso) su cui
- *   filtrare catapult_data con `.in("tags", tags)`.
+ * - un array di tag (sempre non vuoto in questo caso) da passare a
+ *   filtroTagIlike() per filtrare catapult_data ignorando maiuscole/
+ *   minuscole.
  */
 export function tagsPerTipiSeduta(
   tipiSeduta: TipoSedutaSingolo[]
@@ -49,6 +64,22 @@ export function tagsPerTipiSeduta(
   }
 
   return tipiValidi.map((tipo) => TAG_PER_TIPO[tipo]);
+}
+
+/**
+ * Costruisce il filtro PostgREST da passare a `.or(...)` per confrontare
+ * la colonna tags ignorando maiuscole/minuscole.
+ *
+ * I file esportati da Catapult non hanno un formato tags garantito al
+ * 100% (a seconda del dispositivo/versione può arrivare "Training",
+ * "training", "TRAINING", ecc.). Un `.in("tags", ["Training","Game"])`
+ * è case-sensitive e con una variazione di maiuscole/minuscole non
+ * trova più nulla: da qui i filtri "Allenamento"/"Partita" che
+ * sembravano non funzionare. `ilike` (senza wildcard `%`) fa un
+ * confronto esatto ma case-insensitive.
+ */
+export function filtroTagIlike(tags: string[]): string {
+  return tags.map((tag) => `tags.ilike.${tag}`).join(",");
 }
 
 /**
@@ -74,7 +105,7 @@ export async function dateCatapultPerTipiSeduta(params: {
     .from("catapult_data")
     .select("date")
     .eq("club_id", params.clubId)
-    .in("tags", tags);
+    .or(filtroTagIlike(tags));
 
   if (error) {
     console.error(

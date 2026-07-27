@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { X, Plus, Trash2, Save, Droplets } from "lucide-react";
+import { X, Plus, Trash2, Save, Droplets, Users } from "lucide-react";
 import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
 import { useToast } from "@/components/ui/Toast";
+import { DateInput } from "@/components/ui/DateInput";
+import { formatDataIT } from "@/lib/date";
 
-type TipoAllenamento = "Mattina + Palestra" | "Sessione Campo";
+type TipoAllenamento = "Seduta Mattutina" | "Seduta Serale";
 
 type AllenamentoPrecedente = {
   id: string;
@@ -14,9 +16,12 @@ type AllenamentoPrecedente = {
   data_allenamento: string;
   tipo_allenamento: string | null;
 };
-type SedutaProgrammataRow = {
-  tema: string | null;
-  rpe: number | null;
+type SettimanaProgrammataRow = {
+  focus_tecnico: string | null;
+  intensita: string | null;
+  rpe_target: number | null;
+  focus_avanti: string | null;
+  focus_trequarti: string | null;
   fase_id: string;
 };
 
@@ -38,6 +43,9 @@ type LavoroPrecedente = {
 };
 
 type Lavoro = {
+  id: string;
+  contemporaneo: boolean;
+  gruppo_id: string | null;
   sezione: string;
   descrizione: string;
   obbiettivo: string;
@@ -49,6 +57,14 @@ type Lavoro = {
   tempo_recupero: string;
   tempo_totale: string;
 };
+
+function generaIdLavoro() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `lavoro-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 const OBBIETTIVO_TAG = [
   "Passaggio",
@@ -73,10 +89,13 @@ const OBBIETTIVO_TAG = [
 ];
 type DettagliProgrammazione = {
   programmazione: string | null;
-  fase: string | null;
-  tema: string | null;
-  rpe: number | null;
-  coloreFase: string | null;
+  mesociclo: string | null;
+  focusTecnico: string | null;
+  intensita: string | null;
+  rpeTarget: number | null;
+  focusAvanti: string | null;
+  focusTrequarti: string | null;
+  coloreMesociclo: string | null;
 };
 const RANGHI = [
   "Individuale",
@@ -86,24 +105,25 @@ const RANGHI = [
   "Collettivo Totale",
 ];
 
-const SEZIONI: Record<TipoAllenamento, string[]> = {
-  "Mattina + Palestra": [
-    "ALLENAMENTO MATTUTINO",
-    "PALESTRA SERALE",
-    "H2O",
-  ],
-  "Sessione Campo": [
-    "Analisi Video/ Riunioni",
-    "ATTIVAZIONE / RISCALDAMENTO",
-    "LAVORO TECNICO-TATTICO",
-    "REPARTO",
-    "SITUAZIONI DI GIOCO / MATCH",
-    "COOL-DOWN / DEFATICAMENTO",
-    "H2O",
-  ],
-};
+const SEZIONI: string[] = [
+  "Analisi Video / Riunioni",
+  "ATTIVAZIONE / RISCALDAMENTO",
+  "LAVORO TECNICO-TATTICO",
+  "REPARTO",
+  "SITUAZIONI DI GIOCO / MATCH",
+  "PALESTRA",
+  "COOL-DOWN / DEFATICAMENTO",
+  "H2O",
+];
+
+const COLORE_H2O = "#38bdf8";
+
 function isLavoroH2O(lavoro: Lavoro) {
   return lavoro.sezione.trim().toUpperCase() === "H2O";
+}
+
+function coloreSezione(sezione: string, themeColor: string) {
+  return sezione.trim().toUpperCase() === "H2O" ? COLORE_H2O : themeColor;
 }
 
 function calcolaTempoTotale(lavoro: Lavoro) {
@@ -125,6 +145,9 @@ function calcolaTempoTotale(lavoro: Lavoro) {
 }
 function creaLavoroVuoto(sezione = ""): Lavoro {
   return {
+    id: generaIdLavoro(),
+    contemporaneo: false,
+    gruppo_id: null,
     sezione,
     descrizione: "",
     obbiettivo: "",
@@ -150,7 +173,7 @@ export default function NuovoAllenamentoModal({
   isAdmin: boolean;
 }) {
   const { showToast } = useToast();
-  const [tipo, setTipo] = useState<TipoAllenamento>("Sessione Campo");
+  const [tipo, setTipo] = useState<TipoAllenamento>("Seduta Mattutina");
   const [dataAllenamento, setDataAllenamento] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -163,10 +186,13 @@ export default function NuovoAllenamentoModal({
   const [dettagliProgrammazione, setDettagliProgrammazione] =
   useState<DettagliProgrammazione>({
     programmazione: null,
-    fase: null,
-    tema: null,
-    rpe: null,
-    coloreFase: null,
+    mesociclo: null,
+    focusTecnico: null,
+    intensita: null,
+    rpeTarget: null,
+    focusAvanti: null,
+    focusTrequarti: null,
+    coloreMesociclo: null,
   });
 
 
@@ -176,7 +202,29 @@ export default function NuovoAllenamentoModal({
 
   const [lavori, setLavori] = useState<Lavoro[]>([]);
 
-  
+  // Raggruppa i lavori in blocchi: singoli, oppure gruppi di lavori
+  // contemporanei che condividono lo stesso gruppo_id.
+  const blocchiLavori = useMemo(() => {
+    const blocchi: { gruppoId: string | null; membri: Lavoro[] }[] = [];
+    const gruppiVisti = new Set<string>();
+
+    lavori.forEach((lavoro) => {
+      if (lavoro.contemporaneo && lavoro.gruppo_id) {
+        if (gruppiVisti.has(lavoro.gruppo_id)) return;
+
+        gruppiVisti.add(lavoro.gruppo_id);
+
+        blocchi.push({
+          gruppoId: lavoro.gruppo_id,
+          membri: lavori.filter((l) => l.gruppo_id === lavoro.gruppo_id),
+        });
+      } else {
+        blocchi.push({ gruppoId: null, membri: [lavoro] });
+      }
+    });
+
+    return blocchi;
+  }, [lavori]);
 
   const riepilogoSezioni = useMemo(() => {
     const mappa = new Map<
@@ -188,35 +236,49 @@ export default function NuovoAllenamentoModal({
       }
     >();
 
+    const gruppiContati = new Set<string>();
+
     lavori.forEach((lavoro) => {
       const sezione = lavoro.sezione || "Senza sezione";
-      const corrente = mappa.get(sezione);
+      const corrente = mappa.get(sezione) ?? {
+        sezione,
+        minuti: 0,
+        esercizi: 0,
+      };
 
-      if (corrente) {
-        corrente.minuti += calcolaTempoTotale(lavoro);
-        corrente.esercizi += 1;
-      } else {
-        mappa.set(sezione, {
-          sezione,
-          minuti: calcolaTempoTotale(lavoro),
-          esercizi: 1,
-        });
+      let minuti = calcolaTempoTotale(lavoro);
+
+      if (lavoro.contemporaneo && lavoro.gruppo_id) {
+        if (gruppiContati.has(lavoro.gruppo_id)) {
+          minuti = 0;
+        } else {
+          gruppiContati.add(lavoro.gruppo_id);
+        }
       }
+
+      corrente.minuti += minuti;
+      corrente.esercizi += 1;
+      mappa.set(sezione, corrente);
     });
 
     return Array.from(mappa.values());
   }, [lavori]);
 
   const totaleMinuti = useMemo(() => {
-    return lavori.reduce(
-      (totale, lavoro) => totale + calcolaTempoTotale(lavoro),
-      0
-    );
+    const gruppiContati = new Set<string>();
+
+    return lavori.reduce((totale, lavoro) => {
+      if (lavoro.contemporaneo && lavoro.gruppo_id) {
+        if (gruppiContati.has(lavoro.gruppo_id)) return totale;
+        gruppiContati.add(lavoro.gruppo_id);
+      }
+
+      return totale + calcolaTempoTotale(lavoro);
+    }, 0);
   }, [lavori]);
 
   function cambiaTipoAllenamento(nuovoTipo: TipoAllenamento) {
     setTipo(nuovoTipo);
-    setLavori([]);
   }
 
   function aggiungiLavoro() {
@@ -224,17 +286,18 @@ export default function NuovoAllenamentoModal({
   }
 
   function aggiornaLavoro(
-    index: number,
+    id: string,
     campo: keyof Lavoro,
     valore: string
   ) {
     setLavori((prev) =>
-      prev.map((lavoro, i) => {
-        if (i !== index) return lavoro;
+      prev.map((lavoro) => {
+        if (lavoro.id !== id) return lavoro;
 
         if (campo === "sezione" && valore.toUpperCase() === "H2O") {
           return {
             ...creaLavoroVuoto("H2O"),
+            id: lavoro.id,
             tempo_totale: lavoro.tempo_totale,
           };
         }
@@ -247,8 +310,101 @@ export default function NuovoAllenamentoModal({
     );
   }
 
-  function eliminaLavoro(index: number) {
-    setLavori((prev) => prev.filter((_, i) => i !== index));
+  // Aggiorna un campo condiviso (sezione, tempo lavoro, ripetizioni,
+  // tempo recupero) su tutti i lavori che appartengono allo stesso
+  // gruppo di lavori contemporanei.
+  function aggiornaCampoGruppo(
+    gruppoId: string,
+    campo: "sezione" | "tempo_lavoro" | "ripetizione" | "tempo_recupero",
+    valore: string
+  ) {
+    setLavori((prev) =>
+      prev.map((lavoro) =>
+        lavoro.gruppo_id === gruppoId
+          ? { ...lavoro, [campo]: valore }
+          : lavoro
+      )
+    );
+  }
+
+  function attivaContemporaneo(id: string) {
+    const nuovoGruppoId = generaIdLavoro();
+
+    setLavori((prev) =>
+      prev.map((lavoro) =>
+        lavoro.id === id
+          ? { ...lavoro, contemporaneo: true, gruppo_id: nuovoGruppoId }
+          : lavoro
+      )
+    );
+  }
+
+  function disattivaContemporaneo(gruppoId: string) {
+    setLavori((prev) =>
+      prev.map((lavoro) =>
+        lavoro.gruppo_id === gruppoId
+          ? { ...lavoro, contemporaneo: false, gruppo_id: null }
+          : lavoro
+      )
+    );
+  }
+
+  function aggiungiLavoroParallelo(gruppoId: string) {
+    setLavori((prev) => {
+      const riferimento = prev.find((lavoro) => lavoro.gruppo_id === gruppoId);
+      if (!riferimento) return prev;
+
+      const nuovo: Lavoro = {
+        ...creaLavoroVuoto(riferimento.sezione),
+        contemporaneo: true,
+        gruppo_id: gruppoId,
+        tempo_lavoro: riferimento.tempo_lavoro,
+        ripetizione: riferimento.ripetizione,
+        tempo_recupero: riferimento.tempo_recupero,
+      };
+
+      const ultimoIndiceGruppo = prev.reduce(
+        (ultimo, lavoro, i) => (lavoro.gruppo_id === gruppoId ? i : ultimo),
+        -1
+      );
+
+      const copia = [...prev];
+      copia.splice(ultimoIndiceGruppo + 1, 0, nuovo);
+      return copia;
+    });
+  }
+
+  function rimuoviLavoroParallelo(id: string) {
+    setLavori((prev) => {
+      const lavoro = prev.find((l) => l.id === id);
+      if (!lavoro?.gruppo_id) return prev;
+
+      const membriRimanenti = prev.filter(
+        (l) => l.gruppo_id === lavoro.gruppo_id && l.id !== id
+      );
+
+      const senzaLavoro = prev.filter((l) => l.id !== id);
+
+      // Se resta un solo membro nel gruppo, lo trasformiamo di nuovo
+      // in un lavoro singolo (non ha più senso tenerlo "contemporaneo").
+      if (membriRimanenti.length === 1) {
+        return senzaLavoro.map((l) =>
+          l.id === membriRimanenti[0].id
+            ? { ...l, contemporaneo: false, gruppo_id: null }
+            : l
+        );
+      }
+
+      return senzaLavoro;
+    });
+  }
+
+  function eliminaLavoro(id: string) {
+    setLavori((prev) => prev.filter((l) => l.id !== id));
+  }
+
+  function eliminaGruppo(gruppoId: string) {
+    setLavori((prev) => prev.filter((l) => l.gruppo_id !== gruppoId));
   }
 
   useEffect(() => {
@@ -273,19 +429,23 @@ export default function NuovoAllenamentoModal({
 
       const inizioSettimana = new Date(data);
       const giorno = inizioSettimana.getDay() || 7;
-  const { data: sedutaProgrammata } = await supabase
-  .from("programmazione_sedute")
-  .select("tema,rpe,fase_id")
+  // I dettagli della seduta vengono presi dal mesociclo (programmazione)
+  // in base alla settimana di programmazione la cui data_inizio/data_fine
+  // contiene la data dell'allenamento che si sta creando.
+  const { data: settimanaProgrammata } = await supabase
+  .from("programmazione_settimane")
+  .select("focus_tecnico,intensita,rpe_target,focus_avanti,focus_trequarti,fase_id")
   .eq("club_id", profilo.last_club_id)
   .eq("squadra_id", profilo.last_squadra_id)
-  .eq("data_seduta", dataAllenamento)
-  .maybeSingle<SedutaProgrammataRow>();
+  .lte("data_inizio", dataAllenamento)
+  .gte("data_fine", dataAllenamento)
+  .maybeSingle<SettimanaProgrammataRow>();
 
-if (sedutaProgrammata?.fase_id) {
+if (settimanaProgrammata?.fase_id) {
   const { data: faseProgrammazione } = await supabase
     .from("programmazione_fasi")
     .select("nome,colore,programmazione_id")
-    .eq("id", sedutaProgrammata.fase_id)
+    .eq("id", settimanaProgrammata.fase_id)
     .eq("club_id", profilo.last_club_id)
     .eq("squadra_id", profilo.last_squadra_id)
     .maybeSingle<FaseProgrammazioneRow>();
@@ -306,18 +466,24 @@ if (sedutaProgrammata?.fase_id) {
 
   setDettagliProgrammazione({
     programmazione: titoloProgrammazione,
-    fase: faseProgrammazione?.nome ?? null,
-    tema: sedutaProgrammata.tema ?? null,
-    rpe: sedutaProgrammata.rpe ?? null,
-    coloreFase: faseProgrammazione?.colore ?? null,
+    mesociclo: faseProgrammazione?.nome ?? null,
+    focusTecnico: settimanaProgrammata.focus_tecnico ?? null,
+    intensita: settimanaProgrammata.intensita ?? null,
+    rpeTarget: settimanaProgrammata.rpe_target ?? null,
+    focusAvanti: settimanaProgrammata.focus_avanti ?? null,
+    focusTrequarti: settimanaProgrammata.focus_trequarti ?? null,
+    coloreMesociclo: faseProgrammazione?.colore ?? null,
   });
 } else {
   setDettagliProgrammazione({
     programmazione: null,
-    fase: null,
-    tema: null,
-    rpe: null,
-    coloreFase: null,
+    mesociclo: null,
+    focusTecnico: null,
+    intensita: null,
+    rpeTarget: null,
+    focusAvanti: null,
+    focusTrequarti: null,
+    coloreMesociclo: null,
   });
 }
       inizioSettimana.setDate(
@@ -437,6 +603,8 @@ if (sedutaProgrammata?.fase_id) {
             ripetizione: null,
             tempo_recupero: null,
             tempo_totale: Number(lavoro.tempo_totale) || 0,
+            contemporaneo: false,
+            gruppo_contemporaneo: null,
           };
         }
 
@@ -457,6 +625,8 @@ if (sedutaProgrammata?.fase_id) {
             ? Number(lavoro.tempo_recupero)
             : null,
           tempo_totale: calcolaTempoTotale(lavoro),
+          contemporaneo: lavoro.contemporaneo,
+          gruppo_contemporaneo: lavoro.contemporaneo ? lavoro.gruppo_id : null,
         };
       });
 
@@ -604,17 +774,12 @@ if (sedutaProgrammata?.fase_id) {
                   Data
                 </label>
 
-                <input
-                  type="date"
+                <DateInput
                   value={dataAllenamento}
-                  onChange={(e) =>
-                    setDataAllenamento(e.target.value)
-                  }
+                  onChange={(v) => setDataAllenamento(v)}
                   max="2100-12-31"
-                  className="w-full rounded-xl border bg-zinc-900 px-4 py-3 text-base text-white outline-none transition dark:[color-scheme:dark]"
-                  style={{
-                    borderColor: `${themeColor}55`,
-                  }}
+                  wrapperClassName="bg-zinc-900"
+                  wrapperStyle={{ borderColor: `${themeColor}55` }}
                 />
               </div>
 
@@ -635,12 +800,12 @@ if (sedutaProgrammata?.fase_id) {
                     borderColor: `${themeColor}55`,
                   }}
                 >
-                  <option value="Mattina + Palestra">
-                    Mattina + Palestra
+                  <option value="Seduta Mattutina">
+                    Seduta Mattutina
                   </option>
 
-                  <option value="Sessione Campo">
-                    Sessione Campo
+                  <option value="Seduta Serale">
+                    Seduta Serale
                   </option>
                 </select>
               </div>
@@ -680,40 +845,287 @@ if (sedutaProgrammata?.fase_id) {
               </div>
             ) : (
               <div className="divide-y divide-zinc-800">
-                {lavori.map((lavoro, index) => {
-                  const h2o = isLavoroH2O(lavoro);
+                {blocchiLavori.map((blocco, indiceBlocco) => {
+                  const numero = indiceBlocco + 1;
+
+                  // Blocco singolo: lavoro normale oppure pausa H2O.
+                  if (!blocco.gruppoId) {
+                    const lavoro = blocco.membri[0];
+                    const h2o = isLavoroH2O(lavoro);
+                    const colore = coloreSezione(lavoro.sezione, themeColor);
+
+                    return (
+                      <div
+                        key={lavoro.id}
+                        className="py-5 first:pt-0 last:pb-0 sm:py-6"
+                      >
+                        <div className="mb-4 flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-black"
+                              style={{
+                                backgroundColor: `${colore}18`,
+                                color: colore,
+                              }}
+                            >
+                              {h2o ? <Droplets size={18} /> : numero}
+                            </div>
+
+                            <div>
+                              <p className="text-sm font-bold text-white">
+                                {h2o ? "Pausa H2O" : `Lavoro ${numero}`}
+                              </p>
+
+                              {lavoro.sezione && (
+                                <p className="text-xs text-zinc-500">
+                                  {lavoro.sezione}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => eliminaLavoro(lavoro.id)}
+                            className="shrink-0 rounded-xl border border-red-500/20 px-2.5 py-2 text-sm text-red-500 transition hover:text-red-400 sm:flex sm:items-center sm:gap-1.5 sm:border-0 sm:px-0 sm:py-0"
+                          >
+                            <Trash2 size={15} />
+                            Elimina
+                          </button>
+                        </div>
+
+                        <div className="mb-4">
+                          <SelectField
+                            label="Sezione"
+                            value={lavoro.sezione}
+                            options={SEZIONI}
+                            onChange={(value) =>
+                              aggiornaLavoro(lavoro.id, "sezione", value)
+                            }
+                            themeColor={colore}
+                          />
+                        </div>
+
+                        {h2o ? (
+                          <div
+                            className="rounded-2xl border p-4"
+                            style={{
+                              borderColor: `${colore}35`,
+                              backgroundColor: `${colore}0D`,
+                            }}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div
+                                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+                                style={{
+                                  backgroundColor: `${colore}20`,
+                                  color: colore,
+                                }}
+                              >
+                                <Droplets size={21} />
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <label className="mb-1 block text-sm font-medium text-zinc-300">
+                                  Minutaggio H2O
+                                </label>
+
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={lavoro.tempo_totale}
+                                  onChange={(e) =>
+                                    aggiornaLavoro(
+                                      lavoro.id,
+                                      "tempo_totale",
+                                      e.target.value
+                                    )
+                                  }
+                                  placeholder="Es. 3"
+                                  className="w-full rounded-xl border bg-zinc-950 px-3 py-2.5 text-white outline-none"
+                                  style={{
+                                    borderColor: `${colore}55`,
+                                  }}
+                                />
+                              </div>
+
+                              <span
+                                className="mt-6 shrink-0 text-sm font-bold"
+                                style={{ color: colore }}
+                              >
+                                min
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
+                              <div className="md:col-span-2">
+                                <label className="mb-1 block text-sm text-zinc-400">
+                                  Descrizione
+                                </label>
+
+                                <textarea
+                                  value={lavoro.descrizione}
+                                  onChange={(e) =>
+                                    aggiornaLavoro(
+                                      lavoro.id,
+                                      "descrizione",
+                                      e.target.value
+                                    )
+                                  }
+                                  rows={3}
+                                  className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-white outline-none"
+                                />
+                              </div>
+
+                              <InputField
+                                label="Obbiettivo"
+                                value={lavoro.obbiettivo}
+                                onChange={(value) =>
+                                  aggiornaLavoro(lavoro.id, "obbiettivo", value)
+                                }
+                              />
+
+                              <SelectField
+                                label="Obbiettivo Tag"
+                                value={lavoro.obbiettivo_tag}
+                                options={OBBIETTIVO_TAG}
+                                onChange={(value) =>
+                                  aggiornaLavoro(
+                                    lavoro.id,
+                                    "obbiettivo_tag",
+                                    value
+                                  )
+                                }
+                              />
+
+                              <SelectField
+                                label="Rango"
+                                value={lavoro.rango}
+                                options={RANGHI}
+                                onChange={(value) =>
+                                  aggiornaLavoro(lavoro.id, "rango", value)
+                                }
+                              />
+
+                              <InputField
+                                label="Immagine lavoro"
+                                value={lavoro.immagine_lavoro}
+                                onChange={(value) =>
+                                  aggiornaLavoro(
+                                    lavoro.id,
+                                    "immagine_lavoro",
+                                    value
+                                  )
+                                }
+                              />
+
+                              <InputField
+                                label="Tempo lavoro"
+                                type="number"
+                                value={lavoro.tempo_lavoro}
+                                onChange={(value) =>
+                                  aggiornaLavoro(
+                                    lavoro.id,
+                                    "tempo_lavoro",
+                                    value
+                                  )
+                                }
+                              />
+
+                              <InputField
+                                label="Ripetizioni"
+                                type="number"
+                                value={lavoro.ripetizione}
+                                onChange={(value) =>
+                                  aggiornaLavoro(
+                                    lavoro.id,
+                                    "ripetizione",
+                                    value
+                                  )
+                                }
+                              />
+
+                              <InputField
+                                label="Tempo recupero"
+                                type="number"
+                                value={lavoro.tempo_recupero}
+                                onChange={(value) =>
+                                  aggiornaLavoro(
+                                    lavoro.id,
+                                    "tempo_recupero",
+                                    value
+                                  )
+                                }
+                              />
+
+                              <div>
+                                <label className="mb-1 block text-sm text-zinc-400">
+                                  Tempo totale
+                                </label>
+
+                                <div
+                                  className="flex h-[42px] items-center rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-lg font-semibold"
+                                  style={{ color: colore }}
+                                >
+                                  {calcolaTempoTotale(lavoro)} min
+                                </div>
+                              </div>
+                            </div>
+
+                            <label className="mt-4 flex items-center gap-2 text-sm text-zinc-400">
+                              <input
+                                type="checkbox"
+                                checked={false}
+                                onChange={() => attivaContemporaneo(lavoro.id)}
+                                className="h-4 w-4 rounded border-zinc-700 bg-zinc-900"
+                              />
+                              Lavoro in contemporanea (più gruppi che lavorano
+                              nello stesso momento)
+                            </label>
+                          </>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // Blocco di lavori contemporanei: condividono sezione e
+                  // tempi, ma ogni membro ha una propria descrizione/obiettivo.
+                  const gruppoId = blocco.gruppoId;
+                  const membri = blocco.membri;
+                  const riferimento = membri[0];
+                  const coloreGruppo = coloreSezione(
+                    riferimento.sezione,
+                    themeColor
+                  );
 
                   return (
                     <div
-                      key={index}
+                      key={gruppoId}
                       className="py-5 first:pt-0 last:pb-0 sm:py-6"
                     >
                       <div className="mb-4 flex items-start justify-between gap-3">
                         <div className="flex items-center gap-3">
                           <div
-                            className="flex h-9 w-9 items-center justify-center rounded-xl text-sm font-black"
+                            className="flex h-9 w-9 items-center justify-center rounded-xl"
                             style={{
-                              backgroundColor: `${themeColor}18`,
-                              color: themeColor,
+                              backgroundColor: `${coloreGruppo}18`,
+                              color: coloreGruppo,
                             }}
                           >
-                            {h2o ? (
-                              <Droplets size={18} />
-                            ) : (
-                              index + 1
-                            )}
+                            <Users size={18} />
                           </div>
 
                           <div>
                             <p className="text-sm font-bold text-white">
-                              {h2o
-                                ? "Pausa H2O"
-                                : `Lavoro ${index + 1}`}
+                              Lavoro {numero} · gruppi in contemporanea (
+                              {membri.length})
                             </p>
 
-                            {lavoro.sezione && (
+                            {riferimento.sezione && (
                               <p className="text-xs text-zinc-500">
-                                {lavoro.sezione}
+                                {riferimento.sezione}
                               </p>
                             )}
                           </div>
@@ -721,7 +1133,7 @@ if (sedutaProgrammata?.fase_id) {
 
                         <button
                           type="button"
-                          onClick={() => eliminaLavoro(index)}
+                          onClick={() => eliminaGruppo(gruppoId)}
                           className="shrink-0 rounded-xl border border-red-500/20 px-2.5 py-2 text-sm text-red-500 transition hover:text-red-400 sm:flex sm:items-center sm:gap-1.5 sm:border-0 sm:px-0 sm:py-0"
                         >
                           <Trash2 size={15} />
@@ -729,151 +1141,27 @@ if (sedutaProgrammata?.fase_id) {
                         </button>
                       </div>
 
-                      <div className="mb-4">
-                        <SelectField
-                          label="Sezione"
-                          value={lavoro.sezione}
-                          options={SEZIONI[tipo]}
-                          onChange={(value) =>
-                            aggiornaLavoro(
-                              index,
-                              "sezione",
-                              value
-                            )
-                          }
-                          themeColor={themeColor}
-                        />
-                      </div>
-
-                      {h2o ? (
-                        <div
-                          className="rounded-2xl border p-4"
-                          style={{
-                            borderColor: `${themeColor}35`,
-                            backgroundColor: `${themeColor}0D`,
-                          }}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div
-                              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
-                              style={{
-                                backgroundColor: `${themeColor}20`,
-                                color: themeColor,
-                              }}
-                            >
-                              <Droplets size={21} />
-                            </div>
-
-                            <div className="min-w-0 flex-1">
-                              <label className="mb-1 block text-sm font-medium text-zinc-300">
-                                Minutaggio H2O
-                              </label>
-
-                              <input
-                                type="number"
-                                min="0"
-                                value={lavoro.tempo_totale}
-                                onChange={(e) =>
-                                  aggiornaLavoro(
-                                    index,
-                                    "tempo_totale",
-                                    e.target.value
-                                  )
-                                }
-                                placeholder="Es. 3"
-                                className="w-full rounded-xl border bg-zinc-950 px-3 py-2.5 text-white outline-none"
-                                style={{
-                                  borderColor: `${themeColor}55`,
-                                }}
-                              />
-                            </div>
-
-                            <span
-                              className="mt-6 shrink-0 text-sm font-bold"
-                              style={{ color: themeColor }}
-                            >
-                              min
-                            </span>
-                          </div>
+                      <div className="mb-4 rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
+                        <div className="mb-3">
+                          <SelectField
+                            label="Sezione (condivisa dal gruppo)"
+                            value={riferimento.sezione}
+                            options={SEZIONI.filter((s) => s !== "H2O")}
+                            onChange={(value) =>
+                              aggiornaCampoGruppo(gruppoId, "sezione", value)
+                            }
+                            themeColor={coloreGruppo}
+                          />
                         </div>
-                      ) : (
-                        <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
-                          <div className="md:col-span-2">
-                            <label className="mb-1 block text-sm text-zinc-400">
-                              Descrizione
-                            </label>
 
-                            <textarea
-                              value={lavoro.descrizione}
-                              onChange={(e) =>
-                                aggiornaLavoro(
-                                  index,
-                                  "descrizione",
-                                  e.target.value
-                                )
-                              }
-                              rows={3}
-                              className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-white outline-none"
-                            />
-                          </div>
-
-                          <InputField
-                            label="Obbiettivo"
-                            value={lavoro.obbiettivo}
-                            onChange={(value) =>
-                              aggiornaLavoro(
-                                index,
-                                "obbiettivo",
-                                value
-                              )
-                            }
-                          />
-
-                          <SelectField
-                            label="Obbiettivo Tag"
-                            value={lavoro.obbiettivo_tag}
-                            options={OBBIETTIVO_TAG}
-                            onChange={(value) =>
-                              aggiornaLavoro(
-                                index,
-                                "obbiettivo_tag",
-                                value
-                              )
-                            }
-                          />
-
-                          <SelectField
-                            label="Rango"
-                            value={lavoro.rango}
-                            options={RANGHI}
-                            onChange={(value) =>
-                              aggiornaLavoro(
-                                index,
-                                "rango",
-                                value
-                              )
-                            }
-                          />
-
-                          <InputField
-                            label="Immagine lavoro"
-                            value={lavoro.immagine_lavoro}
-                            onChange={(value) =>
-                              aggiornaLavoro(
-                                index,
-                                "immagine_lavoro",
-                                value
-                              )
-                            }
-                          />
-
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                           <InputField
                             label="Tempo lavoro"
                             type="number"
-                            value={lavoro.tempo_lavoro}
+                            value={riferimento.tempo_lavoro}
                             onChange={(value) =>
-                              aggiornaLavoro(
-                                index,
+                              aggiornaCampoGruppo(
+                                gruppoId,
                                 "tempo_lavoro",
                                 value
                               )
@@ -883,10 +1171,10 @@ if (sedutaProgrammata?.fase_id) {
                           <InputField
                             label="Ripetizioni"
                             type="number"
-                            value={lavoro.ripetizione}
+                            value={riferimento.ripetizione}
                             onChange={(value) =>
-                              aggiornaLavoro(
-                                index,
+                              aggiornaCampoGruppo(
+                                gruppoId,
                                 "ripetizione",
                                 value
                               )
@@ -896,10 +1184,10 @@ if (sedutaProgrammata?.fase_id) {
                           <InputField
                             label="Tempo recupero"
                             type="number"
-                            value={lavoro.tempo_recupero}
+                            value={riferimento.tempo_recupero}
                             onChange={(value) =>
-                              aggiornaLavoro(
-                                index,
+                              aggiornaCampoGruppo(
+                                gruppoId,
                                 "tempo_recupero",
                                 value
                               )
@@ -913,29 +1201,148 @@ if (sedutaProgrammata?.fase_id) {
 
                             <div
                               className="flex h-[42px] items-center rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-lg font-semibold"
-                              style={{ color: themeColor }}
+                              style={{ color: coloreGruppo }}
                             >
-                              {calcolaTempoTotale(lavoro)} min
+                              {calcolaTempoTotale(riferimento)} min
                             </div>
                           </div>
                         </div>
-                      )}
+
+                        {membri.length === 1 && (
+                          <button
+                            type="button"
+                            onClick={() => disattivaContemporaneo(gruppoId)}
+                            className="mt-3 text-xs font-semibold text-zinc-500 underline decoration-dotted hover:text-zinc-300"
+                          >
+                            Annulla contemporaneità
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="space-y-4">
+                        {membri.map((membro, indiceMembro) => (
+                          <div
+                            key={membro.id}
+                            className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4"
+                          >
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">
+                                Gruppo {indiceMembro + 1}
+                              </p>
+
+                              {membri.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    rimuoviLavoroParallelo(membro.id)
+                                  }
+                                  className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-red-500/20 hover:text-red-300"
+                                  title="Rimuovi questo lavoro parallelo"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
+                              <div className="md:col-span-2">
+                                <label className="mb-1 block text-sm text-zinc-400">
+                                  Descrizione
+                                </label>
+
+                                <textarea
+                                  value={membro.descrizione}
+                                  onChange={(e) =>
+                                    aggiornaLavoro(
+                                      membro.id,
+                                      "descrizione",
+                                      e.target.value
+                                    )
+                                  }
+                                  rows={2}
+                                  className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-white outline-none"
+                                />
+                              </div>
+
+                              <InputField
+                                label="Obbiettivo"
+                                value={membro.obbiettivo}
+                                onChange={(value) =>
+                                  aggiornaLavoro(
+                                    membro.id,
+                                    "obbiettivo",
+                                    value
+                                  )
+                                }
+                              />
+
+                              <SelectField
+                                label="Obbiettivo Tag"
+                                value={membro.obbiettivo_tag}
+                                options={OBBIETTIVO_TAG}
+                                onChange={(value) =>
+                                  aggiornaLavoro(
+                                    membro.id,
+                                    "obbiettivo_tag",
+                                    value
+                                  )
+                                }
+                              />
+
+                              <SelectField
+                                label="Rango"
+                                value={membro.rango}
+                                options={RANGHI}
+                                onChange={(value) =>
+                                  aggiornaLavoro(membro.id, "rango", value)
+                                }
+                              />
+
+                              <InputField
+                                label="Immagine lavoro"
+                                value={membro.immagine_lavoro}
+                                onChange={(value) =>
+                                  aggiornaLavoro(
+                                    membro.id,
+                                    "immagine_lavoro",
+                                    value
+                                  )
+                                }
+                              />
+                            </div>
+                          </div>
+                        ))}
+
+                        <button
+                          type="button"
+                          onClick={() => aggiungiLavoroParallelo(gruppoId)}
+                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed px-4 py-2.5 text-sm font-bold transition sm:w-auto"
+                          style={{
+                            borderColor: `${coloreGruppo}55`,
+                            color: coloreGruppo,
+                          }}
+                        >
+                          <Plus size={16} />
+                          Aggiungi lavoro parallelo
+                        </button>
+                      </div>
                     </div>
                   );
-                })} <button
-                type="button"
-                onClick={aggiungiLavoro}
-                className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white transition sm:w-auto"
-                style={{
-                  backgroundColor: themeColor,
-                  boxShadow: `0 10px 25px ${themeColor}25`,
-                }}
-              >
-                <Plus size={16} />
-                Aggiungi lavoro
-              </button>
+                })}
+
+                <button
+                  type="button"
+                  onClick={aggiungiLavoro}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white transition sm:w-auto"
+                  style={{
+                    backgroundColor: themeColor,
+                    boxShadow: `0 10px 25px ${themeColor}25`,
+                  }}
+                >
+                  <Plus size={16} />
+                  Aggiungi lavoro
+                </button>
               </div>
-             
             )}
           </AppCard>
 
@@ -973,19 +1380,39 @@ if (sedutaProgrammata?.fase_id) {
     />
 
     <SidebarRow
-      label="Fase"
-      value={dettagliProgrammazione.fase ?? "Non trovata"}
+      label="Mesociclo"
+      value={dettagliProgrammazione.mesociclo ?? "Non trovato"}
     />
 
     <SidebarRow
-      label="Tema tecnico/tattico"
-      value={dettagliProgrammazione.tema ?? "Non definito"}
+      label="Focus tecnico"
+      value={dettagliProgrammazione.focusTecnico ?? "Non definito"}
+    />
+
+    <SidebarRow
+      label="Focus Avanti"
+      value={dettagliProgrammazione.focusAvanti ?? "Non definito"}
+    />
+
+    <SidebarRow
+      label="Focus Trequarti"
+      value={dettagliProgrammazione.focusTrequarti ?? "Non definito"}
+    />
+
+    <SidebarRow
+      label="Intensità"
+      value={
+        dettagliProgrammazione.intensita
+          ? dettagliProgrammazione.intensita.charAt(0).toUpperCase() +
+            dettagliProgrammazione.intensita.slice(1)
+          : "Non definita"
+      }
     />
 
     <RpeRow
-      rpe={dettagliProgrammazione.rpe}
+      rpe={dettagliProgrammazione.rpeTarget}
       colore={
-        dettagliProgrammazione.coloreFase ||
+        dettagliProgrammazione.coloreMesociclo ||
         themeColor
       }
     />
@@ -1008,23 +1435,37 @@ if (sedutaProgrammata?.fase_id) {
                 </p>
               )}
 
-              {riepilogoSezioni.map((item) => (
-                <div
-                  key={item.sezione}
-                  className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"
-                >
-                  <p className="text-sm font-semibold text-white">
-                    {item.sezione}
-                  </p>
+              {riepilogoSezioni.map((item) => {
+                const colore = coloreSezione(item.sezione, themeColor);
 
-                  <p className="mt-1 text-xs text-zinc-400">
-                    {item.minuti} min · {item.esercizi}{" "}
-                    {item.sezione === "H2O"
-                      ? "pause"
-                      : "lavori"}
-                  </p>
-                </div>
-              ))}
+                return (
+                  <div
+                    key={item.sezione}
+                    className="rounded-xl border p-3"
+                    style={{
+                      borderColor: `${colore}40`,
+                      backgroundColor:
+                        item.sezione.trim().toUpperCase() === "H2O"
+                          ? `${colore}12`
+                          : undefined,
+                    }}
+                  >
+                    <p
+                      className="text-sm font-semibold"
+                      style={{ color: colore }}
+                    >
+                      {item.sezione}
+                    </p>
+
+                    <p className="mt-1 text-xs text-zinc-400">
+                      {item.minuti} min · {item.esercizi}{" "}
+                      {item.sezione.trim().toUpperCase() === "H2O"
+                        ? "pause"
+                        : "lavori"}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           </AppCard>
 
@@ -1060,7 +1501,7 @@ if (sedutaProgrammata?.fase_id) {
                   </p>
 
                   <p className="text-sm text-zinc-500">
-                    {allenamentoPrecedente.data_allenamento}
+                    {formatDataIT(allenamentoPrecedente.data_allenamento)}
                   </p>
                 </div>
 
@@ -1071,7 +1512,7 @@ if (sedutaProgrammata?.fase_id) {
                   >
                     <p
                       className="text-xs font-bold"
-                      style={{ color: themeColor }}
+                      style={{ color: coloreSezione(lavoro.sezione, themeColor) }}
                     >
                       {lavoro.sezione}
                     </p>
@@ -1118,7 +1559,7 @@ if (sedutaProgrammata?.fase_id) {
                   </p>
 
                   <p className="text-xs text-zinc-500">
-                    {allenamento.data_allenamento}
+                    {formatDataIT(allenamento.data_allenamento)}
                   </p>
                 </div>
               ))}
@@ -1244,15 +1685,28 @@ function PieChart({
     "#f97316",
     "#eab308",
     "#22c55e",
-    "#06b6d4",
     "#6366f1",
     "#a855f7",
   ];
 
-  const gradient = sections
-    .filter((section) => section.minuti > 0)
+  let prossimoIndiceColore = 0;
+
+  function coloreSlice(sezione: string) {
+    if (sezione.trim().toUpperCase() === "H2O") return COLORE_H2O;
+
+    const colore = colors[prossimoIndiceColore % colors.length];
+    prossimoIndiceColore += 1;
+    return colore;
+  }
+
+  const sezioniConMinuti = sections.filter((section) => section.minuti > 0);
+  const coloriPerSezione = new Map(
+    sezioniConMinuti.map((section) => [section.sezione, coloreSlice(section.sezione)])
+  );
+
+  const gradient = sezioniConMinuti
     .reduce(
-      (acc, section, index) => {
+      (acc, section) => {
         const percentage =
           (section.minuti / totale) * 100;
 
@@ -1263,7 +1717,7 @@ function PieChart({
           progress: end,
           values: [
             ...acc.values,
-            `${colors[index % colors.length]} ${start}% ${end}%`,
+            `${coloriPerSezione.get(section.sezione)} ${start}% ${end}%`,
           ],
         };
       },
@@ -1284,9 +1738,7 @@ function PieChart({
       />
 
       <div className="space-y-2">
-        {sections
-          .filter((section) => section.minuti > 0)
-          .map((section, index) => (
+        {sezioniConMinuti.map((section) => (
             <div
               key={section.sezione}
               className="flex items-center gap-2 text-xs"
@@ -1294,8 +1746,7 @@ function PieChart({
               <span
                 className="h-3 w-3 rounded-full"
                 style={{
-                  backgroundColor:
-                    colors[index % colors.length],
+                  backgroundColor: coloriPerSezione.get(section.sezione),
                 }}
               />
 

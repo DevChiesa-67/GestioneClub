@@ -6,14 +6,17 @@ import Image from "next/image";
 import {
   ChevronDown,
   ClipboardCheck,
+  FileDown,
   Pencil,
   Plus,
   X,
 } from "lucide-react";
 
 import { AppCard } from "@/components/ui/AppCard";
+import { DateInput } from "@/components/ui/DateInput";
 import { supabase } from "@/lib/supabase-client";
 import NuovoAllenamentoModal from "@/components/allenamenti/NuovoAllenamentoModal";
+import { generaPdfAllenamento } from "@/lib/pdf-allenamento";
 
 type StatoPresenza = "PM" | "PP" | "P" | "I" | "AG" | "AI";
 
@@ -53,6 +56,8 @@ type Lavoro = {
   ripetizione: number | null;
   tempo_recupero: number | null;
   tempo_totale: number | null;
+  contemporaneo?: boolean | null;
+  gruppo_contemporaneo?: string | null;
   ordine: number | null;
 };
 
@@ -216,6 +221,7 @@ export default function Page() {
   const [profilo, setProfilo] = useState<Profilo | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [themeColor, setThemeColor] = useState("#d71920");
+  const [clubLogoUrl, setClubLogoUrl] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -295,7 +301,7 @@ export default function Page() {
     ] = await Promise.all([
       supabase
         .from("club")
-        .select("colore_flag")
+        .select("colore_flag,logo_url")
         .eq("id", profiloData.last_club_id)
         .single(),
       allenamentiQuery,
@@ -303,6 +309,7 @@ export default function Page() {
     ]);
 
     setThemeColor(clubData?.colore_flag || "#d71920");
+    setClubLogoUrl(clubData?.logo_url || null);
 
     if (allenamentiError) {
       console.error(allenamentiError);
@@ -827,24 +834,22 @@ export default function Page() {
           <AppCard>
             <div className="grid gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-end">
               <div>
-                <label className="text-sm text-zinc-400">Data da</label>
-                <input
-                  type="date"
+                <DateInput
+                  label="Data da"
                   value={dataDa}
-                  onChange={(e) => setDataDa(e.target.value)}
-                  className="mt-1 block w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-white outline-none"
-                  style={{ borderColor: `${themeColor}33` }}
+                  onChange={setDataDa}
+                  wrapperClassName="mt-1 rounded-2xl border-zinc-800 bg-zinc-950"
+                  wrapperStyle={{ borderColor: `${themeColor}33` }}
                 />
               </div>
 
               <div>
-                <label className="text-sm text-zinc-400">Data a</label>
-                <input
-                  type="date"
+                <DateInput
+                  label="Data a"
                   value={dataA}
-                  onChange={(e) => setDataA(e.target.value)}
-                  className="mt-1 block w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-white outline-none"
-                  style={{ borderColor: `${themeColor}33` }}
+                  onChange={setDataA}
+                  wrapperClassName="mt-1 rounded-2xl border-zinc-800 bg-zinc-950"
+                  wrapperStyle={{ borderColor: `${themeColor}33` }}
                 />
               </div>
 
@@ -934,6 +939,21 @@ export default function Page() {
                         title="Segna presenze"
                       >
                         <ClipboardCheck className="h-4 w-4" />
+                      </button>
+
+                      <button
+                        onClick={() =>
+                          generaPdfAllenamento(
+                            allenamento,
+                            lavoriPerAllenamento(allenamento.id),
+                            { logo_url: clubLogoUrl },
+                          )
+                        }
+                        className="rounded-xl border bg-zinc-950 p-2 text-zinc-300 hover:text-white"
+                        style={{ borderColor: `${themeColor}33` }}
+                        title="Scarica PDF"
+                      >
+                        <FileDown className="h-4 w-4" />
                       </button>
                     </div>
                   </div>

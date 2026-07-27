@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { formatDataIT } from "@/lib/date";
 
 interface PlayerCardProps {
   name: string;
@@ -87,7 +88,7 @@ export function PlayerCard({
         </p>
         {medicalExpiry && (
           <p className="text-xs text-zinc-500 mt-0.5">
-            Scadenza: {new Date(medicalExpiry).toLocaleDateString("it-IT")}
+            Scadenza: {formatDataIT(medicalExpiry)}
           </p>
         )}
       </div>
