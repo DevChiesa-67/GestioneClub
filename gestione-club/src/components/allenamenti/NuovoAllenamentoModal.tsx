@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase-client";
 import { useToast } from "@/components/ui/Toast";
 import { DateInput } from "@/components/ui/DateInput";
 import { formatDataIT } from "@/lib/date";
+import { AnteprimaMediaLavoro } from "@/components/allenamenti/AnteprimaMediaLavoro";
 
 type TipoAllenamento = "Seduta Mattutina" | "Seduta Serale";
 
@@ -1009,17 +1010,24 @@ if (settimanaProgrammata?.fase_id) {
                                 }
                               />
 
-                              <InputField
-                                label="Immagine lavoro"
-                                value={lavoro.immagine_lavoro}
-                                onChange={(value) =>
-                                  aggiornaLavoro(
-                                    lavoro.id,
-                                    "immagine_lavoro",
-                                    value
-                                  )
-                                }
-                              />
+                              <div>
+                                <InputField
+                                  label="Immagine o video lavoro (URL)"
+                                  placeholder="Link a un'immagine, un video o YouTube/Vimeo"
+                                  value={lavoro.immagine_lavoro}
+                                  onChange={(value) =>
+                                    aggiornaLavoro(
+                                      lavoro.id,
+                                      "immagine_lavoro",
+                                      value
+                                    )
+                                  }
+                                />
+
+                                <AnteprimaMediaLavoro
+                                  url={lavoro.immagine_lavoro}
+                                />
+                              </div>
 
                               <InputField
                                 label="Tempo lavoro"
@@ -1298,17 +1306,24 @@ if (settimanaProgrammata?.fase_id) {
                                 }
                               />
 
-                              <InputField
-                                label="Immagine lavoro"
-                                value={membro.immagine_lavoro}
-                                onChange={(value) =>
-                                  aggiornaLavoro(
-                                    membro.id,
-                                    "immagine_lavoro",
-                                    value
-                                  )
-                                }
-                              />
+                              <div>
+                                <InputField
+                                  label="Immagine o video lavoro (URL)"
+                                  placeholder="Link a un'immagine, un video o YouTube/Vimeo"
+                                  value={membro.immagine_lavoro}
+                                  onChange={(value) =>
+                                    aggiornaLavoro(
+                                      membro.id,
+                                      "immagine_lavoro",
+                                      value
+                                    )
+                                  }
+                                />
+
+                                <AnteprimaMediaLavoro
+                                  url={membro.immagine_lavoro}
+                                />
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -1593,11 +1608,13 @@ function InputField({
   value,
   onChange,
   type = "text",
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
+  placeholder?: string;
 }) {
   return (
     <div>
@@ -1608,6 +1625,7 @@ function InputField({
       <input
         type={type}
         value={value}
+        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-white outline-none"
       />

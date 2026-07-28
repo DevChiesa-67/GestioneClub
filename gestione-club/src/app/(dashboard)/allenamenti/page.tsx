@@ -59,6 +59,7 @@ type Lavoro = {
   contemporaneo?: boolean | null;
   gruppo_contemporaneo?: string | null;
   ordine: number | null;
+  immagine_lavoro?: string | null;
 };
 
 type Giocatore = {

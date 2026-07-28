@@ -1,11 +1,22 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
+import Image from "next/image";
 import {
   AlertTriangle,
+  ChevronDown,
   CircleDot,
+  Eye,
   Layers,
+  Megaphone,
   Pencil,
   Repeat,
   RefreshCw,
@@ -16,7 +27,9 @@ import {
   Target,
   Trash2,
   Trophy,
+  UserRound,
   Users,
+  X,
 } from "lucide-react";
 import type { ComponentType, CSSProperties, ReactNode } from "react";
 
@@ -28,6 +41,8 @@ import {
 import ModificaDettagliPartitaModal, {
   type SquadraPartitaOption,
 } from "@/components/partite/ModificaDettagliPartitaModal";
+import { supabase } from "@/lib/supabase-client";
+import { useToast } from "@/components/ui/Toast";
 
 type PosizioneRugby =
   | "pilone_sx"
@@ -103,6 +118,7 @@ type Giocatore = {
   ruolo_1: string | null;
   ruolo_2: string | null;
   reparto: string | null;
+  foto_url?: string | null;
   numero_maglia?: number | null;
   attivo: boolean;
 };
@@ -188,32 +204,284 @@ const formazione: {
  * - parte bassa = trequarti / estremo
  */
 const fieldPosition: Record<number, string> = {
-  1: "left-[15%] top-[6%]",
-  2: "left-[50%] top-[6%]",
-  3: "left-[85%] top-[6%]",
+  // Pacchetto di mischia (1-10) spostato più a sinistra rispetto al
+  // centro campo. Il 6 resta clampato più vicino al centro rispetto
+  // agli altri per evitare che la card esca dal bordo del campo.
+  1: "left-[20%] top-[7%]",
+  2: "left-[38%] top-[7%]",
+  3: "left-[56%] top-[7%]",
 
-  4: "left-[30%] top-[18%]",
-  5: "left-[70%] top-[18%]",
+  4: "left-[29%] top-[17%]",
+  5: "left-[47%] top-[17%]",
 
-  6: "left-[10%] top-[28%]",
-  7: "left-[90%] top-[28%]",
-  8: "left-[50%] top-[34%]",
+  6: "left-[14%] top-[26%]",
+  7: "left-[68%] top-[26%]",
+  8: "left-[38%] top-[31%]",
 
-  9: "left-[50%] top-[45%]",
-  10: "left-[50%] top-[57%]",
+  9: "left-[38%] top-[42%]",
+  10: "left-[38%] top-[54%]",
 
-  11: "left-[8%] top-[76%]",
-  12: "left-[32%] top-[68%]",
-  13: "left-[68%] top-[68%]",
-  14: "left-[92%] top-[76%]",
+  11: "left-[12%] top-[75%]",
+  // 12 posizionato spazialmente a metà strada tra il 10 e il 13, sulla
+  // linea diagonale che li collega.
+  12: "left-[52%] top-[60%]",
+  13: "left-[66%] top-[66%]",
+  14: "left-[88%] top-[75%]",
 
-  15: "left-[50%] top-[88%]",
+  15: "left-[50%] top-[90%]",
 };
 
 function nomeGiocatore(giocatore?: Giocatore | null) {
   if (!giocatore) return "Non assegnato";
 
   return `${giocatore.nome ?? ""} ${giocatore.cognome ?? ""}`.trim();
+}
+
+function AvatarGiocatore({
+  giocatore,
+  size = 24,
+}: {
+  giocatore: Giocatore;
+  size?: number;
+}) {
+  if (giocatore.foto_url) {
+    return (
+      <Image
+        src={giocatore.foto_url}
+        alt={nomeGiocatore(giocatore)}
+        width={size}
+        height={size}
+        unoptimized
+        className="shrink-0 rounded-full object-cover ring-1 ring-white/10"
+        style={{ height: size, width: size }}
+      />
+    );
+  }
+
+  return (
+    <span
+      className="flex shrink-0 items-center justify-center rounded-full bg-zinc-800 text-zinc-500 ring-1 ring-white/10"
+      style={{ height: size, width: size }}
+    >
+      <UserRound size={Math.round(size * 0.6)} />
+    </span>
+  );
+}
+
+/**
+ * Scheda giocatore (foto + nome e cognome) mostrata come tooltip dopo
+ * un secondo di hover. Renderizzata in un portal su document.body: gli
+ * elementi da cui parte l'hover vivono spesso dentro contenitori con
+ * `transform` (le card sul campo usano -translate-x-1/2), che creerebbe
+ * un containing block diverso dal viewport per un semplice
+ * `position: fixed` interno, spostando il tooltip nel posto sbagliato.
+ */
+function GiocatoreTooltip({
+  giocatore,
+  x,
+  y,
+}: {
+  giocatore: Giocatore;
+  x: number;
+  y: number;
+}) {
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      className="pointer-events-none fixed z-[70] flex items-center gap-3 rounded-2xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 shadow-2xl"
+      style={{ left: x, top: y }}
+    >
+      <AvatarGiocatore giocatore={giocatore} size={44} />
+
+      <span className="whitespace-nowrap text-sm font-bold text-white">
+        {nomeGiocatore(giocatore)}
+      </span>
+    </div>,
+    document.body
+  );
+}
+
+/**
+ * Selettore giocatore con foto + nome e cognome, usato al posto di un
+ * <select> nativo ovunque si debba scegliere un giocatore (titolare o
+ * da aggiungere in panchina): un <option> nativo non può mostrare una
+ * foto in modo affidabile cross-browser.
+ *
+ * L'apertura è controllata dal genitore (openId/onOpenChange) invece di
+ * uno stato interno: sul campo ci sono 15 di questi selettori vicinissimi
+ * tra loro, e se ognuno gestisse il proprio "aperto/chiuso" in modo
+ * indipendente si potevano aprire più elenchi contemporaneamente,
+ * sovrapponendosi in un groviglio illeggibile. Con lo stato in comune,
+ * aprirne uno chiude sempre automaticamente quello aperto in precedenza.
+ */
+function GiocatoreSelect({
+  id,
+  giocatori,
+  value,
+  onChange,
+  openId,
+  onOpenChange,
+  placeholder = "Seleziona giocatore",
+  compact = false,
+}: {
+  id: string;
+  giocatori: Giocatore[];
+  value: string;
+  onChange: (giocatoreId: string) => void;
+  openId: string | null;
+  onOpenChange: (id: string | null) => void;
+  placeholder?: string;
+  compact?: boolean;
+}) {
+  const open = openId === id;
+
+  const selezionato = giocatori.find((g) => g.id === value) ?? null;
+
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [tooltip, setTooltip] = useState<{
+    giocatore: Giocatore;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) {
+        clearTimeout(hoverTimerRef.current);
+      }
+    };
+  }, []);
+
+  function annullaTimerTooltip() {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  }
+
+  function programmaTooltip(
+    giocatore: Giocatore,
+    target: HTMLElement
+  ) {
+    annullaTimerTooltip();
+
+    hoverTimerRef.current = setTimeout(() => {
+      const rect = target.getBoundingClientRect();
+
+      setTooltip({
+        giocatore,
+        x: rect.left,
+        y: rect.bottom + 6,
+      });
+    }, 1000);
+  }
+
+  function nascondiTooltip() {
+    annullaTimerTooltip();
+    setTooltip(null);
+  }
+
+  return (
+    <div className="relative min-w-0">
+      <button
+        type="button"
+        onClick={() => onOpenChange(open ? null : id)}
+        onMouseEnter={(event) =>
+          selezionato &&
+          programmaTooltip(selezionato, event.currentTarget)
+        }
+        onMouseLeave={nascondiTooltip}
+        className={`flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-left text-white outline-none transition hover:border-zinc-600 ${
+          compact
+            ? "px-1.5 py-1.5 text-[10px]"
+            : "px-2 py-2 text-xs sm:px-3 sm:py-2.5 sm:text-sm"
+        }`}
+      >
+        {selezionato ? (
+          <span className="min-w-0 flex-1 truncate font-semibold">
+            {nomeGiocatore(selezionato)}
+          </span>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-zinc-500">
+            {placeholder}
+          </span>
+        )}
+
+        <ChevronDown
+          size={compact ? 12 : 14}
+          className={`shrink-0 text-zinc-500 transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+        />
+      </button>
+
+      {open && (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-40 cursor-default"
+            onClick={() => onOpenChange(null)}
+            aria-label="Chiudi selezione giocatore"
+          />
+
+          <div className="absolute left-0 z-50 mt-1 max-h-64 w-max min-w-full max-w-[240px] overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl">
+            <button
+              type="button"
+              onClick={() => {
+                onChange("");
+                onOpenChange(null);
+                nascondiTooltip();
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-semibold text-zinc-500 transition hover:bg-white/5"
+            >
+              {placeholder}
+            </button>
+
+            {giocatori.map((giocatore) => (
+              <button
+                key={giocatore.id}
+                type="button"
+                onClick={() => {
+                  onChange(giocatore.id);
+                  onOpenChange(null);
+                  nascondiTooltip();
+                }}
+                onMouseEnter={(event) =>
+                  programmaTooltip(giocatore, event.currentTarget)
+                }
+                onMouseLeave={nascondiTooltip}
+                className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-semibold transition hover:bg-white/5 ${
+                  giocatore.id === value
+                    ? "text-white"
+                    : "text-zinc-300"
+                }`}
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {nomeGiocatore(giocatore)}
+                </span>
+              </button>
+            ))}
+
+            {giocatori.length === 0 && (
+              <p className="px-2 py-3 text-center text-xs text-zinc-600">
+                Nessun giocatore disponibile
+              </p>
+            )}
+          </div>
+        </>
+      )}
+
+      {tooltip && (
+        <GiocatoreTooltip
+          giocatore={tooltip.giocatore}
+          x={tooltip.x}
+          y={tooltip.y}
+        />
+      )}
+    </div>
+  );
 }
 
 function normalizeRel<T>(rel: T | T[] | null): T | null {
@@ -314,6 +582,10 @@ export default function PartitaEditorClient({
   isAdmin,
 }: Props) {
   const router = useRouter();
+  const { showToast } = useToast();
+
+  const [showAnteprima, setShowAnteprima] = useState(false);
+  const [inviandoComunicazione, setInviandoComunicazione] = useState(false);
 
   const [tab, setTab] = useState<"risultato" | "convocazioni">(
     "risultato"
@@ -324,6 +596,13 @@ export default function PartitaEditorClient({
   const [openModificaDettagli, setOpenModificaDettagli] = useState(false);
 
   const [message, setMessage] = useState<string | null>(null);
+
+  // Un solo id alla volta: garantisce che aprire un GiocatoreSelect
+  // chiuda automaticamente quello eventualmente già aperto altrove
+  // nella pagina (es. sul campo, dove le 15 card sono molto vicine).
+  const [openGiocatoreSelectId, setOpenGiocatoreSelectId] = useState<
+    string | null
+  >(null);
 
   function handleEliminaPartita() {
     const conferma = window.confirm(
@@ -842,6 +1121,209 @@ function giocatoriPerPosizione(
   return !convocazione?.convocato;
 });
 
+  /*
+   * ANTEPRIMA CONVOCAZIONI + COMUNICAZIONE FORMAZIONE
+   * ==================================================
+   * Panchina ordinata per numero di maglia (i giocatori senza
+   * numero finiscono in coda), usata sia nell'anteprima sia nel
+   * testo generato per la comunicazione.
+   */
+  const panchinaOrdinata = [...giocatoriPanchina].sort((a, b) => {
+    const convA = convocazioniState.find(
+      (item) => item.giocatore_id === a.id
+    );
+    const convB = convocazioniState.find(
+      (item) => item.giocatore_id === b.id
+    );
+
+    const numA = convA?.numero_maglia ?? 999;
+    const numB = convB?.numero_maglia ?? 999;
+
+    return numA - numB;
+  });
+
+  const titoloComunicazioneFormazione = `Formazione per partita ${nomeSquadraCasa} vs ${nomeSquadraFuori}`;
+
+  function testoFormazione() {
+    const righeTitolari = titolari
+      .map((slot) => {
+        const nome = slot.giocatore
+          ? nomeGiocatore(slot.giocatore)
+          : "Non assegnato";
+
+        const badge = slot.convocazione?.capitano
+          ? " (C)"
+          : slot.convocazione?.vicecapitano
+          ? " (VC)"
+          : "";
+
+        return `${slot.numero}. ${slot.label} - ${nome}${badge}`;
+      })
+      .join("\n");
+
+    const righePanchina = panchinaOrdinata
+      .map((giocatore) => {
+        const convocazione = convocazioniState.find(
+          (item) => item.giocatore_id === giocatore.id
+        );
+
+        const numero = convocazione?.numero_maglia
+          ? `${convocazione.numero_maglia}. `
+          : "";
+
+        return `${numero}${nomeGiocatore(giocatore)}`;
+      })
+      .join(", ");
+
+    const dataFormattata = partita.data_partita
+      ? new Date(partita.data_partita).toLocaleDateString("it-IT", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+        })
+      : "";
+
+    const rigaData = [dataFormattata, partita.ora_partita, partita.luogo]
+      .filter(Boolean)
+      .join(" - ");
+
+    return [
+      `${nomeSquadraCasa} vs ${nomeSquadraFuori}`,
+      rigaData,
+      "",
+      "Formazione titolare:",
+      righeTitolari,
+      righePanchina ? `\nPanchina: ${righePanchina}` : "",
+    ]
+      .filter((riga) => riga !== "")
+      .join("\n");
+  }
+
+  async function inviaComunicazioneFormazione() {
+    if (inviandoComunicazione) return;
+
+    setInviandoComunicazione(true);
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        showToast({
+          type: "error",
+          title: "Non autenticato",
+          message: "Effettua di nuovo l'accesso e riprova.",
+        });
+
+        return;
+      }
+
+      const { data: profilo, error: profiloError } = await supabase
+        .from("profili")
+        .select("id")
+        .eq("auth_user_id", user.id)
+        .single();
+
+      if (profiloError || !profilo) {
+        showToast({
+          type: "error",
+          title: "Profilo non trovato",
+          message: "Impossibile creare la comunicazione.",
+        });
+
+        return;
+      }
+
+      const { data: creata, error } = await supabase
+        .from("comunicazioni")
+        .insert({
+          club_id: partita.club_id,
+          titolo: titoloComunicazioneFormazione,
+          descrizione: testoFormazione(),
+          destinatari_tipo: ["tutti"],
+          destinatari_profili: [],
+          destinatari_giocatori: [],
+          created_by: profilo.id,
+          updated_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+
+      if (error || !creata?.id) {
+        showToast({
+          type: "error",
+          title: "Comunicazione non creata",
+          message:
+            error?.message ||
+            "Errore durante la creazione della comunicazione.",
+        });
+
+        return;
+      }
+
+      setShowAnteprima(false);
+
+      const response = await fetch("/api/push/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comunicazione_id: creata.id }),
+      });
+
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok || !result?.success) {
+        showToast({
+          type: "error",
+          title: "Comunicazione creata, notifiche push non inviate",
+          message:
+            result?.message ||
+            "Errore durante l'invio delle notifiche push.",
+        });
+
+        return;
+      }
+
+      const {
+        destinatari = 0,
+        dispositivi = 0,
+        sent = 0,
+        failed = 0,
+      } = result;
+
+      if (dispositivi === 0) {
+        showToast({
+          type: "info",
+          title: "Formazione pubblicata",
+          message: `Notifica in-app creata per ${destinatari} destinatari. Nessun dispositivo con notifiche push attive.`,
+        });
+
+        return;
+      }
+
+      showToast({
+        type: failed > 0 ? "error" : "success",
+        title: "Formazione pubblicata",
+        message: `Push inviata a ${sent} dispositivi su ${dispositivi}${
+          failed > 0 ? ` (${failed} falliti)` : ""
+        }.`,
+      });
+    } catch (err) {
+      console.error("Errore invio comunicazione formazione:", err);
+
+      showToast({
+        type: "error",
+        title: "Errore",
+        message:
+          err instanceof Error
+            ? err.message
+            : "Errore imprevisto durante l'invio della comunicazione.",
+      });
+    } finally {
+      setInviandoComunicazione(false);
+    }
+  }
+
   return (
     <div className="min-w-0 space-y-4 sm:space-y-6">
       {/* =====================================================
@@ -1126,7 +1608,7 @@ function giocatoriPerPosizione(
             </h2>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4">
             <GruppoStatistiche icon={Trophy} titolo="Punteggio" coloreClub={coloreClub}>
               <StatInput
                 label="Fatti"
@@ -1345,38 +1827,66 @@ function giocatoriPerPosizione(
                 </p>
               </div>
 
-              {isAdmin && (
-              <button
-                type="button"
-                onClick={salvaConvocazioni}
-                disabled={isPending}
-                className="
-                  inline-flex
-                  w-full
-                  shrink-0
-                  items-center
-                  justify-center
-                  gap-2
-                  rounded-xl
-                  px-5
-                  py-3
-                  text-sm
-                  font-bold
-                  text-zinc-950
-                  disabled:opacity-60
-                  sm:w-auto
-                "
-                style={{
-                  backgroundColor: coloreClub,
-                }}
-              >
-                <Save className="h-4 w-4" />
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <button
+                  type="button"
+                  onClick={() => setShowAnteprima(true)}
+                  className="
+                    inline-flex
+                    w-full
+                    shrink-0
+                    items-center
+                    justify-center
+                    gap-2
+                    rounded-xl
+                    border border-zinc-800
+                    px-5
+                    py-3
+                    text-sm
+                    font-bold
+                    text-zinc-200
+                    transition
+                    hover:bg-white/5
+                    sm:w-auto
+                  "
+                >
+                  <Eye className="h-4 w-4" />
+                  Anteprima
+                </button>
 
-                {isPending
-                  ? "Salvataggio..."
-                  : "Salva convocazioni"}
-              </button>
-              )}
+                {isAdmin && (
+                <button
+                  type="button"
+                  onClick={salvaConvocazioni}
+                  disabled={isPending}
+                  className="
+                    inline-flex
+                    w-full
+                    shrink-0
+                    items-center
+                    justify-center
+                    gap-2
+                    rounded-xl
+                    px-5
+                    py-3
+                    text-sm
+                    font-bold
+                    text-zinc-950
+                    disabled:opacity-60
+                    sm:w-auto
+                  "
+                  style={{
+                    backgroundColor: coloreClub,
+                  }}
+                >
+                  <Save className="h-4 w-4" />
+
+                  {isPending
+                    ? "Salvataggio..."
+                    : "Salva convocazioni"}
+                </button>
+                )}
+              </div>
             </div>
 
             {/* =================================================
@@ -1432,7 +1942,13 @@ function giocatoriPerPosizione(
                       }
                       className="
                         relative
+                        flex
+                        h-11
+                        w-11
                         shrink-0
+                        items-center
+                        justify-center
+                        rounded-xl
                         disabled:cursor-not-allowed
                         disabled:opacity-40
                       "
@@ -1472,60 +1988,38 @@ function giocatoriPerPosizione(
                     </button>
                   </div>
 
-                  <select
+                  <GiocatoreSelect
+                    id={`titolare-mobile-${slot.posizione}`}
+                    openId={openGiocatoreSelectId}
+                    onOpenChange={setOpenGiocatoreSelectId}
+                    giocatori={giocatoriPerPosizione(
+                      giocatori,
+                      slot.posizione
+                    )}
                     value={
                       slot.convocazione
                         ?.giocatore_id ?? ""
                     }
-                    onChange={(event) => {
-                      if (!event.target.value) {
+                    onChange={(giocatoreId) => {
+                      if (!giocatoreId) {
                         return;
                       }
 
                       assegnaGiocatore(
                         slot.posizione,
-                        event.target.value,
+                        giocatoreId,
                         slot.numero
                       );
                     }}
-                    className="
-                      w-full
-                      rounded-xl
-                      border border-zinc-800
-                      bg-zinc-950
-                      px-3
-                      py-3
-                      text-sm
-                      text-white
-                      outline-none
-                    "
-                  >
-                    <option value="">
-                      Seleziona giocatore
-                    </option>
-
-                    {giocatoriPerPosizione(
-                      giocatori,
-                      slot.posizione
-                    ).map((giocatore) => (
-                        <option
-                          key={giocatore.id}
-                          value={giocatore.id}
-                        >
-                          {nomeGiocatore(
-                            giocatore
-                          )}
-                        </option>
-                      )
-                    )}
-                  </select>
+                  />
                 </div>
               ))}
             </div>
 
             {/* =================================================
                 DESKTOP (xl+):
-                PANCHINA SINISTRA + CAMPO DESTRA
+                CAMPO SOPRA (largo a piena larghezza) +
+                PANCHINA SOTTO.
                 Sotto xl lo spazio non basta a mostrare il
                 campo senza sovrapporre le card: si usa
                 l'elenco impilato sopra.
@@ -1533,21 +2027,18 @@ function giocatoriPerPosizione(
             <div
               className="
                 hidden
-                xl:grid
-                xl:grid-cols-[280px_minmax(0,1fr)]
+                xl:flex
+                xl:flex-col
                 xl:gap-5
-                2xl:grid-cols-[320px_minmax(0,1fr)]
                 2xl:gap-6
               "
             >
               {/* ===============================================
-                  PANCHINA DESKTOP
+                  PANCHINA DESKTOP (ordinata dopo il campo)
               ================================================ */}
-              <aside className="min-w-0">
+              <aside className="order-2 min-w-0">
                 <div
                   className="
-                    sticky
-                    top-4
                     rounded-3xl
                     border border-zinc-800
                     bg-zinc-950
@@ -1602,12 +2093,13 @@ function giocatoriPerPosizione(
                       Aggiungi giocatore
                     </p>
 
-                    <select
-                      defaultValue=""
-                      onChange={(event) => {
-                        const giocatoreId =
-                          event.target.value;
-
+                    <GiocatoreSelect
+                      id="panchina-aggiungi-desktop"
+                      openId={openGiocatoreSelectId}
+                      onOpenChange={setOpenGiocatoreSelectId}
+                      giocatori={giocatoriDisponibiliPanchina}
+                      value=""
+                      onChange={(giocatoreId) => {
                         if (!giocatoreId) {
                           return;
                         }
@@ -1615,39 +2107,8 @@ function giocatoriPerPosizione(
                         aggiungiInPanchina(
                           giocatoreId
                         );
-
-                        event.currentTarget.value =
-                          "";
                       }}
-                      className="
-                        w-full
-                        rounded-xl
-                        border border-zinc-800
-                        bg-zinc-950
-                        px-3
-                        py-3
-                        text-sm
-                        text-white
-                        outline-none
-                      "
-                    >
-                      <option value="">
-                        Seleziona giocatore
-                      </option>
-
-                      {giocatoriDisponibiliPanchina.map(
-                        (giocatore) => (
-                          <option
-                            key={giocatore.id}
-                            value={giocatore.id}
-                          >
-                            {nomeGiocatore(
-                              giocatore
-                            )}
-                          </option>
-                        )
-                      )}
-                    </select>
+                    />
                   </div>
 
                   {/* ELENCO PANCHINA */}
@@ -1859,9 +2320,10 @@ function giocatoriPerPosizione(
               </aside>
 
               {/* ===============================================
-                  CAMPO DESKTOP
+                  CAMPO DESKTOP (ordinato prima della panchina,
+                  a piena larghezza del contenitore)
               ================================================ */}
-              <div className="min-w-0">
+              <div className="order-1 min-w-0 xl:w-full">
                 <div
                   className="
                     @container
@@ -1948,8 +2410,10 @@ function giocatoriPerPosizione(
                         key={slot.posizione}
                         className={`
                           absolute
+                          z-0
                           w-[104px]
                           -translate-x-1/2
+                          focus-within:z-50
                           @xs:w-[116px]
                           @sm:w-[128px]
                           @md:w-[140px]
@@ -2056,64 +2520,33 @@ function giocatoriPerPosizione(
                             </button>
                           </div>
 
-                          <select
+                          <GiocatoreSelect
+                            id={`titolare-campo-${slot.posizione}`}
+                            openId={openGiocatoreSelectId}
+                            onOpenChange={setOpenGiocatoreSelectId}
+                            giocatori={giocatoriPerPosizione(
+                              giocatori,
+                              slot.posizione
+                            )}
                             value={
                               slot.convocazione
                                 ?.giocatore_id ??
                               ""
                             }
-                            onChange={(event) => {
-                              if (
-                                !event.target.value
-                              ) {
+                            onChange={(giocatoreId) => {
+                              if (!giocatoreId) {
                                 return;
                               }
 
                               assegnaGiocatore(
                                 slot.posizione,
-                                event.target.value,
+                                giocatoreId,
                                 slot.numero
                               );
                             }}
-                            className="
-                              w-full
-                              rounded-lg
-                              border border-zinc-800
-                              bg-zinc-900
-                              px-1.5
-                              py-1.5
-                              text-[10px]
-                              text-white
-                              outline-none
-                              @sm:rounded-xl
-                              @sm:px-2
-                              @sm:py-2
-                              @sm:text-xs
-                            "
-                          >
-                            <option value="">
-                              Giocatore
-                            </option>
-
-                            {giocatoriPerPosizione(
-                              giocatori,
-                              slot.posizione
-                            ).map((giocatore) => (
-                                <option
-                                  key={
-                                    giocatore.id
-                                  }
-                                  value={
-                                    giocatore.id
-                                  }
-                                >
-                                  {nomeGiocatore(
-                                    giocatore
-                                  )}
-                                </option>
-                              )
-                            )}
-                          </select>
+                            placeholder="Giocatore"
+                            compact
+                          />
                         </div>
                       </div>
                     ))}
@@ -2126,7 +2559,7 @@ function giocatoriPerPosizione(
                 MOBILE/TABLET: PANCHINA
             ================================================== */}
             <div className="mt-4 xl:hidden">
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950">
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
                 <div className="mb-4">
                   <div className="flex items-center gap-2">
                     <Users
@@ -2175,12 +2608,13 @@ function giocatoriPerPosizione(
                     Aggiungi giocatore
                   </p>
 
-                  <select
-                    defaultValue=""
-                    onChange={(event) => {
-                      const giocatoreId =
-                        event.target.value;
-
+                  <GiocatoreSelect
+                    id="panchina-aggiungi-mobile"
+                    openId={openGiocatoreSelectId}
+                    onOpenChange={setOpenGiocatoreSelectId}
+                    giocatori={giocatoriDisponibiliPanchina}
+                    value=""
+                    onChange={(giocatoreId) => {
                       if (!giocatoreId) {
                         return;
                       }
@@ -2188,40 +2622,9 @@ function giocatoriPerPosizione(
                       aggiungiInPanchina(
                         giocatoreId
                       );
-
-                      event.currentTarget.value =
-                        "";
                     }}
-                    className="
-                      w-full
-                      rounded-xl
-                      border border-zinc-800
-                      bg-zinc-950
-                      px-3
-                      py-3
-                      text-sm
-                      text-white
-                      outline-none
-                    "
-                  >
-                    <option value="">
-                      Seleziona giocatore da
-                      aggiungere
-                    </option>
-
-                    {giocatoriDisponibiliPanchina.map(
-                      (giocatore) => (
-                        <option
-                          key={giocatore.id}
-                          value={giocatore.id}
-                        >
-                          {nomeGiocatore(
-                            giocatore
-                          )}
-                        </option>
-                      )
-                    )}
-                  </select>
+                    placeholder="Seleziona giocatore da aggiungere"
+                  />
                 </div>
 
                 {/* LISTA MOBILE */}
@@ -2272,11 +2675,14 @@ function giocatoriPerPosizione(
                                 )
                               }
                               className="
+                                flex
+                                h-9
                                 shrink-0
+                                items-center
+                                justify-center
                                 rounded-lg
                                 border border-zinc-700
-                                px-2
-                                py-1
+                                px-3
                                 text-xs
                                 font-bold
                                 text-zinc-300
@@ -2455,6 +2861,153 @@ function giocatoriPerPosizione(
             note: partita.note ?? "",
           }}
         />
+      )}
+
+      {/* =====================================================
+          ANTEPRIMA CONVOCAZIONI
+      ====================================================== */}
+      {showAnteprima && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
+          <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl sm:rounded-3xl">
+            {/* HEADER */}
+            <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-4 sm:px-6">
+              <div className="min-w-0">
+                <h3 className="truncate text-lg font-black text-white">
+                  Anteprima convocazioni
+                </h3>
+
+                <p className="truncate text-sm text-zinc-400">
+                  {nomeSquadraCasa} vs {nomeSquadraFuori}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAnteprima(false)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-zinc-800 text-zinc-400 transition hover:bg-white/5 hover:text-white"
+                aria-label="Chiudi anteprima"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* CONTENUTO */}
+            <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+              <h4 className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-zinc-500">
+                <Shirt className="h-3.5 w-3.5" style={{ color: coloreClub }} />
+                Formazione titolare
+              </h4>
+
+              <div className="space-y-2">
+                {titolari.map((slot) => (
+                  <div
+                    key={slot.posizione}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2.5"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span
+                        className="w-6 shrink-0 text-right text-base font-black"
+                        style={{ color: coloreClub }}
+                      >
+                        {slot.numero}
+                      </span>
+
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-white">
+                          {slot.giocatore
+                            ? nomeGiocatore(slot.giocatore)
+                            : "Non assegnato"}
+                        </p>
+
+                        <p className="truncate text-[11px] uppercase tracking-wide text-zinc-500">
+                          {slot.label}
+                        </p>
+                      </div>
+                    </div>
+
+                    {(slot.convocazione?.capitano ||
+                      slot.convocazione?.vicecapitano) && (
+                      <span
+                        className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black"
+                        style={{
+                          backgroundColor: `${coloreClub}22`,
+                          color: coloreClub,
+                        }}
+                      >
+                        {slot.convocazione?.capitano ? "C" : "VC"}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <h4 className="mb-3 mt-6 flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-zinc-500">
+                <Users className="h-3.5 w-3.5" style={{ color: coloreClub }} />
+                Panchina
+              </h4>
+
+              {panchinaOrdinata.length === 0 ? (
+                <p className="text-sm text-zinc-500">
+                  Nessun giocatore in panchina.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {panchinaOrdinata.map((giocatore) => {
+                    const convocazione = convocazioniState.find(
+                      (item) => item.giocatore_id === giocatore.id
+                    );
+
+                    return (
+                      <span
+                        key={giocatore.id}
+                        className="rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-300"
+                      >
+                        {convocazione?.numero_maglia
+                          ? `${convocazione.numero_maglia}. `
+                          : ""}
+                        {nomeGiocatore(giocatore)}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* FOOTER */}
+            <div className="flex flex-col gap-2 border-t border-zinc-800 px-4 py-4 sm:flex-row sm:justify-end sm:px-6">
+              <button
+                type="button"
+                onClick={() => setShowAnteprima(false)}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-800 px-5 py-3 text-sm font-bold text-zinc-300 transition hover:bg-white/5 sm:order-1"
+              >
+                Chiudi
+              </button>
+
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={inviaComunicazioneFormazione}
+                  disabled={inviandoComunicazione}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold text-zinc-950 disabled:opacity-60 sm:order-2"
+                  style={{ backgroundColor: coloreClub }}
+                  title={titoloComunicazioneFormazione}
+                >
+                  {inviandoComunicazione ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      Invio in corso...
+                    </>
+                  ) : (
+                    <>
+                      <Megaphone className="h-4 w-4" />
+                      Invia comunicazione a tutti
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

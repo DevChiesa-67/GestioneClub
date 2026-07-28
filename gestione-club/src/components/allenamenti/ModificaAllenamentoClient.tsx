@@ -9,6 +9,7 @@ import {
   eliminaAllenamento,
 } from "@/app/(dashboard)/allenamenti/[id]/actions";
 import { DateInput } from "@/components/ui/DateInput";
+import { AnteprimaMediaLavoro } from "@/components/allenamenti/AnteprimaMediaLavoro";
 
 const SEZIONI = [
   "Analisi Video / Riunioni",
@@ -790,9 +791,10 @@ export default function ModificaAllenamentoClient({
                       </div>
 
                       <div className="mt-3">
-                        <Campo label="Immagine lavoro">
+                        <Campo label="Immagine o video lavoro (URL)">
                           <input
                             type="text"
+                            placeholder="Link a un'immagine, un video o YouTube/Vimeo"
                             value={lavoro.immagine_lavoro}
                             onChange={(e) =>
                               aggiornaLavoro(
@@ -803,6 +805,8 @@ export default function ModificaAllenamentoClient({
                             }
                             className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
                           />
+
+                          <AnteprimaMediaLavoro url={lavoro.immagine_lavoro} />
                         </Campo>
                       </div>
 
@@ -1093,9 +1097,10 @@ export default function ModificaAllenamentoClient({
                           </select>
                         </Campo>
 
-                        <Campo label="Immagine lavoro">
+                        <Campo label="Immagine o video lavoro (URL)">
                           <input
                             type="text"
+                            placeholder="Link a un'immagine, un video o YouTube/Vimeo"
                             value={membro.immagine_lavoro}
                             onChange={(e) =>
                               aggiornaLavoro(
@@ -1106,6 +1111,8 @@ export default function ModificaAllenamentoClient({
                             }
                             className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
                           />
+
+                          <AnteprimaMediaLavoro url={membro.immagine_lavoro} />
                         </Campo>
                       </div>
                     </div>

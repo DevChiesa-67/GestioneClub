@@ -112,7 +112,7 @@ export default function ModificaDettagliPartitaModal({
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
       <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-zinc-950 shadow-2xl">
         <div
-          className="flex items-center justify-between px-6 py-5 text-white"
+          className="flex items-center justify-between px-4 py-4 text-white sm:px-6 sm:py-5"
           style={{ backgroundColor: brand }}
         >
           <div>
@@ -132,7 +132,7 @@ export default function ModificaDettagliPartitaModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5 bg-zinc-950 p-6">
+        <form onSubmit={handleSubmit} className="space-y-5 bg-zinc-950 p-4 sm:p-6">
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label className="mb-2 block text-sm font-semibold text-zinc-300">

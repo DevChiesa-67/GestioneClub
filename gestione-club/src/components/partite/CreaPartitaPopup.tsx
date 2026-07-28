@@ -349,7 +349,7 @@ if (!res.ok) {
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
           <div
-            className="relative max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl border bg-zinc-950 p-6 shadow-2xl"
+            className="relative max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl border bg-zinc-950 p-4 shadow-2xl sm:p-6"
             style={{
               borderColor: `${clubColor}80`,
               boxShadow: `0 0 60px ${clubColor}25`,
@@ -449,7 +449,7 @@ if (!res.ok) {
                     <button
                       type="button"
                       onClick={resetNuovaSquadra}
-                      className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-white"
                     >
                       <X className="h-4 w-4" />
                     </button>

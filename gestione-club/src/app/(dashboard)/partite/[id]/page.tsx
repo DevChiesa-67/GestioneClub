@@ -38,7 +38,7 @@ export default async function PartitaDetailPage({ params }: PageProps) {
    */
   let giocatoriQuery = supabase
     .from("giocatori")
-    .select("id,nome,cognome,ruolo_1,ruolo_2,reparto,attivo")
+    .select("id,nome,cognome,ruolo_1,ruolo_2,reparto,foto_url,attivo")
     .eq("club_id", profilo.last_club_id)
     .eq("attivo", true)
     .order("cognome", { ascending: true });
@@ -159,7 +159,7 @@ export default async function PartitaDetailPage({ params }: PageProps) {
   if (giocatoriEffettivi.length === 0 && profilo.last_squadra_id) {
     const { data: soloAttivi } = await supabase
       .from("giocatori")
-      .select("id,nome,cognome,ruolo_1,ruolo_2,reparto,attivo")
+      .select("id,nome,cognome,ruolo_1,ruolo_2,reparto,foto_url,attivo")
       .eq("club_id", profilo.last_club_id)
       .eq("attivo", true)
       .order("cognome", { ascending: true });
