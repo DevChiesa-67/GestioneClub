@@ -2,12 +2,18 @@ import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 
-// .trim() protegge da variabili d'ambiente con spazi/a-capo accidentali
-// in coda (es. incollate da un pannello di hosting): un valore "sporco"
-// qui produce header Authorization/apikey non validi e query che falliscono
-// con un errore poco chiaro lato client.
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+// Rimuove QUALSIASI spazio/a-capo, non solo iniziale/finale: se il valore è
+// stato incollato da un pannello di hosting o da un terminale che ha
+// "spezzato" la riga, può contenere un a-capo interno che .trim() da solo
+// non toglierebbe (agisce solo sui bordi). Un valore "sporco" qui produce
+// header Authorization/apikey non validi: in fase di build fa fallire la
+// build stessa con un poco chiaro "Headers.append: ... is an invalid
+// header value"; a runtime produce query che falliscono lato client.
+const rimuoviSpazi = (valore: string | undefined) =>
+  valore?.replace(/\s+/g, "");
+
+const supabaseUrl = rimuoviSpazi(process.env.NEXT_PUBLIC_SUPABASE_URL);
+const serviceRoleKey = rimuoviSpazi(process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 if (!supabaseUrl) {
   throw new Error("NEXT_PUBLIC_SUPABASE_URL non configurata");

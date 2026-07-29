@@ -17,15 +17,19 @@ function isWebPushSendError(error: unknown): error is WebPushSendError {
   return error instanceof Error;
 }
 
-// .trim() protegge da variabili d'ambiente con spazi/a-capo accidentali in
-// coda (es. incollate da un pannello di hosting): un valore VAPID "sporco"
-// produce un header Authorization non valido e fa fallire l'intera build
-// già in fase di "Collecting page data" con un poco chiaro
-// "Headers.append: ... is an invalid header value" (stesso problema già
-// visto e risolto per SUPABASE_SERVICE_ROLE_KEY in supabase-admin.ts).
-const vapidSubject = (process.env.VAPID_SUBJECT ?? "mailto:admin@example.com").trim();
-const vapidPublicKey = (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "").trim();
-const vapidPrivateKey = (process.env.VAPID_PRIVATE_KEY ?? "").trim();
+// Rimuove QUALSIASI spazio/a-capo (non solo ai bordi: .trim() da solo non
+// basta se il valore ha un a-capo interno, es. incollato da un pannello di
+// hosting o da un terminale che ha "spezzato" la riga). Un valore VAPID
+// "sporco" produce un header Authorization non valido e fa fallire l'intera
+// build già in fase di "Collecting page data" con un poco chiaro
+// "Headers.append: ... is an invalid header value".
+const rimuoviSpazi = (valore: string) => valore.replace(/\s+/g, "");
+
+const vapidSubject = rimuoviSpazi(
+  process.env.VAPID_SUBJECT ?? "mailto:admin@example.com"
+);
+const vapidPublicKey = rimuoviSpazi(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "");
+const vapidPrivateKey = rimuoviSpazi(process.env.VAPID_PRIVATE_KEY ?? "");
 
 if (vapidPublicKey && vapidPrivateKey) {
   webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
