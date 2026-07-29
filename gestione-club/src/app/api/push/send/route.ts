@@ -17,11 +17,19 @@ function isWebPushSendError(error: unknown): error is WebPushSendError {
   return error instanceof Error;
 }
 
-webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT ?? "mailto:admin@example.com",
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "",
-  process.env.VAPID_PRIVATE_KEY ?? ""
-);
+// .trim() protegge da variabili d'ambiente con spazi/a-capo accidentali in
+// coda (es. incollate da un pannello di hosting): un valore VAPID "sporco"
+// produce un header Authorization non valido e fa fallire l'intera build
+// già in fase di "Collecting page data" con un poco chiaro
+// "Headers.append: ... is an invalid header value" (stesso problema già
+// visto e risolto per SUPABASE_SERVICE_ROLE_KEY in supabase-admin.ts).
+const vapidSubject = (process.env.VAPID_SUBJECT ?? "mailto:admin@example.com").trim();
+const vapidPublicKey = (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "").trim();
+const vapidPrivateKey = (process.env.VAPID_PRIVATE_KEY ?? "").trim();
+
+if (vapidPublicKey && vapidPrivateKey) {
+  webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+}
 
 const CATEGORIA_TIPO_PROFILO: Record<string, string> = {
   giocatori: "giocatore",
