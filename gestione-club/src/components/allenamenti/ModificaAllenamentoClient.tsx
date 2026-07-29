@@ -12,7 +12,10 @@ import { DateInput } from "@/components/ui/DateInput";
 import { AnteprimaMediaLavoro } from "@/components/allenamenti/AnteprimaMediaLavoro";
 
 const SEZIONI = [
-  "Analisi Video / Riunioni",
+  "RIUNIONE",
+  "VIDEO",
+  "TEAM BUILDING",
+  "TOUCH",
   "ATTIVAZIONE / RISCALDAMENTO",
   "LAVORO TECNICO-TATTICO",
   "REPARTO",
@@ -21,6 +24,16 @@ const SEZIONI = [
   "COOL-DOWN / DEFATICAMENTO",
   "H2O",
 ];
+
+// Sezioni "semplificate": non hanno obiettivo/rango/ripetizioni/recupero,
+// solo descrizione (facoltativa) ed eventuale immagine/video, con il
+// tempo totale inserito direttamente (come per H2O) invece di essere
+// calcolato da tempo di lavoro x ripetizioni.
+const SEZIONI_SEMPLIFICATE = ["RIUNIONE", "VIDEO", "TEAM BUILDING"];
+
+function isSezioneSemplificata(sezione: string) {
+  return SEZIONI_SEMPLIFICATE.includes(sezione.trim().toUpperCase());
+}
 
 const OBBIETTIVO_TAG = [
   "Passaggio",
@@ -69,7 +82,7 @@ function calcolaTempoTotale(lavoro: {
   tempo_recupero: string;
   tempo_totale: string;
 }) {
-  if (isSezioneH2O(lavoro.sezione)) {
+  if (isSezioneH2O(lavoro.sezione) || isSezioneSemplificata(lavoro.sezione)) {
     return Number(lavoro.tempo_totale) || 0;
   }
 
@@ -447,7 +460,7 @@ export default function ModificaAllenamentoClient({
           tempo_recupero: lavoro.tempo_recupero
             ? Number(lavoro.tempo_recupero)
             : null,
-          tempo_totale: lavoro.tempo_totale ? Number(lavoro.tempo_totale) : null,
+          tempo_totale: calcolaTempoTotale(lavoro),
           contemporaneo: lavoro.contemporaneo,
           gruppo_contemporaneo: lavoro.contemporaneo ? lavoro.gruppo_id : null,
         })),
@@ -500,6 +513,24 @@ export default function ModificaAllenamentoClient({
 
   return (
     <div className="space-y-5 pb-10 sm:space-y-6">
+      {/*
+        Datalist condivise: rendono "Sezione" e "Obbiettivo Tag" dei
+        combobox nativi (suggeriscono le voci esistenti ma accettano
+        anche testo libero), invece di <select> chiusi a un elenco
+        fisso.
+      */}
+      <datalist id="sezioni-lavoro-datalist">
+        {SEZIONI.map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
+
+      <datalist id="obbiettivo-tag-datalist">
+        {OBBIETTIVO_TAG.map((tag) => (
+          <option key={tag} value={tag} />
+        ))}
+      </datalist>
+
       <div
         className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 p-4 sm:rounded-3xl sm:p-6"
         style={{ boxShadow: `0 0 40px ${themeColor}18` }}
@@ -653,6 +684,7 @@ export default function ModificaAllenamentoClient({
             if (!blocco.gruppoId) {
               const lavoro = blocco.membri[0];
               const h2o = isSezioneH2O(lavoro.sezione);
+              const semplificato = isSezioneSemplificata(lavoro.sezione);
               const colore = coloreSezione(lavoro.sezione, themeColor);
 
               return (
@@ -678,24 +710,20 @@ export default function ModificaAllenamentoClient({
 
                   <div className="grid gap-3 md:grid-cols-2">
                     <Campo label="Sezione">
-                      <select
+                      <input
+                        type="text"
+                        list="sezioni-lavoro-datalist"
+                        placeholder="Seleziona o scrivi una nuova sezione"
                         value={lavoro.sezione}
                         onChange={(e) =>
                           aggiornaLavoro(lavoro.chiave, "sezione", e.target.value)
                         }
                         className="h-11 w-full rounded-xl border bg-zinc-950 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
                         style={{ borderColor: `${colore}55` }}
-                      >
-                        <option value="">Seleziona</option>
-                        {SEZIONI.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
+                      />
                     </Campo>
 
-                    {!h2o && (
+                    {!h2o && !semplificato && (
                       <Campo label="Obiettivo">
                         <input
                           type="text"
@@ -731,6 +759,63 @@ export default function ModificaAllenamentoClient({
                         />
                       </Campo>
                     </div>
+                  ) : semplificato ? (
+                    <>
+                      <div className="mt-3">
+                        <Campo label="Descrizione">
+                          <textarea
+                            rows={2}
+                            value={lavoro.descrizione}
+                            onChange={(e) =>
+                              aggiornaLavoro(
+                                lavoro.chiave,
+                                "descrizione",
+                                e.target.value
+                              )
+                            }
+                            className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
+                          />
+                        </Campo>
+                      </div>
+
+                      <div className="mt-3">
+                        <Campo label="Immagine o video lavoro (URL)">
+                          <input
+                            type="text"
+                            placeholder="Link a un'immagine, un video o YouTube/Vimeo"
+                            value={lavoro.immagine_lavoro}
+                            onChange={(e) =>
+                              aggiornaLavoro(
+                                lavoro.chiave,
+                                "immagine_lavoro",
+                                e.target.value
+                              )
+                            }
+                            className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
+                          />
+
+                          <AnteprimaMediaLavoro url={lavoro.immagine_lavoro} />
+                        </Campo>
+                      </div>
+
+                      <div className="mt-3 grid gap-3 grid-cols-2 md:grid-cols-4">
+                        <Campo label="Tempo totale (min)">
+                          <input
+                            type="number"
+                            min={0}
+                            value={lavoro.tempo_totale}
+                            onChange={(e) =>
+                              aggiornaLavoro(
+                                lavoro.chiave,
+                                "tempo_totale",
+                                e.target.value
+                              )
+                            }
+                            className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
+                          />
+                        </Campo>
+                      </div>
+                    </>
                   ) : (
                     <>
                       <div className="mt-3">
@@ -752,7 +837,10 @@ export default function ModificaAllenamentoClient({
 
                       <div className="mt-3 grid gap-3 md:grid-cols-2">
                         <Campo label="Obbiettivo Tag">
-                          <select
+                          <input
+                            type="text"
+                            list="obbiettivo-tag-datalist"
+                            placeholder="Seleziona o scrivi un nuovo obbiettivo"
                             value={lavoro.obbiettivo_tag}
                             onChange={(e) =>
                               aggiornaLavoro(
@@ -762,14 +850,7 @@ export default function ModificaAllenamentoClient({
                               )
                             }
                             className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
-                          >
-                            <option value="">Seleziona</option>
-                            {OBBIETTIVO_TAG.map((tag) => (
-                              <option key={tag} value={tag}>
-                                {tag}
-                              </option>
-                            ))}
-                          </select>
+                          />
                         </Campo>
 
                         <Campo label="Rango">
@@ -915,21 +996,17 @@ export default function ModificaAllenamentoClient({
                 <div className="mb-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
                   <div className="mb-3">
                     <Campo label="Sezione (condivisa dal gruppo)">
-                      <select
+                      <input
+                        type="text"
+                        list="sezioni-lavoro-datalist"
+                        placeholder="Seleziona o scrivi una nuova sezione"
                         value={riferimento.sezione}
                         onChange={(e) =>
                           aggiornaCampoGruppo(gruppoId, "sezione", e.target.value)
                         }
                         className="h-11 w-full rounded-xl border bg-zinc-950 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
                         style={{ borderColor: `${coloreGruppo}55` }}
-                      >
-                        <option value="">Seleziona</option>
-                        {SEZIONI.filter((s) => s !== "H2O").map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
+                      />
                     </Campo>
                   </div>
 
@@ -1060,7 +1137,10 @@ export default function ModificaAllenamentoClient({
                         </Campo>
 
                         <Campo label="Obbiettivo Tag">
-                          <select
+                          <input
+                            type="text"
+                            list="obbiettivo-tag-datalist"
+                            placeholder="Seleziona o scrivi un nuovo obbiettivo"
                             value={membro.obbiettivo_tag}
                             onChange={(e) =>
                               aggiornaLavoro(
@@ -1070,14 +1150,7 @@ export default function ModificaAllenamentoClient({
                               )
                             }
                             className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
-                          >
-                            <option value="">Seleziona</option>
-                            {OBBIETTIVO_TAG.map((tag) => (
-                              <option key={tag} value={tag}>
-                                {tag}
-                              </option>
-                            ))}
-                          </select>
+                          />
                         </Campo>
 
                         <Campo label="Rango">

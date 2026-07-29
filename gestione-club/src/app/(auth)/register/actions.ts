@@ -31,11 +31,11 @@ function isValidEmail(email: string) {
 }
 
 function getAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
 
-  const supabaseSecretKey =
-    process.env.SUPABASE_SECRET_KEY ??
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseSecretKey = (
+    process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY
+  )?.trim();
 
   if (!supabaseUrl) {
     throw new Error("NEXT_PUBLIC_SUPABASE_URL non configurata.");
@@ -52,6 +52,16 @@ function getAdminClient() {
       autoRefreshToken: false,
       persistSession: false,
       detectSessionInUrl: false,
+    },
+    // Vedi supabase-admin.ts: header fissi per evitare che la risoluzione
+    // dinamica del token (non necessaria per un client service-role) possa
+    // produrre un Authorization/apikey corrotto ("Headers.set: ... is an
+    // invalid header value").
+    global: {
+      headers: {
+        apikey: supabaseSecretKey,
+        Authorization: `Bearer ${supabaseSecretKey}`,
+      },
     },
   });
 }

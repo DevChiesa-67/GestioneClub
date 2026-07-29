@@ -9,6 +9,7 @@ import {
   FileDown,
   Pencil,
   Plus,
+  Users,
   X,
 } from "lucide-react";
 
@@ -478,10 +479,25 @@ export default function Page() {
     return lavori.filter((lavoro) => lavoro.allenamento_id === allenamentoId);
   };
 
-  const minutiAllenamento = (allenamentoId: string) => {
-    return lavoriPerAllenamento(allenamentoId).reduce((totale, lavoro) => {
+  // I lavori "in contemporanea" condividono lo stesso gruppo_contemporaneo:
+  // vanno sommati una sola volta (il tempo è lo stesso intervallo, non due
+  // intervalli distinti), altrimenti il minutaggio totale risulterebbe
+  // raddoppiato.
+  const sommaTempoTotaleDeduplicato = (listaLavori: Lavoro[]) => {
+    const gruppiContati = new Set<string>();
+
+    return listaLavori.reduce((totale, lavoro) => {
+      if (lavoro.gruppo_contemporaneo) {
+        if (gruppiContati.has(lavoro.gruppo_contemporaneo)) return totale;
+        gruppiContati.add(lavoro.gruppo_contemporaneo);
+      }
+
       return totale + (lavoro.tempo_totale || 0);
     }, 0);
+  };
+
+  const minutiAllenamento = (allenamentoId: string) => {
+    return sommaTempoTotaleDeduplicato(lavoriPerAllenamento(allenamentoId));
   };
 
   const statoGiocatore = (
@@ -510,11 +526,23 @@ export default function Page() {
   };
 
   const datiGrafico = (allenamentoId: string) => {
+    const gruppiContati = new Set<string>();
+
     const grouped = lavoriPerAllenamento(allenamentoId).reduce<
       Record<string, number>
     >((acc, lavoro) => {
       const sezione = lavoro.sezione || "Altro";
-      acc[sezione] = (acc[sezione] || 0) + (lavoro.tempo_totale || 0);
+      let minuti = lavoro.tempo_totale || 0;
+
+      if (lavoro.gruppo_contemporaneo) {
+        if (gruppiContati.has(lavoro.gruppo_contemporaneo)) {
+          minuti = 0;
+        } else {
+          gruppiContati.add(lavoro.gruppo_contemporaneo);
+        }
+      }
+
+      acc[sezione] = (acc[sezione] || 0) + minuti;
       return acc;
     }, {});
 
@@ -526,36 +554,43 @@ export default function Page() {
 
   const totaleAllenamenti = allenamenti.length;
 
-  const minutaggioTotale = lavori.reduce((totale, lavoro) => {
-    return totale + (lavoro.tempo_totale || 0);
-  }, 0);
-  const allenamentoOdiernoOProssimo = useMemo(() => {
-  const oggi = new Date();
-  oggi.setHours(0, 0, 0, 0);
+  const minutaggioTotale = sommaTempoTotaleDeduplicato(lavori);
+  // Un giorno può avere più sedute (es. mattina + sera): non prendiamo solo
+  // la prima in ordine di data, ma TUTTE quelle che cadono nel giorno più
+  // vicino (oggi, o il prossimo giorno con almeno una seduta programmata).
+  const allenamentiOdierniOProssimi = useMemo(() => {
+    const oggi = new Date();
+    oggi.setHours(0, 0, 0, 0);
 
-  const fineSettimana = new Date(oggi);
-  const giorno = oggi.getDay();
+    const fineSettimana = new Date(oggi);
+    const giorno = oggi.getDay();
 
-  fineSettimana.setDate(
-    oggi.getDate() + (giorno === 0 ? 0 : 7 - giorno)
-  );
-  fineSettimana.setHours(23, 59, 59, 999);
+    fineSettimana.setDate(
+      oggi.getDate() + (giorno === 0 ? 0 : 7 - giorno)
+    );
+    fineSettimana.setHours(23, 59, 59, 999);
 
-  return [...allenamenti]
-    .map((allenamento) => ({
-      ...allenamento,
-      data: new Date(`${allenamento.data_allenamento}T00:00:00`),
-    }))
-    .filter(
-      (allenamento) =>
-        allenamento.data >= oggi &&
-        allenamento.data <= fineSettimana
-    )
-    .sort(
-      (a, b) =>
-        a.data.getTime() - b.data.getTime()
-    )[0] ?? null;
-}, [allenamenti]);
+    const inRange = [...allenamenti]
+      .map((allenamento) => ({
+        ...allenamento,
+        data: new Date(`${allenamento.data_allenamento}T00:00:00`),
+      }))
+      .filter(
+        (allenamento) =>
+          allenamento.data >= oggi &&
+          allenamento.data <= fineSettimana
+      )
+      .sort((a, b) => a.data.getTime() - b.data.getTime());
+
+    const primaData = inRange[0]?.data_allenamento;
+    if (!primaData) return [];
+
+    return inRange
+      .filter((allenamento) => allenamento.data_allenamento === primaData)
+      .sort((a, b) =>
+        (a.ora_inizio ?? "").localeCompare(b.ora_inizio ?? "")
+      );
+  }, [allenamenti]);
   const tabButtonStyle = (tab: Vista) =>
     vista === tab
       ? {
@@ -682,129 +717,135 @@ export default function Page() {
           </AppCard>
         )}
           {vista === "odierno" && (
-  <AppCard>
-    {allenamentoOdiernoOProssimo ? (
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p
-              className="inline-flex rounded-full px-3 py-1 text-xs font-bold text-white"
-              style={{ backgroundColor: themeColor }}
-            >
-              {allenamentoOdiernoOProssimo.data.toDateString() ===
-              new Date().toDateString()
-                ? "Allenamento di oggi"
-                : "Prossimo allenamento"}
-            </p>
+  <div className="space-y-5">
+    {allenamentiOdierniOProssimi.length > 0 ? (
+      allenamentiOdierniOProssimi.map((allenamentoOdiernoOProssimo) => (
+        <AppCard key={allenamentoOdiernoOProssimo.id}>
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p
+                  className="inline-flex rounded-full px-3 py-1 text-xs font-bold text-white"
+                  style={{ backgroundColor: themeColor }}
+                >
+                  {allenamentoOdiernoOProssimo.data.toDateString() ===
+                  new Date().toDateString()
+                    ? "Allenamento di oggi"
+                    : "Prossimo allenamento"}
+                </p>
 
-            <h2 className="mt-3 text-2xl font-bold text-white">
-              {allenamentoOdiernoOProssimo.titolo}
-            </h2>
+                <h2 className="mt-3 text-2xl font-bold text-white">
+                  {allenamentoOdiernoOProssimo.titolo}
+                </h2>
 
-            <p className="mt-1 text-sm text-zinc-400">
-              {allenamentoOdiernoOProssimo.data.toLocaleDateString("it-IT", {
-                weekday: "long",
-                day: "2-digit",
-                month: "long",
-                year: "numeric",
-              })}
-              {allenamentoOdiernoOProssimo.ora_inizio
-                ? ` · ${allenamentoOdiernoOProssimo.ora_inizio.slice(0, 5)}`
-                : ""}
-              {allenamentoOdiernoOProssimo.ora_fine
-                ? ` - ${allenamentoOdiernoOProssimo.ora_fine.slice(0, 5)}`
-                : ""}
-            </p>
-          </div>
-        </div>
+                <p className="mt-1 text-sm text-zinc-400">
+                  {allenamentoOdiernoOProssimo.data.toLocaleDateString("it-IT", {
+                    weekday: "long",
+                    day: "2-digit",
+                    month: "long",
+                    year: "numeric",
+                  })}
+                  {allenamentoOdiernoOProssimo.ora_inizio
+                    ? ` · ${allenamentoOdiernoOProssimo.ora_inizio.slice(0, 5)}`
+                    : ""}
+                  {allenamentoOdiernoOProssimo.ora_fine
+                    ? ` - ${allenamentoOdiernoOProssimo.ora_fine.slice(0, 5)}`
+                    : ""}
+                </p>
+              </div>
+            </div>
 
-        <div className="grid gap-3 md:grid-cols-4">
-          <InfoBox label="Luogo" value={allenamentoOdiernoOProssimo.luogo ?? "—"} />
-          <InfoBox label="Tipo" value={allenamentoOdiernoOProssimo.tipo_allenamento ?? "—"} />
-          <InfoBox label="Durata" value={allenamentoOdiernoOProssimo.durata_minuti ? `${allenamentoOdiernoOProssimo.durata_minuti} min` : "—"} />
-          <InfoBox label="Stato" value={allenamentoOdiernoOProssimo.stato} />
-        </div>
+            <div className="grid gap-3 md:grid-cols-4">
+              <InfoBox label="Luogo" value={allenamentoOdiernoOProssimo.luogo ?? "—"} />
+              <InfoBox label="Tipo" value={allenamentoOdiernoOProssimo.tipo_allenamento ?? "—"} />
+              <InfoBox label="Durata" value={allenamentoOdiernoOProssimo.durata_minuti ? `${allenamentoOdiernoOProssimo.durata_minuti} min` : "—"} />
+              <InfoBox label="Stato" value={allenamentoOdiernoOProssimo.stato} />
+            </div>
 
-        {allenamentoOdiernoOProssimo.obiettivo && (
-          <div
-            className="rounded-2xl border p-4"
-            style={{
-              borderColor: `${themeColor}55`,
-              backgroundColor: `${themeColor}12`,
-            }}
-          >
-            <p
-              className="text-xs font-bold uppercase tracking-wide"
-              style={{ color: themeColor }}
-            >
-              Obiettivo allenamento
-            </p>
-            <p className="mt-2 text-sm text-zinc-200">
-              {allenamentoOdiernoOProssimo.obiettivo}
-            </p>
-          </div>
-        )}
+            {allenamentoOdiernoOProssimo.obiettivo && (
+              <div
+                className="rounded-2xl border p-4"
+                style={{
+                  borderColor: `${themeColor}55`,
+                  backgroundColor: `${themeColor}12`,
+                }}
+              >
+                <p
+                  className="text-xs font-bold uppercase tracking-wide"
+                  style={{ color: themeColor }}
+                >
+                  Obiettivo allenamento
+                </p>
+                <p className="mt-2 text-sm text-zinc-200">
+                  {allenamentoOdiernoOProssimo.obiettivo}
+                </p>
+              </div>
+            )}
 
-        <div className="overflow-x-auto rounded-2xl border border-zinc-800">
-          <table className="min-w-[820px] w-full border-collapse text-sm">
-            <thead style={{ backgroundColor: themeColor }}>
-              <tr className="text-left text-white">
-                <th className="px-3 py-3">Sezione</th>
-                <th className="px-3 py-3">Descrizione</th>
-                <th className="px-3 py-3">Obiettivo</th>
-                <th className="px-3 py-3 text-right">Tempo lavoro</th>
-                <th className="px-3 py-3 text-right">Rip.</th>
-                <th className="px-3 py-3 text-right">Rec.</th>
-                <th className="px-3 py-3 text-right">Totale</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {lavoriPerAllenamento(allenamentoOdiernoOProssimo.id)
-                .sort((a, b) => (a.ordine ?? 0) - (b.ordine ?? 0))
-                .map((lavoro) => (
-                  <tr
-                    key={lavoro.id}
-                    className="border-t border-zinc-800 bg-zinc-950/70 text-zinc-200"
-                  >
-                    <td className="px-3 py-3 font-semibold text-white">
-                      {lavoro.sezione}
-                    </td>
-                    <td className="px-3 py-3">
-                      {lavoro.titolo || lavoro.descrizione || "—"}
-                    </td>
-                    <td className="px-3 py-3">
-                      {lavoro.obbiettivo ?? "—"}
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      {lavoro.tempo_lavoro ?? "—"}
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      {lavoro.ripetizione ?? "—"}
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      {lavoro.tempo_recupero ?? "—"}
-                    </td>
-                    <td className="px-3 py-3 text-right font-bold">
-                      {lavoro.tempo_totale ?? "—"}
-                    </td>
+            <div className="overflow-x-auto rounded-2xl border border-zinc-800">
+              <table className="min-w-[820px] w-full border-collapse text-sm">
+                <thead style={{ backgroundColor: themeColor }}>
+                  <tr className="text-left text-white">
+                    <th className="px-3 py-3">Sezione</th>
+                    <th className="px-3 py-3">Descrizione</th>
+                    <th className="px-3 py-3">Obiettivo</th>
+                    <th className="px-3 py-3 text-right">Tempo lavoro</th>
+                    <th className="px-3 py-3 text-right">Rip.</th>
+                    <th className="px-3 py-3 text-right">Rec.</th>
+                    <th className="px-3 py-3 text-right">Totale</th>
                   </tr>
-                ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                </thead>
+
+                <tbody>
+                  {lavoriPerAllenamento(allenamentoOdiernoOProssimo.id)
+                    .sort((a, b) => (a.ordine ?? 0) - (b.ordine ?? 0))
+                    .map((lavoro) => (
+                      <tr
+                        key={lavoro.id}
+                        className="border-t border-zinc-800 bg-zinc-950/70 text-zinc-200"
+                      >
+                        <td className="px-3 py-3 font-semibold text-white">
+                          {lavoro.sezione}
+                        </td>
+                        <td className="px-3 py-3">
+                          {lavoro.titolo || lavoro.descrizione || "—"}
+                        </td>
+                        <td className="px-3 py-3">
+                          {lavoro.obbiettivo ?? "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {lavoro.tempo_lavoro ?? "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {lavoro.ripetizione ?? "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {lavoro.tempo_recupero ?? "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right font-bold">
+                          {lavoro.tempo_totale ?? "—"}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </AppCard>
+      ))
     ) : (
-      <div className="flex min-h-[220px] flex-col items-center justify-center text-center">
-        <h3 className="text-lg font-bold text-white">
-          Nessun allenamento previsto questa settimana
-        </h3>
-        <p className="mt-2 text-sm text-zinc-400">
-          Non ci sono allenamenti da oggi fino alla fine della settimana corrente.
-        </p>
-      </div>
+      <AppCard>
+        <div className="flex min-h-[220px] flex-col items-center justify-center text-center">
+          <h3 className="text-lg font-bold text-white">
+            Nessun allenamento previsto questa settimana
+          </h3>
+          <p className="mt-2 text-sm text-zinc-400">
+            Non ci sono allenamenti da oggi fino alla fine della settimana corrente.
+          </p>
+        </div>
+      </AppCard>
     )}
-  </AppCard>
+  </div>
 )}
         {!loading && vista === "resoconto" && (
           <div className="grid gap-4 md:grid-cols-3">
@@ -977,43 +1018,106 @@ export default function Page() {
                           </p>
                         )}
 
-                        {listaLavori.map((lavoro) => (
-                          <div
-                            key={lavoro.id}
-                            className="rounded-xl border border-zinc-800 bg-zinc-950 p-4"
-                          >
-                            <p
-                              className="text-sm font-semibold"
-                              style={{ color: themeColor }}
+                        {(() => {
+                          const gruppiRenderizzati = new Set<string>();
+
+                          const cardLavoro = (
+                            lavoro: Lavoro,
+                            dentroGruppo: boolean,
+                          ) => (
+                            <div
+                              key={lavoro.id}
+                              className={
+                                dentroGruppo
+                                  ? "rounded-xl border border-zinc-800 bg-zinc-900 p-4"
+                                  : "rounded-xl border border-zinc-800 bg-zinc-950 p-4"
+                              }
                             >
-                              {lavoro.sezione}
-                            </p>
+                              <p
+                                className="text-sm font-semibold"
+                                style={{ color: themeColor }}
+                              >
+                                {lavoro.sezione}
+                              </p>
 
-                            <p className="mt-2 text-white">
-                              {lavoro.descrizione || "Senza descrizione"}
-                            </p>
+                              <p className="mt-2 text-white">
+                                {lavoro.descrizione || "Senza descrizione"}
+                              </p>
 
-                            <div className="mt-3 flex flex-wrap gap-3 text-sm text-zinc-400">
-                              {lavoro.tempo_lavoro !== null && (
-                                <span>Lavoro: {lavoro.tempo_lavoro} min</span>
-                              )}
+                              <div className="mt-3 flex flex-wrap gap-3 text-sm text-zinc-400">
+                                {lavoro.tempo_lavoro !== null && (
+                                  <span>
+                                    Lavoro: {lavoro.tempo_lavoro} min
+                                  </span>
+                                )}
 
-                              {lavoro.ripetizione !== null && (
-                                <span>Ripetizioni: {lavoro.ripetizione}</span>
-                              )}
+                                {lavoro.ripetizione !== null && (
+                                  <span>
+                                    Ripetizioni: {lavoro.ripetizione}
+                                  </span>
+                                )}
 
-                              {lavoro.tempo_recupero !== null && (
-                                <span>
-                                  Recupero: {lavoro.tempo_recupero} min
-                                </span>
-                              )}
+                                {lavoro.tempo_recupero !== null && (
+                                  <span>
+                                    Recupero: {lavoro.tempo_recupero} min
+                                  </span>
+                                )}
 
-                              {lavoro.tempo_totale !== null && (
-                                <span>Totale: {lavoro.tempo_totale} min</span>
-                              )}
+                                {lavoro.tempo_totale !== null && (
+                                  <span>
+                                    Totale: {lavoro.tempo_totale} min
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+
+                          return listaLavori.map((lavoro) => {
+                            if (lavoro.gruppo_contemporaneo) {
+                              if (
+                                gruppiRenderizzati.has(
+                                  lavoro.gruppo_contemporaneo,
+                                )
+                              ) {
+                                return null;
+                              }
+
+                              gruppiRenderizzati.add(
+                                lavoro.gruppo_contemporaneo,
+                              );
+
+                              const membriGruppo = listaLavori.filter(
+                                (l) =>
+                                  l.gruppo_contemporaneo ===
+                                  lavoro.gruppo_contemporaneo,
+                              );
+
+                              return (
+                                <div
+                                  key={lavoro.gruppo_contemporaneo}
+                                  className="rounded-xl border-2 border-dashed p-3"
+                                  style={{ borderColor: `${themeColor}55` }}
+                                >
+                                  <div
+                                    className="mb-3 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide"
+                                    style={{ color: themeColor }}
+                                  >
+                                    <Users className="h-3.5 w-3.5" />
+                                    In contemporanea
+                                  </div>
+
+                                  <div className="grid gap-3 sm:grid-cols-2">
+                                    {membriGruppo.map((membro) =>
+                                      cardLavoro(membro, true),
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            return cardLavoro(lavoro, false);
+                          });
+                        })()}
                       </div>
 
                       <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-5">

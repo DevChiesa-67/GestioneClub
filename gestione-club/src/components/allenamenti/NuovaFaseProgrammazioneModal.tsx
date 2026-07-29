@@ -18,7 +18,9 @@ import {
 
 const INTENSITA_OPTIONS: { value: Intensita; label: string }[] = [
   { value: "bassa", label: "Bassa" },
+  { value: "medio-bassa", label: "Medio-bassa" },
   { value: "media", label: "Media" },
+  { value: "medio-alta", label: "Medio-alta" },
   { value: "alta", label: "Alta" },
 ];
 
@@ -181,7 +183,7 @@ export default function NuovaFaseProgrammazioneModal({
             settimana_index: settimana.index,
             focus_tecnico: dati.focus_tecnico || null,
             intensita: dati.intensita ? (dati.intensita as Intensita) : null,
-            rpe_target: dati.rpe_target ? Number(dati.rpe_target) : null,
+            rpe_target: dati.rpe_target.trim() || null,
             focus_avanti: dati.focus_avanti || null,
             focus_trequarti: dati.focus_trequarti || null,
           };
@@ -395,10 +397,11 @@ export default function NuovaFaseProgrammazioneModal({
                           </label>
 
                           <input
-                            type="number"
-                            min={0}
-                            max={10}
-                            placeholder="Es. 7"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="^(10|[0-9])(-(10|[0-9]))?$"
+                            title='Un numero da 0 a 10 (es. "5") o un intervallo (es. "5-6")'
+                            placeholder="Es. 5 o 5-6"
                             value={dati.rpe_target}
                             onChange={(e) =>
                               aggiornaSettimanaDati(

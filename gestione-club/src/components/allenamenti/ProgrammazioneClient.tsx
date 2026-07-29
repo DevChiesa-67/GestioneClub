@@ -37,19 +37,43 @@ type Profilo = {
   last_squadra_id: string | null;
 };
 
-type Intensita = "bassa" | "media" | "alta";
+type Intensita =
+  | "bassa"
+  | "medio-bassa"
+  | "media"
+  | "medio-alta"
+  | "alta";
 
 const INTENSITA_LABEL: Record<Intensita, string> = {
   bassa: "Bassa",
+  "medio-bassa": "Medio-bassa",
   media: "Media",
+  "medio-alta": "Medio-alta",
   alta: "Alta",
 };
 
 const INTENSITA_COLOR: Record<Intensita, string> = {
   bassa: "#22c55e",
+  "medio-bassa": "#84cc16",
   media: "#f59e0b",
+  "medio-alta": "#f97316",
   alta: "#ef4444",
 };
+
+// Il RPE target è testo libero (un numero secco "5" o un intervallo "5-6"):
+// per il calcolo dell'RPE medio della programmazione un intervallo conta
+// come la sua media (es. "5-6" -> 5.5).
+function rpeTargetANumero(valore: string | null): number | null {
+  if (!valore) return null;
+
+  const match = valore.trim().match(/^(\d+)(?:-(\d+))?$/);
+  if (!match) return null;
+
+  const [, daStr, aStr] = match;
+  const da = Number(daStr);
+
+  return aStr !== undefined ? (da + Number(aStr)) / 2 : da;
+}
 
 type Settimana = {
   id: string;
@@ -62,7 +86,7 @@ type Settimana = {
   data_seduta: string | null;
   focus_tecnico: string | null;
   intensita: Intensita | null;
-  rpe_target: number | null;
+  rpe_target: string | null;
   focus_avanti: string | null;
   focus_trequarti: string | null;
 };
@@ -171,8 +195,8 @@ export default function ProgrammazioneClient({
   const rpeMedio = useMemo(() => {
     const valori = fasi
       .flatMap((fase) => [...(fase.programmazione_settimane ?? [])])
-      .map((settimana) => settimana.rpe_target)
-      .filter((valore): valore is number => typeof valore === "number");
+      .map((settimana) => rpeTargetANumero(settimana.rpe_target))
+      .filter((valore): valore is number => valore !== null);
 
     if (valori.length === 0) return null;
 
@@ -524,9 +548,7 @@ function SettimanaCard({
   const [intensita, setIntensita] = useState<Intensita | "">(
     settimana.intensita ?? ""
   );
-  const [rpeTarget, setRpeTarget] = useState(
-    settimana.rpe_target !== null ? String(settimana.rpe_target) : ""
-  );
+  const [rpeTarget, setRpeTarget] = useState(settimana.rpe_target ?? "");
   const [focusAvanti, setFocusAvanti] = useState(
     settimana.focus_avanti ?? ""
   );
@@ -547,7 +569,7 @@ function SettimanaCard({
         settimana_id: settimana.id,
         focus_tecnico: focusTecnico || null,
         intensita: intensita || null,
-        rpe_target: rpeTarget ? Number(rpeTarget) : null,
+        rpe_target: rpeTarget.trim() || null,
         focus_avanti: focusAvanti || null,
         focus_trequarti: focusTrequarti || null,
       });
@@ -606,18 +628,21 @@ function SettimanaCard({
             >
               <option value="">—</option>
               <option value="bassa">Bassa</option>
+              <option value="medio-bassa">Medio-bassa</option>
               <option value="media">Media</option>
+              <option value="medio-alta">Medio-alta</option>
               <option value="alta">Alta</option>
             </select>
           </Campo>
 
           <Campo label="RPE target/seduta">
             <input
-              type="number"
-              min={0}
-              max={10}
+              type="text"
+              inputMode="numeric"
+              pattern="^(10|[0-9])(-(10|[0-9]))?$"
+              title='Un numero da 0 a 10 (es. "5") o un intervallo (es. "5-6")'
               disabled={!isAdmin}
-              placeholder="Es. 7"
+              placeholder="Es. 5 o 5-6"
               value={rpeTarget}
               onChange={(e) => setRpeTarget(e.target.value)}
               className={inputClass}

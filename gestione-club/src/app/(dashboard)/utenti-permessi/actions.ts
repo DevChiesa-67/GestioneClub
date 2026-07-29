@@ -53,10 +53,10 @@ type ActionResult<T = undefined> = {
 };
 
 function createAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey =
-    process.env.SUPABASE_SECRET_KEY ??
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const serviceRoleKey = (
+    process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY
+  )?.trim();
 
   if (!supabaseUrl) {
     throw new Error("Variabile NEXT_PUBLIC_SUPABASE_URL non configurata.");
@@ -73,6 +73,16 @@ function createAdminClient() {
       autoRefreshToken: false,
       persistSession: false,
       detectSessionInUrl: false,
+    },
+    // Vedi supabase-admin.ts: header fissi per evitare che la risoluzione
+    // dinamica del token (non necessaria per un client service-role) possa
+    // produrre un Authorization/apikey corrotto ("Headers.set: ... is an
+    // invalid header value").
+    global: {
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+      },
     },
   });
 }

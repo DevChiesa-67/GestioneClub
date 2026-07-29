@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { X, Plus, Trash2, Save, Droplets, Users } from "lucide-react";
 import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
@@ -20,7 +20,7 @@ type AllenamentoPrecedente = {
 type SettimanaProgrammataRow = {
   focus_tecnico: string | null;
   intensita: string | null;
-  rpe_target: number | null;
+  rpe_target: string | null;
   focus_avanti: string | null;
   focus_trequarti: string | null;
   fase_id: string;
@@ -93,7 +93,7 @@ type DettagliProgrammazione = {
   mesociclo: string | null;
   focusTecnico: string | null;
   intensita: string | null;
-  rpeTarget: number | null;
+  rpeTarget: string | null;
   focusAvanti: string | null;
   focusTrequarti: string | null;
   coloreMesociclo: string | null;
@@ -107,7 +107,10 @@ const RANGHI = [
 ];
 
 const SEZIONI: string[] = [
-  "Analisi Video / Riunioni",
+  "RIUNIONE",
+  "VIDEO",
+  "TEAM BUILDING",
+  "TOUCH",
   "ATTIVAZIONE / RISCALDAMENTO",
   "LAVORO TECNICO-TATTICO",
   "REPARTO",
@@ -117,10 +120,24 @@ const SEZIONI: string[] = [
   "H2O",
 ];
 
+// Sezioni "semplificate": non hanno obiettivo/rango/ripetizioni/recupero,
+// solo descrizione (facoltativa) ed eventuale immagine/video, con il
+// tempo totale inserito direttamente (come per H2O) invece di essere
+// calcolato da tempo di lavoro x ripetizioni.
+const SEZIONI_SEMPLIFICATE = ["RIUNIONE", "VIDEO", "TEAM BUILDING"];
+
+function isSezioneSemplificata(sezione: string) {
+  return SEZIONI_SEMPLIFICATE.includes(sezione.trim().toUpperCase());
+}
+
 const COLORE_H2O = "#38bdf8";
 
 function isLavoroH2O(lavoro: Lavoro) {
   return lavoro.sezione.trim().toUpperCase() === "H2O";
+}
+
+function isLavoroSemplificato(lavoro: Lavoro) {
+  return isSezioneSemplificata(lavoro.sezione);
 }
 
 function coloreSezione(sezione: string, themeColor: string) {
@@ -128,7 +145,7 @@ function coloreSezione(sezione: string, themeColor: string) {
 }
 
 function calcolaTempoTotale(lavoro: Lavoro) {
-  if (isLavoroH2O(lavoro)) {
+  if (isLavoroH2O(lavoro) || isLavoroSemplificato(lavoro)) {
     return Number(lavoro.tempo_totale) || 0;
   }
 
@@ -631,6 +648,10 @@ if (settimanaProgrammata?.fase_id) {
         };
       });
 
+      // Il controllo include anche tipo_allenamento: mattina e sera sono
+      // sedute distinte anche se cadono nello stesso giorno. Solo una
+      // seconda seduta con lo STESSO tipo (es. due volte "Seduta Mattutina")
+      // viene unita a quella già esistente.
       const { data: allenamentoEsistente, error: checkError } =
         await supabase
           .from("allenamenti")
@@ -638,6 +659,7 @@ if (settimanaProgrammata?.fase_id) {
           .eq("club_id", profilo.last_club_id)
           .eq("squadra_id", profilo.last_squadra_id)
           .eq("data_allenamento", dataAllenamento)
+          .eq("tipo_allenamento", tipo)
           .maybeSingle();
 
       if (checkError) throw checkError;
@@ -677,20 +699,10 @@ if (settimanaProgrammata?.fase_id) {
           (allenamentoEsistente.durata_minuti ?? 0) +
           totaleMinuti;
 
-        const tipoEsistente =
-          allenamentoEsistente.tipo_allenamento ?? "";
-
-        const nuovoTipoAllenamento = tipoEsistente.includes(tipo)
-          ? tipoEsistente
-          : tipoEsistente
-            ? `${tipoEsistente} + ${tipo}`
-            : tipo;
-
         const { error: updateError } = await supabase
           .from("allenamenti")
           .update({
             durata_minuti: nuovaDurata,
-            tipo_allenamento: nuovoTipoAllenamento,
             updated_at: new Date().toISOString(),
           })
           .eq("id", allenamentoId);
@@ -727,17 +739,32 @@ if (settimanaProgrammata?.fase_id) {
       await onSaved();
       onClose();
     } catch (error) {
-      console.error(
-        "Errore salvataggio allenamento:",
-        error
-      );
+      // Un Error nativo (o un PostgrestError, che lo estende) ha message e
+      // stack non enumerabili: passato da solo a console.error, l'overlay
+      // di Next.js lo serializza come "{}" e nasconde il messaggio reale.
+      // Estraiamo i campi a mano così restano visibili in console.
+      const dettagli =
+        error && typeof error === "object"
+          ? {
+              message: (error as { message?: string }).message,
+              details: (error as { details?: string }).details,
+              hint: (error as { hint?: string }).hint,
+              code: (error as { code?: string }).code,
+            }
+          : error;
+
+      console.error("Errore salvataggio allenamento:", dettagli);
+
+      const messaggio =
+        error instanceof Error
+          ? error.message
+          : error && typeof error === "object" && "message" in error
+            ? String((error as { message?: unknown }).message)
+            : "Errore durante il salvataggio.";
 
       showToast({
         type: "error",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Errore durante il salvataggio.",
+        message: messaggio,
       });
     } finally {
       setLoading(false);
@@ -853,6 +880,7 @@ if (settimanaProgrammata?.fase_id) {
                   if (!blocco.gruppoId) {
                     const lavoro = blocco.membri[0];
                     const h2o = isLavoroH2O(lavoro);
+                    const semplificato = isLavoroSemplificato(lavoro);
                     const colore = coloreSezione(lavoro.sezione, themeColor);
 
                     return (
@@ -904,6 +932,7 @@ if (settimanaProgrammata?.fase_id) {
                               aggiornaLavoro(lavoro.id, "sezione", value)
                             }
                             themeColor={colore}
+                            allowCustom
                           />
                         </div>
 
@@ -958,6 +987,59 @@ if (settimanaProgrammata?.fase_id) {
                               </span>
                             </div>
                           </div>
+                        ) : semplificato ? (
+                          <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
+                            <div className="md:col-span-2">
+                              <label className="mb-1 block text-sm text-zinc-400">
+                                Descrizione
+                              </label>
+
+                              <textarea
+                                value={lavoro.descrizione}
+                                onChange={(e) =>
+                                  aggiornaLavoro(
+                                    lavoro.id,
+                                    "descrizione",
+                                    e.target.value
+                                  )
+                                }
+                                rows={3}
+                                className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-white outline-none"
+                              />
+                            </div>
+
+                            <div className="md:col-span-2">
+                              <InputField
+                                label="Immagine o video lavoro (URL)"
+                                placeholder="Link a un'immagine, un video o YouTube/Vimeo"
+                                value={lavoro.immagine_lavoro}
+                                onChange={(value) =>
+                                  aggiornaLavoro(
+                                    lavoro.id,
+                                    "immagine_lavoro",
+                                    value
+                                  )
+                                }
+                              />
+
+                              <AnteprimaMediaLavoro
+                                url={lavoro.immagine_lavoro}
+                              />
+                            </div>
+
+                            <InputField
+                              label="Tempo totale (min)"
+                              type="number"
+                              value={lavoro.tempo_totale}
+                              onChange={(value) =>
+                                aggiornaLavoro(
+                                  lavoro.id,
+                                  "tempo_totale",
+                                  value
+                                )
+                              }
+                            />
+                          </div>
                         ) : (
                           <>
                             <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
@@ -999,6 +1081,7 @@ if (settimanaProgrammata?.fase_id) {
                                     value
                                   )
                                 }
+                                allowCustom
                               />
 
                               <SelectField
@@ -1159,6 +1242,7 @@ if (settimanaProgrammata?.fase_id) {
                               aggiornaCampoGruppo(gruppoId, "sezione", value)
                             }
                             themeColor={coloreGruppo}
+                            allowCustom
                           />
                         </div>
 
@@ -1295,6 +1379,7 @@ if (settimanaProgrammata?.fase_id) {
                                     value
                                   )
                                 }
+                                allowCustom
                               />
 
                               <SelectField
@@ -1639,13 +1724,47 @@ function SelectField({
   options,
   onChange,
   themeColor,
+  allowCustom = false,
 }: {
   label: string;
   value: string;
   options: string[];
   onChange: (value: string) => void;
   themeColor?: string;
+  allowCustom?: boolean;
 }) {
+  const datalistId = useId();
+
+  if (allowCustom) {
+    return (
+      <div>
+        <label className="mb-1 block text-sm text-zinc-400">
+          {label}
+        </label>
+
+        <input
+          type="text"
+          list={datalistId}
+          value={value}
+          placeholder="Seleziona o scrivi una nuova voce"
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full rounded-xl border bg-zinc-900 px-3 py-2 text-white outline-none"
+          style={{
+            borderColor: themeColor
+              ? `${themeColor}55`
+              : undefined,
+          }}
+        />
+
+        <datalist id={datalistId}>
+          {options.map((option) => (
+            <option key={option} value={option} />
+          ))}
+        </datalist>
+      </div>
+    );
+  }
+
   return (
     <div>
       <label className="mb-1 block text-sm text-zinc-400">
@@ -1787,7 +1906,7 @@ function RpeRow({
   rpe,
   colore,
 }: {
-  rpe: number | null;
+  rpe: string | null;
   colore: string;
 }) {
   return (

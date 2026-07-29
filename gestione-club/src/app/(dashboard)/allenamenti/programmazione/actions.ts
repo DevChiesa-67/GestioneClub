@@ -5,12 +5,19 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase-server";
 
-export type Intensita = "bassa" | "media" | "alta";
+export type Intensita =
+  | "bassa"
+  | "medio-bassa"
+  | "media"
+  | "medio-alta"
+  | "alta";
 
 const INTENSITA_RPE: Record<Intensita, number> = {
-  bassa: 3,
+  bassa: 2,
+  "medio-bassa": 4,
   media: 6,
-  alta: 9,
+  "medio-alta": 8,
+  alta: 10,
 };
 
 function intensitaToRpe(intensita?: Intensita | null): number | null {
@@ -18,12 +25,50 @@ function intensitaToRpe(intensita?: Intensita | null): number | null {
   return INTENSITA_RPE[intensita] ?? null;
 }
 
+// Il "RPE target/seduta" della settimana è testo libero (non più un numero
+// singolo) per permettere sia un valore secco ("5") sia un intervallo
+// ("5-6"), coerente con come i preparatori lo esprimono nella pratica.
+// Qui validiamo comunque il formato per evitare dati sporchi in tabella.
+type RisultatoRpeTarget =
+  | { ok: true; valore: string | null }
+  | { ok: false; errore: string };
+
+function normalizzaRpeTarget(value?: string | null): RisultatoRpeTarget {
+  const grezzo = value?.trim();
+
+  if (!grezzo) {
+    return { ok: true, valore: null };
+  }
+
+  const match = grezzo.match(/^(10|[0-9])(?:\s*-\s*(10|[0-9]))?$/);
+
+  if (!match) {
+    return {
+      ok: false,
+      errore:
+        'RPE target non valido: usa un numero da 0 a 10 (es. "5") o un intervallo (es. "5-6").',
+    };
+  }
+
+  const [, daStr, aStr] = match;
+
+  if (aStr !== undefined && Number(daStr) > Number(aStr)) {
+    return {
+      ok: false,
+      errore:
+        "Nell'intervallo RPE il primo numero deve essere minore o uguale al secondo (es. \"5-6\").",
+    };
+  }
+
+  return { ok: true, valore: aStr !== undefined ? `${daStr}-${aStr}` : daStr };
+}
+
 type DettagliSettimanaInput = {
   settimana_index: number;
   data_seduta?: string | null;
   focus_tecnico?: string | null;
   intensita?: Intensita | null;
-  rpe_target?: number | null;
+  rpe_target?: string | null;
   focus_avanti?: string | null;
   focus_trequarti?: string | null;
 };
@@ -43,7 +88,7 @@ type ModificaDettagliSettimanaInput = {
   data_seduta?: string | null;
   focus_tecnico?: string | null;
   intensita?: Intensita | null;
-  rpe_target?: number | null;
+  rpe_target?: string | null;
   focus_avanti?: string | null;
   focus_trequarti?: string | null;
 };
@@ -261,6 +306,24 @@ export async function creaFaseConSettimane(input: CreaFaseInput) {
     };
   }
 
+  // Validiamo il RPE target di tutte le settimane prima di scrivere
+  // qualsiasi cosa a DB, così un valore malformato non lascia un mesociclo
+  // creato a metà (fase salvata ma senza le sue settimane).
+  const rpeTargetValidati = new Map<number, string | null>();
+
+  for (const dettaglio of input.settimane_dettagli ?? []) {
+    const risultato = normalizzaRpeTarget(dettaglio.rpe_target);
+
+    if (!risultato.ok) {
+      return {
+        success: false,
+        message: `Settimana ${dettaglio.settimana_index + 1}: ${risultato.errore}`,
+      };
+    }
+
+    rpeTargetValidati.set(dettaglio.settimana_index, risultato.valore);
+  }
+
   const { data: programmazione, error: programmazioneError } = await supabase
     .from("programmazioni")
     .select("id")
@@ -329,7 +392,7 @@ export async function creaFaseConSettimane(input: CreaFaseInput) {
           data_seduta: dettaglio?.data_seduta || null,
           focus_tecnico: dettaglio?.focus_tecnico?.trim() || null,
           intensita: dettaglio?.intensita || null,
-          rpe_target: dettaglio?.rpe_target ?? null,
+          rpe_target: rpeTargetValidati.get(index) ?? null,
           focus_avanti: dettaglio?.focus_avanti?.trim() || null,
           focus_trequarti: dettaglio?.focus_trequarti?.trim() || null,
         };
@@ -388,13 +451,19 @@ export async function modificaDettagliSettimana(
     };
   }
 
+  const rpeTarget = normalizzaRpeTarget(input.rpe_target);
+
+  if (!rpeTarget.ok) {
+    return { success: false, message: rpeTarget.errore };
+  }
+
   const { error } = await supabase
     .from("programmazione_settimane")
     .update({
       data_seduta: input.data_seduta || null,
       focus_tecnico: input.focus_tecnico?.trim() || null,
       intensita: input.intensita || null,
-      rpe_target: input.rpe_target ?? null,
+      rpe_target: rpeTarget.valore,
       focus_avanti: input.focus_avanti?.trim() || null,
       focus_trequarti: input.focus_trequarti?.trim() || null,
     })

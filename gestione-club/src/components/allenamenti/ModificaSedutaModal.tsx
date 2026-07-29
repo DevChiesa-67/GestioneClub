@@ -11,7 +11,9 @@ import { DateInput } from "@/components/ui/DateInput";
 
 const INTENSITA_OPTIONS: { value: Intensita; label: string }[] = [
   { value: "bassa", label: "Bassa" },
+  { value: "medio-bassa", label: "Medio-bassa" },
   { value: "media", label: "Media" },
+  { value: "medio-alta", label: "Medio-alta" },
   { value: "alta", label: "Alta" },
 ];
 
