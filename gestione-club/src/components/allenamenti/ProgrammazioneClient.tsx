@@ -63,10 +63,15 @@ const INTENSITA_COLOR: Record<Intensita, string> = {
 // Il RPE target è testo libero (un numero secco "5" o un intervallo "5-6"):
 // per il calcolo dell'RPE medio della programmazione un intervallo conta
 // come la sua media (es. "5-6" -> 5.5).
-function rpeTargetANumero(valore: string | null): number | null {
-  if (!valore) return null;
+// Il parametro accetta anche "number" perché, finché la colonna DB
+// rpe_target non viene migrata da numeric a text (script
+// modifica-rpe-target-testo.sql), le righe salvate prima della migrazione
+// arrivano da Supabase come numero, non come stringa: senza String() qui,
+// valore.trim() lancerebbe "valore.trim is not a function".
+function rpeTargetANumero(valore: string | number | null): number | null {
+  if (valore === null || valore === undefined || valore === "") return null;
 
-  const match = valore.trim().match(/^(\d+)(?:-(\d+))?$/);
+  const match = String(valore).trim().match(/^(\d+)(?:-(\d+))?$/);
   if (!match) return null;
 
   const [, daStr, aStr] = match;
@@ -548,7 +553,14 @@ function SettimanaCard({
   const [intensita, setIntensita] = useState<Intensita | "">(
     settimana.intensita ?? ""
   );
-  const [rpeTarget, setRpeTarget] = useState(settimana.rpe_target ?? "");
+  // String(...) protegge dallo stesso problema di rpeTargetANumero: finché
+  // la colonna DB non è migrata a text, un valore legacy arriva come
+  // number, e rpeTarget.trim() più sotto lancerebbe un errore.
+  const [rpeTarget, setRpeTarget] = useState(
+    settimana.rpe_target !== null && settimana.rpe_target !== undefined
+      ? String(settimana.rpe_target)
+      : ""
+  );
   const [focusAvanti, setFocusAvanti] = useState(
     settimana.focus_avanti ?? ""
   );
