@@ -36,14 +36,18 @@ export type MisurazioneAntropometrica = {
   } | null;
 };
 
-export type MisurazionePostAllenamento = {
+export type MisurazioneBenessere = {
   id: string;
   data_compilazione: string;
-  umore: number;
-  qualita_sonno: number | null;
-  dolore_muscolare: number;
-  dolore_presente: boolean;
-  zona_dolore: string | null;
+  tipo_compilazione: "campo" | "palestra" | "mattino";
+  seduta: string | null;
+  rpe: number | null;
+  fastidio: "no" | "leggero" | "preoccupante" | null;
+  fastidio_dettaglio: string | null;
+  sonno: number | null;
+  stanchezza: number | null;
+  indolenzimento: number | null;
+  stress: number | null;
   created_at: string;
 };
 
@@ -210,7 +214,7 @@ export default async function MisurazioniPage() {
 
     const [
       { data: antropometria, error: antropometriaError },
-      { data: postAllenamento, error: postAllenamentoError },
+      { data: benessere, error: benessereError },
     ] = await Promise.all([
       supabase
         .from("misurazioni_antropometriche")
@@ -232,15 +236,19 @@ export default async function MisurazioniPage() {
         .order("data_misurazione", { ascending: false }),
 
       supabase
-        .from("misurazioni_post_allenamento")
+        .from("misurazioni_benessere")
         .select(`
           id,
           data_compilazione,
-          umore,
-          qualita_sonno,
-          dolore_muscolare,
-          dolore_presente,
-          zona_dolore,
+          tipo_compilazione,
+          seduta,
+          rpe,
+          fastidio,
+          fastidio_dettaglio,
+          sonno,
+          stanchezza,
+          indolenzimento,
+          stress,
           created_at
         `)
         .eq("club_id", profilo.last_club_id)
@@ -258,12 +266,12 @@ export default async function MisurazioniPage() {
       });
     }
 
-    if (postAllenamentoError) {
-      console.error("Errore caricamento post allenamento giocatore:", {
-        message: postAllenamentoError.message,
-        code: postAllenamentoError.code,
-        details: postAllenamentoError.details,
-        hint: postAllenamentoError.hint,
+    if (benessereError) {
+      console.error("Errore caricamento benessere giocatore:", {
+        message: benessereError.message,
+        code: benessereError.code,
+        details: benessereError.details,
+        hint: benessereError.hint,
       });
     }
 
@@ -291,9 +299,7 @@ export default async function MisurazioniPage() {
           squadra_id: giocatore.squadra_id,
         }}
         antropometria={antropometriaNormalizzata}
-        postAllenamento={
-          (postAllenamento || []) as MisurazionePostAllenamento[]
-        }
+        benessere={(benessere || []) as MisurazioneBenessere[]}
       />
     );
   }

@@ -1,6 +1,7 @@
 import DashboardStats from "@/components/dashboard/DashboardStats";
-import DashboardEvents from "@/components/dashboard/DashboardEvents";
-import DashboardPerformance from "@/components/dashboard/DashboardPerformance";
+import DashboardProssimePartite from "@/components/dashboard/DashboardProssimePartite";
+import DashboardProssimiAllenamenti from "@/components/dashboard/DashboardProssimiAllenamenti";
+import DashboardAttendance from "@/components/dashboard/DashboardAttendance";
 import DashboardCommunications from "@/components/dashboard/DashboardCommunications";
 import DashboardReports from "@/components/dashboard/DashboardReports";
 import DashboardMedical from "@/components/dashboard/DashboardMedical";
@@ -12,9 +13,13 @@ export default function DashboardPage() {
         <DashboardStats />
       </section>
 
-      <section className="grid min-w-0 grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-[0.9fr_1.1fr] xl:gap-6">
-        <DashboardEvents />
-        <DashboardPerformance />
+      <section className="min-w-0">
+        <DashboardAttendance />
+      </section>
+
+      <section className="grid min-w-0 grid-cols-1 gap-4 sm:gap-5 xl:grid-cols-2 xl:gap-6">
+        <DashboardProssimePartite />
+        <DashboardProssimiAllenamenti />
       </section>
 
       <section className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 xl:grid-cols-3 xl:gap-6">

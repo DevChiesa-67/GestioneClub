@@ -72,6 +72,10 @@ type Props = {
   tipiSeduta?: TipoSedutaSingolo[];
   sessionTitles?: string[];
   splitSelezionati?: string[];
+  /** Gruppo dell'utente corrente, per filtrare i parametri pubblicati
+   * visibili nel riepilogo (vedi report_personalizzati). Usato solo in
+   * mode="summary". */
+  tipoProfilo?: string | null;
 };
 
 export type BaseColumn = {
@@ -270,6 +274,177 @@ export async function fetchPerformanceRows(params: {
   }));
 }
 
+/**
+ * Parametri Catapult "pubblicati" da un admin in /reportistica per il
+ * riepilogo Performance, visibili al gruppo (tipo_profilo) dell'utente
+ * corrente. Vedi report_personalizzati.pubblicato/tipi_profilo_visibili.
+ */
+export type ParametroPubblicato = {
+  id: string;
+  nome: string;
+  campo_catapult: string;
+  aggregazione_catapult: "media" | "somma" | "min" | "max" | "ultima";
+};
+
+export async function fetchParametriPubblicati(
+  clubId: string,
+  tipoProfilo: string | null
+): Promise<ParametroPubblicato[]> {
+  if (!clubId || !tipoProfilo) return [];
+
+  const { data, error } = await supabase
+    .from("report_personalizzati")
+    .select(
+      "id, nome, campo_catapult, aggregazione_catapult, tipi_profilo_visibili"
+    )
+    .eq("club_id", clubId)
+    .eq("sezione_performance", "performance")
+    .eq("pubblicato", true)
+    .contains("tipi_profilo_visibili", [tipoProfilo]);
+
+  if (error) {
+    console.error(
+      "Errore caricamento parametri pubblicati:",
+      JSON.stringify(error, null, 2)
+    );
+    return [];
+  }
+
+  return (data ?? [])
+    .filter((riga) => riga.campo_catapult && riga.aggregazione_catapult)
+    .map((riga) => ({
+      id: riga.id,
+      nome: riga.nome,
+      campo_catapult: riga.campo_catapult as string,
+      aggregazione_catapult:
+        riga.aggregazione_catapult as ParametroPubblicato["aggregazione_catapult"],
+    }));
+}
+
+type ValoreCatapultDinamico = {
+  date: string | null;
+  valore: number | null;
+};
+
+/**
+ * Legge da catapult_data solo le colonne richieste (campi dei parametri
+ * pubblicati), con lo stesso set di filtri di fetchPerformanceRows, così
+ * i valori mostrati nel riepilogo restano coerenti con i filtri attivi
+ * senza dover selezionare tutte le ~90 colonne di catapult_data ad ogni
+ * caricamento.
+ */
+async function fetchValoriCatapultPerCampi(params: {
+  clubId: string;
+  squadraId: string | null;
+  giocatoreIds?: string[];
+  dataDa?: string;
+  dataA?: string;
+  tipiSeduta?: TipoSedutaSingolo[];
+  sessionTitles?: string[];
+  splitSelezionati?: string[];
+  campi: string[];
+}): Promise<Record<string, ValoreCatapultDinamico[]>> {
+  const colonneUniche = Array.from(new Set(params.campi));
+
+  if (colonneUniche.length === 0) return {};
+
+  const tags = tagsPerTipiSeduta(params.tipiSeduta ?? []);
+
+  let query = supabase
+    .from("catapult_data")
+    .select(["date", ...colonneUniche].join(","))
+    .eq("club_id", params.clubId);
+
+  if (params.squadraId) {
+    query = query.or(`squadra_id.eq.${params.squadraId},squadra_id.is.null`);
+  }
+
+  if (params.giocatoreIds && params.giocatoreIds.length > 0) {
+    query = query.in("giocatore_id", params.giocatoreIds);
+  }
+
+  if (params.dataDa) {
+    query = query.gte("date", params.dataDa);
+  }
+
+  if (params.dataA) {
+    query = query.lte("date", params.dataA);
+  }
+
+  if (tags !== null) {
+    query = query.or(filtroTagIlike(tags));
+  }
+
+  if (params.sessionTitles && params.sessionTitles.length > 0) {
+    query = query.in("session_title", params.sessionTitles);
+  }
+
+  if (params.splitSelezionati && params.splitSelezionati.length > 0) {
+    query = query.in("split_name", params.splitSelezionati);
+  } else {
+    query = query.ilike("split_name", SPLIT_TUTTA_SEDUTA);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error(
+      "Errore caricamento valori parametri pubblicati:",
+      JSON.stringify(error, null, 2)
+    );
+    return {};
+  }
+
+  const righe = (data ?? []) as Record<string, unknown>[];
+  const risultato: Record<string, ValoreCatapultDinamico[]> = {};
+
+  for (const colonna of colonneUniche) {
+    risultato[colonna] = righe.map((riga) => ({
+      date: (riga.date as string | null) ?? null,
+      valore: normalizeNumber(riga[colonna]),
+    }));
+  }
+
+  return risultato;
+}
+
+function calcolaAggregazioneCatapult(
+  valori: ValoreCatapultDinamico[],
+  aggregazione: ParametroPubblicato["aggregazione_catapult"]
+): number | null {
+  const numerici = valori.filter(
+    (voce): voce is { date: string | null; valore: number } =>
+      voce.valore !== null
+  );
+
+  if (numerici.length === 0) return null;
+
+  switch (aggregazione) {
+    case "somma":
+      return numerici.reduce((somma, voce) => somma + voce.valore, 0);
+    case "media":
+      return (
+        numerici.reduce((somma, voce) => somma + voce.valore, 0) /
+        numerici.length
+      );
+    case "min":
+      return Math.min(...numerici.map((voce) => voce.valore));
+    case "max":
+      return Math.max(...numerici.map((voce) => voce.valore));
+    case "ultima": {
+      const conData = numerici.filter((voce) => voce.date);
+
+      if (conData.length === 0) {
+        return numerici[numerici.length - 1].valore;
+      }
+
+      return [...conData].sort((a, b) =>
+        (b.date ?? "").localeCompare(a.date ?? "")
+      )[0].valore;
+    }
+  }
+}
+
 function safeCalculateFormula(row: PerformanceRow, formula: string): number | null {
   try {
     let expression = formula.trim();
@@ -317,7 +492,89 @@ function StatRow({
   );
 }
 
-function PerformanceSummary({ rows }: { rows: PerformanceRow[] }) {
+function PerformanceSummary({
+  rows,
+  tipoProfilo,
+  clubId,
+  squadraId,
+  giocatoreIds,
+  dataDa,
+  dataA,
+  tipiSeduta,
+  sessionTitles,
+  splitSelezionati,
+}: {
+  rows: PerformanceRow[];
+  tipoProfilo: string | null;
+  clubId: string;
+  squadraId: string | null;
+  giocatoreIds: string[];
+  dataDa: string;
+  dataA: string;
+  tipiSeduta: TipoSedutaSingolo[];
+  sessionTitles: string[];
+  splitSelezionati: string[];
+}) {
+  const [parametriPubblicati, setParametriPubblicati] = useState<
+    { id: string; nome: string; valore: number | null }[]
+  >([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function caricaParametriPubblicati() {
+      const definizioni = await fetchParametriPubblicati(clubId, tipoProfilo);
+
+      if (cancelled) return;
+
+      if (definizioni.length === 0) {
+        setParametriPubblicati([]);
+        return;
+      }
+
+      const valoriPerCampo = await fetchValoriCatapultPerCampi({
+        clubId,
+        squadraId,
+        giocatoreIds,
+        dataDa,
+        dataA,
+        tipiSeduta,
+        sessionTitles,
+        splitSelezionati,
+        campi: definizioni.map((definizione) => definizione.campo_catapult),
+      });
+
+      if (cancelled) return;
+
+      setParametriPubblicati(
+        definizioni.map((definizione) => ({
+          id: definizione.id,
+          nome: definizione.nome,
+          valore: calcolaAggregazioneCatapult(
+            valoriPerCampo[definizione.campo_catapult] ?? [],
+            definizione.aggregazione_catapult
+          ),
+        }))
+      );
+    }
+
+    void caricaParametriPubblicati();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    clubId,
+    squadraId,
+    tipoProfilo,
+    giocatoreIds.join(","),
+    dataDa,
+    dataA,
+    tipiSeduta.join(","),
+    sessionTitles.join(","),
+    splitSelezionati.join(","),
+  ]);
+
   const stats = useMemo(() => {
     const numeroSessioni = rows.length;
 
@@ -384,6 +641,24 @@ function PerformanceSummary({ rows }: { rows: PerformanceRow[] }) {
           </div>
         )}
       </AppCard>
+
+      {parametriPubblicati.length > 0 && (
+        <AppCard title="Parametri pubblicati" className="xl:col-span-2">
+          <div className="space-y-1">
+            {parametriPubblicati.map((parametro) => (
+              <StatRow
+                key={parametro.id}
+                label={parametro.nome}
+                value={
+                  parametro.valore === null
+                    ? "—"
+                    : formatNumber(parametro.valore, 2)
+                }
+              />
+            ))}
+          </div>
+        </AppCard>
+      )}
     </div>
   );
 }
@@ -869,6 +1144,7 @@ export default function ReportPerformanceSessioniClient({
   tipiSeduta = [],
   sessionTitles = [],
   splitSelezionati = [],
+  tipoProfilo = null,
 }: Props) {
   const [rows, setRows] = useState<PerformanceRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -932,7 +1208,20 @@ export default function ReportPerformanceSessioniClient({
   }
 
   if (mode === "summary") {
-    return <PerformanceSummary rows={rows} />;
+    return (
+      <PerformanceSummary
+        rows={rows}
+        tipoProfilo={tipoProfilo}
+        clubId={clubId}
+        squadraId={squadraId}
+        giocatoreIds={giocatoreIds}
+        dataDa={dataDa}
+        dataA={dataA}
+        tipiSeduta={tipiSedutaEffettivi}
+        sessionTitles={sessionTitles}
+        splitSelezionati={splitSelezionati}
+      />
+    );
   }
 
   return <PerformanceTable rows={rows} />;

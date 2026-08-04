@@ -19,6 +19,13 @@ type LavoroInput = {
   tempo_totale?: number | null;
   contemporaneo?: boolean | null;
   gruppo_contemporaneo?: string | null;
+  codice?: string | null;
+  spazio?: string | null;
+  materiale?: string | null;
+  punti_chiave_coaching?: string | null;
+  progressione?: string | null;
+  riferimento_gps?: string | null;
+  perche_serve?: string | null;
 };
 
 type AggiornaAllenamentoInput = {
@@ -161,6 +168,13 @@ export async function aggiornaAllenamento(
           gruppo_contemporaneo: lavoro.contemporaneo
             ? lavoro.gruppo_contemporaneo || null
             : null,
+          codice: lavoro.codice || null,
+          spazio: lavoro.spazio || null,
+          materiale: lavoro.materiale || null,
+          punti_chiave_coaching: lavoro.punti_chiave_coaching || null,
+          progressione: lavoro.progressione || null,
+          riferimento_gps: lavoro.riferimento_gps || null,
+          perche_serve: lavoro.perche_serve || null,
           ordine,
         })
         .eq("id", lavoro.id)
@@ -189,6 +203,13 @@ export async function aggiornaAllenamento(
           gruppo_contemporaneo: lavoro.contemporaneo
             ? lavoro.gruppo_contemporaneo || null
             : null,
+          codice: lavoro.codice || null,
+          spazio: lavoro.spazio || null,
+          materiale: lavoro.materiale || null,
+          punti_chiave_coaching: lavoro.punti_chiave_coaching || null,
+          progressione: lavoro.progressione || null,
+          riferimento_gps: lavoro.riferimento_gps || null,
+          perche_serve: lavoro.perche_serve || null,
           ordine: input.lavori.indexOf(lavoro),
         }))
       );

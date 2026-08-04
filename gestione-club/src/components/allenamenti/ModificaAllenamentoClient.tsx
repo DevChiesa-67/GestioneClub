@@ -96,6 +96,23 @@ function calcolaTempoTotale(lavoro: {
   return tempoLavoro * ripetizioni + recupero * (ripetizioni - 1);
 }
 
+// Orario di fine calcolato da orario di inizio + somma dei tempo_totale dei
+// lavori (deduplicando i lavori "in contemporanea", che condividono lo
+// stesso intervallo). Restituisce "" se manca l'orario di inizio.
+function calcolaOraFine(oraInizio: string, minutiTotali: number) {
+  if (!oraInizio) return "";
+
+  const [oreStr, minutiStr] = oraInizio.split(":");
+  const ore = Number(oreStr) || 0;
+  const minuti = Number(minutiStr) || 0;
+
+  const totaleMinutiGiorno = ore * 60 + minuti + minutiTotali;
+  const oreFine = Math.floor(totaleMinutiGiorno / 60) % 24;
+  const minutiFine = ((totaleMinutiGiorno % 60) + 60) % 60;
+
+  return `${String(oreFine).padStart(2, "0")}:${String(minutiFine).padStart(2, "0")}`;
+}
+
 function generaId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -132,6 +149,13 @@ type Lavoro = {
   contemporaneo: boolean | null;
   gruppo_contemporaneo: string | null;
   ordine: number | null;
+  codice?: string | null;
+  spazio?: string | null;
+  materiale?: string | null;
+  punti_chiave_coaching?: string | null;
+  progressione?: string | null;
+  riferimento_gps?: string | null;
+  perche_serve?: string | null;
 };
 
 type LavoroForm = {
@@ -149,6 +173,13 @@ type LavoroForm = {
   tempo_totale: string;
   contemporaneo: boolean;
   gruppo_id: string | null;
+  codice: string;
+  spazio: string;
+  materiale: string;
+  punti_chiave_coaching: string;
+  progressione: string;
+  riferimento_gps: string;
+  perche_serve: string;
 };
 
 type Props = {
@@ -176,6 +207,13 @@ function lavoroToForm(lavoro: Lavoro): LavoroForm {
       lavoro.contemporaneo && lavoro.gruppo_contemporaneo
         ? lavoro.gruppo_contemporaneo
         : null,
+    codice: lavoro.codice ?? "",
+    spazio: lavoro.spazio ?? "",
+    materiale: lavoro.materiale ?? "",
+    punti_chiave_coaching: lavoro.punti_chiave_coaching ?? "",
+    progressione: lavoro.progressione ?? "",
+    riferimento_gps: lavoro.riferimento_gps ?? "",
+    perche_serve: lavoro.perche_serve ?? "",
   };
 }
 
@@ -194,6 +232,13 @@ function lavoroVuoto(sezione = ""): LavoroForm {
     tempo_totale: "",
     contemporaneo: false,
     gruppo_id: null,
+    codice: "",
+    spazio: "",
+    materiale: "",
+    punti_chiave_coaching: "",
+    progressione: "",
+    riferimento_gps: "",
+    perche_serve: "",
   };
 }
 
@@ -212,7 +257,12 @@ export default function ModificaAllenamentoClient({
     allenamento.tipo_allenamento ?? ""
   );
   const [oraInizio, setOraInizio] = useState(allenamento.ora_inizio ?? "");
-  const [oraFine, setOraFine] = useState(allenamento.ora_fine ?? "");
+
+  // Tab attiva ("generale" o "dettagli") per ciascun lavoro, indicizzata
+  // per chiave: di default tutti mostrano i campi principali.
+  const [tabDettagliAttiva, setTabDettagliAttiva] = useState<
+    Record<string, boolean>
+  >({});
   const [luogo, setLuogo] = useState(allenamento.luogo ?? "");
   const [obiettivo, setObiettivo] = useState(allenamento.obiettivo ?? "");
   const [note, setNote] = useState(allenamento.note ?? "");
@@ -263,6 +313,12 @@ export default function ModificaAllenamentoClient({
     }, 0);
   }, [lavori]);
 
+  // Sola lettura: calcolato da orario di inizio + durata complessiva.
+  const oraFine = useMemo(
+    () => calcolaOraFine(oraInizio, minutiTotali),
+    [oraInizio, minutiTotali],
+  );
+
   function aggiornaLavoro(
     chiave: string,
     campo: keyof Omit<LavoroForm, "chiave" | "id" | "gruppo_id" | "contemporaneo">,
@@ -278,6 +334,15 @@ export default function ModificaAllenamentoClient({
             chiave: lavoro.chiave,
             id: lavoro.id,
             tempo_totale: lavoro.tempo_totale,
+            // I campi "drill bank" (tab Dettagli) non dipendono dal tipo di
+            // lavoro: passando a H2O restano quelli già inseriti.
+            codice: lavoro.codice,
+            spazio: lavoro.spazio,
+            materiale: lavoro.materiale,
+            punti_chiave_coaching: lavoro.punti_chiave_coaching,
+            progressione: lavoro.progressione,
+            riferimento_gps: lavoro.riferimento_gps,
+            perche_serve: lavoro.perche_serve,
           };
         }
 
@@ -463,6 +528,13 @@ export default function ModificaAllenamentoClient({
           tempo_totale: calcolaTempoTotale(lavoro),
           contemporaneo: lavoro.contemporaneo,
           gruppo_contemporaneo: lavoro.contemporaneo ? lavoro.gruppo_id : null,
+          codice: lavoro.codice || null,
+          spazio: lavoro.spazio || null,
+          materiale: lavoro.materiale || null,
+          punti_chiave_coaching: lavoro.punti_chiave_coaching || null,
+          progressione: lavoro.progressione || null,
+          riferimento_gps: lavoro.riferimento_gps || null,
+          perche_serve: lavoro.perche_serve || null,
         })),
         lavoriEliminatiIds,
       });
@@ -622,13 +694,10 @@ export default function ModificaAllenamentoClient({
             />
           </Campo>
 
-          <Campo label="Ora fine">
-            <input
-              type="time"
-              value={oraFine}
-              onChange={(e) => setOraFine(e.target.value)}
-              className="h-12 w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-4 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
-            />
+          <Campo label="Ora fine (calcolata)">
+            <div className="flex h-12 w-full items-center rounded-2xl border border-zinc-800 bg-zinc-900/60 px-4 text-sm text-zinc-300">
+              {oraFine || "—"}
+            </div>
           </Campo>
         </div>
 
@@ -709,7 +778,7 @@ export default function ModificaAllenamentoClient({
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-2">
-                    <Campo label="Sezione">
+                    <Campo label="Tipo">
                       <input
                         type="text"
                         list="sezioni-lavoro-datalist"
@@ -724,7 +793,7 @@ export default function ModificaAllenamentoClient({
                     </Campo>
 
                     {!h2o && !semplificato && (
-                      <Campo label="Obiettivo">
+                      <Campo label="Consegna e organizzazione">
                         <input
                           type="text"
                           value={lavoro.obbiettivo}
@@ -741,7 +810,60 @@ export default function ModificaAllenamentoClient({
                     )}
                   </div>
 
-                  {h2o ? (
+                  <div className="mb-3 mt-3 inline-flex items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-950 p-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTabDettagliAttiva((prev) => ({
+                          ...prev,
+                          [lavoro.chiave]: false,
+                        }))
+                      }
+                      className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                        !tabDettagliAttiva[lavoro.chiave]
+                          ? "text-white"
+                          : "text-zinc-500 hover:text-white"
+                      }`}
+                      style={
+                        !tabDettagliAttiva[lavoro.chiave]
+                          ? { backgroundColor: colore }
+                          : undefined
+                      }
+                    >
+                      Generale
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTabDettagliAttiva((prev) => ({
+                          ...prev,
+                          [lavoro.chiave]: true,
+                        }))
+                      }
+                      className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                        tabDettagliAttiva[lavoro.chiave]
+                          ? "text-white"
+                          : "text-zinc-500 hover:text-white"
+                      }`}
+                      style={
+                        tabDettagliAttiva[lavoro.chiave]
+                          ? { backgroundColor: colore }
+                          : undefined
+                      }
+                    >
+                      Dettagli
+                    </button>
+                  </div>
+
+                  {tabDettagliAttiva[lavoro.chiave] ? (
+                    <DettagliLavoroForm
+                      lavoro={lavoro}
+                      onChange={(campo, valore) =>
+                        aggiornaLavoro(lavoro.chiave, campo, valore)
+                      }
+                    />
+                  ) : h2o ? (
                     <div className="mt-3 grid gap-3 grid-cols-2 md:grid-cols-4">
                       <Campo label="Tempo totale (min)">
                         <input
@@ -762,7 +884,7 @@ export default function ModificaAllenamentoClient({
                   ) : semplificato ? (
                     <>
                       <div className="mt-3">
-                        <Campo label="Descrizione">
+                        <Campo label="Drill">
                           <textarea
                             rows={2}
                             value={lavoro.descrizione}
@@ -819,7 +941,7 @@ export default function ModificaAllenamentoClient({
                   ) : (
                     <>
                       <div className="mt-3">
-                        <Campo label="Descrizione">
+                        <Campo label="Drill">
                           <textarea
                             rows={2}
                             value={lavoro.descrizione}
@@ -995,7 +1117,7 @@ export default function ModificaAllenamentoClient({
 
                 <div className="mb-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
                   <div className="mb-3">
-                    <Campo label="Sezione (condivisa dal gruppo)">
+                    <Campo label="Tipo (condiviso dal gruppo)">
                       <input
                         type="text"
                         list="sezioni-lavoro-datalist"
@@ -1103,9 +1225,63 @@ export default function ModificaAllenamentoClient({
                         )}
                       </div>
 
+                      <div className="mb-2 inline-flex items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-950 p-1">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setTabDettagliAttiva((prev) => ({
+                              ...prev,
+                              [membro.chiave]: false,
+                            }))
+                          }
+                          className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                            !tabDettagliAttiva[membro.chiave]
+                              ? "text-white"
+                              : "text-zinc-500 hover:text-white"
+                          }`}
+                          style={
+                            !tabDettagliAttiva[membro.chiave]
+                              ? { backgroundColor: coloreGruppo }
+                              : undefined
+                          }
+                        >
+                          Generale
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setTabDettagliAttiva((prev) => ({
+                              ...prev,
+                              [membro.chiave]: true,
+                            }))
+                          }
+                          className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                            tabDettagliAttiva[membro.chiave]
+                              ? "text-white"
+                              : "text-zinc-500 hover:text-white"
+                          }`}
+                          style={
+                            tabDettagliAttiva[membro.chiave]
+                              ? { backgroundColor: coloreGruppo }
+                              : undefined
+                          }
+                        >
+                          Dettagli
+                        </button>
+                      </div>
+
+                      {tabDettagliAttiva[membro.chiave] ? (
+                        <DettagliLavoroForm
+                          lavoro={membro}
+                          onChange={(campo, valore) =>
+                            aggiornaLavoro(membro.chiave, campo, valore)
+                          }
+                        />
+                      ) : (
                       <div className="grid gap-3 md:grid-cols-2">
                         <div className="md:col-span-2">
-                          <Campo label="Descrizione">
+                          <Campo label="Drill">
                             <textarea
                               rows={2}
                               value={membro.descrizione}
@@ -1121,7 +1297,7 @@ export default function ModificaAllenamentoClient({
                           </Campo>
                         </div>
 
-                        <Campo label="Obiettivo">
+                        <Campo label="Consegna e organizzazione">
                           <input
                             type="text"
                             value={membro.obbiettivo}
@@ -1188,6 +1364,7 @@ export default function ModificaAllenamentoClient({
                           <AnteprimaMediaLavoro url={membro.immagine_lavoro} />
                         </Campo>
                       </div>
+                      )}
                     </div>
                   ))}
 
@@ -1259,6 +1436,109 @@ function Campo({
       </label>
 
       {children}
+    </div>
+  );
+}
+
+// Tab "Dettagli" di un lavoro: approfondimenti facoltativi in stile
+// "drill bank" (codice, spazio, materiale, punti chiave di coaching,
+// progressione, riferimento GPS, perché serve).
+function DettagliLavoroForm({
+  lavoro,
+  onChange,
+}: {
+  lavoro: LavoroForm;
+  onChange: (
+    campo:
+      | "codice"
+      | "spazio"
+      | "materiale"
+      | "punti_chiave_coaching"
+      | "progressione"
+      | "riferimento_gps"
+      | "perche_serve",
+    valore: string
+  ) => void;
+}) {
+  const inputClass =
+    "h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600";
+  const textareaClass =
+    "w-full resize-none rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600";
+
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      <Campo label="Codice">
+        <input
+          type="text"
+          placeholder="Es. A1"
+          value={lavoro.codice}
+          onChange={(e) => onChange("codice", e.target.value)}
+          className={inputClass}
+        />
+      </Campo>
+
+      <Campo label="Spazio">
+        <input
+          type="text"
+          placeholder="Es. 3 griglie parallele da 20×20 m"
+          value={lavoro.spazio}
+          onChange={(e) => onChange("spazio", e.target.value)}
+          className={inputClass}
+        />
+      </Campo>
+
+      <Campo label="Materiale">
+        <input
+          type="text"
+          placeholder="Es. 12 coni, 3 palloni"
+          value={lavoro.materiale}
+          onChange={(e) => onChange("materiale", e.target.value)}
+          className={inputClass}
+        />
+      </Campo>
+
+      <Campo label="Riferimento GPS">
+        <input
+          type="text"
+          placeholder="Es. 45-55 m/min"
+          value={lavoro.riferimento_gps}
+          onChange={(e) => onChange("riferimento_gps", e.target.value)}
+          className={inputClass}
+        />
+      </Campo>
+
+      <div className="md:col-span-2">
+        <Campo label="Punti chiave di coaching">
+          <textarea
+            rows={3}
+            value={lavoro.punti_chiave_coaching}
+            onChange={(e) => onChange("punti_chiave_coaching", e.target.value)}
+            className={textareaClass}
+          />
+        </Campo>
+      </div>
+
+      <div className="md:col-span-2">
+        <Campo label="Progressione">
+          <textarea
+            rows={2}
+            value={lavoro.progressione}
+            onChange={(e) => onChange("progressione", e.target.value)}
+            className={textareaClass}
+          />
+        </Campo>
+      </div>
+
+      <div className="md:col-span-2">
+        <Campo label="Perché serve">
+          <textarea
+            rows={2}
+            value={lavoro.perche_serve}
+            onChange={(e) => onChange("perche_serve", e.target.value)}
+            className={textareaClass}
+          />
+        </Campo>
+      </div>
     </div>
   );
 }

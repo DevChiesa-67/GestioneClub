@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
-import { X, Plus, Trash2, Save, Droplets, Users } from "lucide-react";
+import { X, Plus, Trash2, Save, Droplets, Users, ChevronDown } from "lucide-react";
 import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
 import { useToast } from "@/components/ui/Toast";
@@ -40,7 +40,33 @@ type LavoroPrecedente = {
   allenamento_id: string;
   sezione: string;
   descrizione: string | null;
+  obbiettivo: string | null;
   tempo_totale: number | null;
+};
+
+// Drill bank: libreria di esercizi riutilizzabili del club (tabella
+// drill_bank). Scegliendone uno si copiano i valori nel lavoro corrente
+// (copia indipendente: modifiche successive non toccano il drill salvato).
+type DrillBank = {
+  id: string;
+  club_id: string;
+  nome: string;
+  sezione: string | null;
+  descrizione: string | null;
+  obbiettivo: string | null;
+  obbiettivo_tag: string | null;
+  rango: string | null;
+  tempo_lavoro: number | null;
+  ripetizione: number | null;
+  tempo_recupero: number | null;
+  tempo_totale: number | null;
+  codice: string | null;
+  spazio: string | null;
+  materiale: string | null;
+  punti_chiave_coaching: string | null;
+  progressione: string | null;
+  riferimento_gps: string | null;
+  perche_serve: string | null;
 };
 
 type Lavoro = {
@@ -57,6 +83,15 @@ type Lavoro = {
   ripetizione: string;
   tempo_recupero: string;
   tempo_totale: string;
+  // Campi "drill bank" (tab Dettagli): approfondimenti opzionali su un
+  // lavoro, editabili separatamente dai campi principali.
+  codice: string;
+  spazio: string;
+  materiale: string;
+  punti_chiave_coaching: string;
+  progressione: string;
+  riferimento_gps: string;
+  perche_serve: string;
 };
 
 function generaIdLavoro() {
@@ -176,7 +211,31 @@ function creaLavoroVuoto(sezione = ""): Lavoro {
     ripetizione: "",
     tempo_recupero: "",
     tempo_totale: "",
+    codice: "",
+    spazio: "",
+    materiale: "",
+    punti_chiave_coaching: "",
+    progressione: "",
+    riferimento_gps: "",
+    perche_serve: "",
   };
+}
+
+// Orario di fine calcolato da orario di inizio + somma dei tempo_totale dei
+// lavori (deduplicando i lavori "in contemporanea", che condividono lo
+// stesso intervallo). Restituisce "" se manca l'orario di inizio.
+function calcolaOraFine(oraInizio: string, minutiTotali: number) {
+  if (!oraInizio) return "";
+
+  const [oreStr, minutiStr] = oraInizio.split(":");
+  const ore = Number(oreStr) || 0;
+  const minuti = Number(minutiStr) || 0;
+
+  const totaleMinutiGiorno = ore * 60 + minuti + minutiTotali;
+  const oreFine = Math.floor(totaleMinutiGiorno / 60) % 24;
+  const minutiFine = ((totaleMinutiGiorno % 60) + 60) % 60;
+
+  return `${String(oreFine).padStart(2, "0")}:${String(minutiFine).padStart(2, "0")}`;
 }
 
 export default function NuovoAllenamentoModal({
@@ -184,16 +243,186 @@ export default function NuovoAllenamentoModal({
   onSaved,
   themeColor,
   isAdmin,
+  vistaLavoriPredefinita = "card",
 }: {
   onClose: () => void;
   onSaved: () => void | Promise<void>;
   themeColor: string;
   isAdmin: boolean;
+  // Impostata dall'admin in Impostazioni club (unica per tutto il club):
+  // non è più una scelta libera dentro il singolo form di creazione.
+  vistaLavoriPredefinita?: "card" | "tabella";
 }) {
   const { showToast } = useToast();
   const [tipo, setTipo] = useState<TipoAllenamento>("Seduta Mattutina");
   const [dataAllenamento, setDataAllenamento] = useState("");
+  const [oraInizio, setOraInizio] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Vista card (una per lavoro) oppure vista tabella (griglia stile
+  // foglio di calcolo, con colonna Orario calcolata): fissata dall'admin in
+  // Impostazioni, uguale per tutti gli utenti (non più un interruttore
+  // libero dentro il form). Partiamo dal valore passato dalla pagina
+  // allenamenti (potrebbe essere quello caricato all'apertura della pagina,
+  // quindi non aggiornato se l'admin ha cambiato l'impostazione nel
+  // frattempo) e lo rinfreschiamo appena il modale si apre, così la scelta
+  // più recente viene sempre rispettata anche senza ricaricare la pagina.
+  const [vistaLavori, setVistaLavori] = useState<"card" | "tabella">(
+    vistaLavoriPredefinita
+  );
+
+  // Tab attiva ("generale", "dettagli" o "drillbank") per ciascun lavoro,
+  // indicizzata per id: di default tutti mostrano i campi principali.
+  const [tabLavoroAttiva, setTabLavoroAttiva] = useState<
+    Record<string, "generale" | "dettagli" | "drillbank">
+  >({});
+
+  const [drillBank, setDrillBank] = useState<DrillBank[]>([]);
+  const [clubIdCorrente, setClubIdCorrente] = useState<string | null>(null);
+
+  // Caricato una sola volta all'apertura del form (non dipende dalla data
+  // della seduta, a differenza del contesto di programmazione più sotto).
+  useEffect(() => {
+    async function caricaDrillBank() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) return;
+
+      const { data: profilo } = await supabase
+        .from("profili")
+        .select("last_club_id")
+        .eq("auth_user_id", user.id)
+        .single();
+
+      if (!profilo?.last_club_id) return;
+
+      setClubIdCorrente(profilo.last_club_id);
+
+      const { data, error } = await supabase
+        .from("drill_bank")
+        .select("*")
+        .eq("club_id", profilo.last_club_id)
+        .order("nome", { ascending: true });
+
+      if (!error) setDrillBank((data as DrillBank[]) || []);
+
+      const { data: clubData, error: clubError } = await supabase
+        .from("club")
+        .select("preferenza_vista_lavori")
+        .eq("id", profilo.last_club_id)
+        .maybeSingle();
+
+      if (!clubError && clubData?.preferenza_vista_lavori) {
+        setVistaLavori(
+          clubData.preferenza_vista_lavori === "tabella" ? "tabella" : "card"
+        );
+      }
+    }
+
+    caricaDrillBank();
+  }, []);
+
+  // Copia i valori di un drill salvato dentro il lavoro corrente: copia
+  // indipendente, non un riferimento (modifiche successive al lavoro o al
+  // drill nel bank non si influenzano a vicenda).
+  function applicaDrillBank(id: string, drill: DrillBank) {
+    setLavori((prev) =>
+      prev.map((lavoro) => {
+        if (lavoro.id !== id) return lavoro;
+
+        return {
+          ...lavoro,
+          sezione: drill.sezione ?? lavoro.sezione,
+          descrizione: drill.descrizione ?? "",
+          obbiettivo: drill.obbiettivo ?? "",
+          obbiettivo_tag: drill.obbiettivo_tag ?? "",
+          rango: drill.rango ?? "",
+          tempo_lavoro:
+            drill.tempo_lavoro !== null ? String(drill.tempo_lavoro) : "",
+          ripetizione:
+            drill.ripetizione !== null ? String(drill.ripetizione) : "",
+          tempo_recupero:
+            drill.tempo_recupero !== null ? String(drill.tempo_recupero) : "",
+          tempo_totale:
+            drill.tempo_totale !== null ? String(drill.tempo_totale) : "",
+          codice: drill.codice ?? "",
+          spazio: drill.spazio ?? "",
+          materiale: drill.materiale ?? "",
+          punti_chiave_coaching: drill.punti_chiave_coaching ?? "",
+          progressione: drill.progressione ?? "",
+          riferimento_gps: drill.riferimento_gps ?? "",
+          perche_serve: drill.perche_serve ?? "",
+        };
+      })
+    );
+
+    showToast({ type: "success", message: `Drill "${drill.nome}" caricato.` });
+  }
+
+  // Salva il lavoro corrente come nuovo drill riutilizzabile nel drill
+  // bank del club.
+  async function salvaNelDrillBank(lavoro: Lavoro) {
+    if (!clubIdCorrente) {
+      showToast({
+        type: "error",
+        message: "Nessun club attivo: impossibile salvare nel drill bank.",
+      });
+      return;
+    }
+
+    const nome = window.prompt(
+      "Nome del drill da salvare nel drill bank:",
+      lavoro.descrizione || lavoro.sezione || ""
+    );
+
+    if (!nome || !nome.trim()) return;
+
+    const { error } = await supabase.from("drill_bank").insert({
+      club_id: clubIdCorrente,
+      nome: nome.trim(),
+      sezione: lavoro.sezione || null,
+      descrizione: lavoro.descrizione || null,
+      obbiettivo: lavoro.obbiettivo || null,
+      obbiettivo_tag: lavoro.obbiettivo_tag || null,
+      rango: lavoro.rango || null,
+      tempo_lavoro: lavoro.tempo_lavoro ? Number(lavoro.tempo_lavoro) : null,
+      ripetizione: lavoro.ripetizione ? Number(lavoro.ripetizione) : null,
+      tempo_recupero: lavoro.tempo_recupero
+        ? Number(lavoro.tempo_recupero)
+        : null,
+      tempo_totale: calcolaTempoTotale(lavoro),
+      codice: lavoro.codice || null,
+      spazio: lavoro.spazio || null,
+      materiale: lavoro.materiale || null,
+      punti_chiave_coaching: lavoro.punti_chiave_coaching || null,
+      progressione: lavoro.progressione || null,
+      riferimento_gps: lavoro.riferimento_gps || null,
+      perche_serve: lavoro.perche_serve || null,
+    });
+
+    if (error) {
+      showToast({
+        type: "error",
+        message: `Errore salvataggio nel drill bank: ${error.message}`,
+      });
+      return;
+    }
+
+    showToast({
+      type: "success",
+      message: `"${nome.trim()}" salvato nel drill bank.`,
+    });
+
+    const { data } = await supabase
+      .from("drill_bank")
+      .select("*")
+      .eq("club_id", clubIdCorrente)
+      .order("nome", { ascending: true });
+
+    setDrillBank((data as DrillBank[]) || []);
+  }
 
   const [allenamentoPrecedente, setAllenamentoPrecedente] =
     useState<AllenamentoPrecedente | null>(null);
@@ -201,6 +430,8 @@ export default function NuovoAllenamentoModal({
   const [lavoriPrecedenti, setLavoriPrecedenti] = useState<LavoroPrecedente[]>(
     []
   );
+  const [allenamentoPrecedenteAperto, setAllenamentoPrecedenteAperto] =
+    useState(true);
   const [dettagliProgrammazione, setDettagliProgrammazione] =
   useState<DettagliProgrammazione>({
     programmazione: null,
@@ -294,6 +525,62 @@ export default function NuovoAllenamentoModal({
       return totale + calcolaTempoTotale(lavoro);
     }, 0);
   }, [lavori]);
+
+  // Sola lettura: calcolato da orario di inizio + durata complessiva.
+  const oraFine = useMemo(
+    () => calcolaOraFine(oraInizio, totaleMinuti),
+    [oraInizio, totaleMinuti],
+  );
+
+  // Orario di inizio/fine di ogni lavoro (per la colonna "Orario" della
+  // vista tabella): stessa logica usata nella vista Microcicli/Macrocicli,
+  // i lavori in contemporanea condividono lo stesso slot.
+  const orariLavoriMap = useMemo(() => {
+    const risultato = new Map<string, { inizio: string; fine: string }>();
+    if (!oraInizio) return risultato;
+
+    function orarioAMinuti(orario: string) {
+      const [ore, minuti] = orario.split(":").map((p) => Number(p) || 0);
+      return ore * 60 + minuti;
+    }
+
+    function minutiAOrario(minuti: number) {
+      const h = Math.floor(minuti / 60) % 24;
+      const m = ((minuti % 60) + 60) % 60;
+      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    }
+
+    let cursore = orarioAMinuti(oraInizio);
+    const gruppiVisti = new Map<string, { inizio: string; fine: string }>();
+
+    for (const lavoro of lavori) {
+      const durata = calcolaTempoTotale(lavoro);
+
+      if (lavoro.contemporaneo && lavoro.gruppo_id) {
+        const rangeGruppo = gruppiVisti.get(lavoro.gruppo_id);
+
+        if (rangeGruppo) {
+          risultato.set(lavoro.id, rangeGruppo);
+          continue;
+        }
+      }
+
+      const range = {
+        inizio: minutiAOrario(cursore),
+        fine: minutiAOrario(cursore + durata),
+      };
+
+      risultato.set(lavoro.id, range);
+
+      if (lavoro.contemporaneo && lavoro.gruppo_id) {
+        gruppiVisti.set(lavoro.gruppo_id, range);
+      }
+
+      cursore += durata;
+    }
+
+    return risultato;
+  }, [oraInizio, lavori]);
 
   function cambiaTipoAllenamento(nuovoTipo: TipoAllenamento) {
     setTipo(nuovoTipo);
@@ -530,7 +817,7 @@ if (settimanaProgrammata?.fase_id) {
         const { data: lavoriPrec } = await supabase
           .from("lavori_allenamento")
           .select(
-            "id,allenamento_id,sezione,descrizione,tempo_totale"
+            "id,allenamento_id,sezione,descrizione,obbiettivo,tempo_totale"
           )
           .eq("allenamento_id", precedente.id)
           .order("ordine", { ascending: true });
@@ -609,6 +896,18 @@ if (settimanaProgrammata?.fase_id) {
       const lavoriDaSalvare = lavori.map((lavoro) => {
         const h2o = isLavoroH2O(lavoro);
 
+        // I campi "drill bank" (tab Dettagli) sono testo libero opzionale,
+        // validi a prescindere dal tipo di lavoro (anche H2O/semplificati).
+        const dettagli = {
+          codice: lavoro.codice || null,
+          spazio: lavoro.spazio || null,
+          materiale: lavoro.materiale || null,
+          punti_chiave_coaching: lavoro.punti_chiave_coaching || null,
+          progressione: lavoro.progressione || null,
+          riferimento_gps: lavoro.riferimento_gps || null,
+          perche_serve: lavoro.perche_serve || null,
+        };
+
         if (h2o) {
           return {
             sezione: "H2O",
@@ -623,6 +922,7 @@ if (settimanaProgrammata?.fase_id) {
             tempo_totale: Number(lavoro.tempo_totale) || 0,
             contemporaneo: false,
             gruppo_contemporaneo: null,
+            ...dettagli,
           };
         }
 
@@ -645,6 +945,7 @@ if (settimanaProgrammata?.fase_id) {
           tempo_totale: calcolaTempoTotale(lavoro),
           contemporaneo: lavoro.contemporaneo,
           gruppo_contemporaneo: lavoro.contemporaneo ? lavoro.gruppo_id : null,
+          ...dettagli,
         };
       });
 
@@ -655,7 +956,7 @@ if (settimanaProgrammata?.fase_id) {
       const { data: allenamentoEsistente, error: checkError } =
         await supabase
           .from("allenamenti")
-          .select("id,durata_minuti,titolo,tipo_allenamento")
+          .select("id,durata_minuti,titolo,tipo_allenamento,ora_inizio")
           .eq("club_id", profilo.last_club_id)
           .eq("squadra_id", profilo.last_squadra_id)
           .eq("data_allenamento", dataAllenamento)
@@ -676,6 +977,8 @@ if (settimanaProgrammata?.fase_id) {
               titolo: `${tipo} - ${dataAllenamento}`,
               data_allenamento: dataAllenamento,
               tipo_allenamento: tipo,
+              ora_inizio: oraInizio || null,
+              ora_fine: oraFine || null,
               durata_minuti: totaleMinuti,
               stato: "bozza",
               created_by: user.id,
@@ -699,10 +1002,20 @@ if (settimanaProgrammata?.fase_id) {
           (allenamentoEsistente.durata_minuti ?? 0) +
           totaleMinuti;
 
+        // Se la seduta esistente ha già un orario di inizio, ricalcoliamo
+        // l'orario di fine sulla nuova durata complessiva; altrimenti
+        // usiamo quello eventualmente inserito ora.
+        const oraInizioEsistente = allenamentoEsistente.ora_inizio || oraInizio;
+        const nuovaOraFine = oraInizioEsistente
+          ? calcolaOraFine(oraInizioEsistente, nuovaDurata)
+          : null;
+
         const { error: updateError } = await supabase
           .from("allenamenti")
           .update({
             durata_minuti: nuovaDurata,
+            ora_inizio: oraInizioEsistente || null,
+            ora_fine: nuovaOraFine,
             updated_at: new Date().toISOString(),
           })
           .eq("id", allenamentoId);
@@ -793,10 +1106,9 @@ if (settimanaProgrammata?.fase_id) {
         </button>
       </div>
 
-      <div className="grid gap-4 sm:gap-6 xl:grid-cols-[1fr_380px]">
-        <main className="space-y-4 sm:space-y-6">
+      <div className="min-w-0 space-y-4 sm:space-y-6">
           <AppCard>
-            <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
+            <div className="grid gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
                 <label className="mb-1 block text-sm text-zinc-400">
                   Data
@@ -837,8 +1149,301 @@ if (settimanaProgrammata?.fase_id) {
                   </option>
                 </select>
               </div>
+
+              <div>
+                <label className="mb-1 block text-sm text-zinc-400">
+                  Orario di inizio
+                </label>
+
+                <input
+                  type="time"
+                  value={oraInizio}
+                  onChange={(e) => setOraInizio(e.target.value)}
+                  className="w-full rounded-xl border bg-zinc-950 px-4 py-3 text-white outline-none"
+                  style={{ borderColor: `${themeColor}55` }}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm text-zinc-400">
+                  Orario di fine (calcolato)
+                </label>
+
+                <div
+                  className="flex w-full items-center rounded-xl border bg-zinc-900/60 px-4 py-3 text-zinc-300"
+                  style={{ borderColor: `${themeColor}30` }}
+                >
+                  {oraFine || "—"}
+                </div>
+              </div>
             </div>
           </AppCard>
+
+          <div className="grid gap-4 sm:gap-6 sm:grid-cols-2 xl:grid-cols-3">
+            <AppCard>
+  <h2 className="text-lg font-bold text-white">
+    Dettagli programmazione
+  </h2>
+
+  <div className="mt-4 space-y-3 text-sm">
+    <SidebarRow
+      label="Programmazione"
+      value={dettagliProgrammazione.programmazione ?? "Non trovata"}
+    />
+
+    <SidebarRow
+      label="Mesociclo"
+      value={dettagliProgrammazione.mesociclo ?? "Non trovato"}
+    />
+
+    <SidebarRow
+      label="Focus tecnico"
+      value={dettagliProgrammazione.focusTecnico ?? "Non definito"}
+    />
+
+    <SidebarRow
+      label="Focus Avanti"
+      value={dettagliProgrammazione.focusAvanti ?? "Non definito"}
+    />
+
+    <SidebarRow
+      label="Focus Trequarti"
+      value={dettagliProgrammazione.focusTrequarti ?? "Non definito"}
+    />
+
+    <SidebarRow
+      label="Intensità"
+      value={
+        dettagliProgrammazione.intensita
+          ? dettagliProgrammazione.intensita.charAt(0).toUpperCase() +
+            dettagliProgrammazione.intensita.slice(1)
+          : "Non definita"
+      }
+    />
+
+    <RpeRow
+      rpe={dettagliProgrammazione.rpeTarget}
+      colore={
+        dettagliProgrammazione.coloreMesociclo ||
+        themeColor
+      }
+    />
+  </div>
+</AppCard>
+
+            <AppCard>
+              <h2 className="text-lg font-bold text-white">
+                Dettagli allenamento
+              </h2>
+
+              <p className="mt-1 text-sm text-zinc-500">
+                Minutaggio per ogni sezione
+              </p>
+
+              <div className="mt-4 space-y-3">
+                {riepilogoSezioni.length === 0 && (
+                  <p className="text-sm text-zinc-500">
+                    Nessuna sezione inserita.
+                  </p>
+                )}
+
+                {riepilogoSezioni.map((item) => {
+                  const colore = coloreSezione(item.sezione, themeColor);
+
+                  return (
+                    <div
+                      key={item.sezione}
+                      className="rounded-xl border p-3"
+                      style={{
+                        borderColor: `${colore}40`,
+                        backgroundColor:
+                          item.sezione.trim().toUpperCase() === "H2O"
+                            ? `${colore}12`
+                            : undefined,
+                      }}
+                    >
+                      <p
+                        className="text-sm font-semibold"
+                        style={{ color: colore }}
+                      >
+                        {item.sezione}
+                      </p>
+
+                      <p className="mt-1 text-xs text-zinc-400">
+                        {item.minuti} min · {item.esercizi}{" "}
+                        {item.sezione.trim().toUpperCase() === "H2O"
+                          ? "pause"
+                          : "lavori"}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </AppCard>
+
+            <AppCard>
+              <h2 className="text-lg font-bold text-white">
+                Distribuzione lavoro
+              </h2>
+
+              <div className="mt-5 flex justify-center">
+                <PieChart
+                  sections={riepilogoSezioni}
+                  themeColor={themeColor}
+                />
+              </div>
+            </AppCard>
+
+            <AppCard className="sm:col-span-2 xl:col-span-3">
+              <button
+                type="button"
+                onClick={() =>
+                  setAllenamentoPrecedenteAperto((current) => !current)
+                }
+                className="flex w-full items-center justify-between gap-3 text-left"
+              >
+                <h2 className="text-lg font-bold text-white">
+                  Allenamento precedente
+                </h2>
+
+                <ChevronDown
+                  className={`h-5 w-5 shrink-0 text-zinc-500 transition ${
+                    allenamentoPrecedenteAperto ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+
+              {allenamentoPrecedenteAperto && (
+                <>
+                  {!allenamentoPrecedente && (
+                    <p className="mt-3 text-sm text-zinc-500">
+                      Seleziona una data per vedere il precedente.
+                    </p>
+                  )}
+
+                  {allenamentoPrecedente && (
+                    <div className="mt-4 space-y-3">
+                      <div>
+                        <p className="font-semibold text-white">
+                          {allenamentoPrecedente.titolo}
+                        </p>
+
+                        <p className="text-sm text-zinc-500">
+                          {formatDataIT(allenamentoPrecedente.data_allenamento)}
+                        </p>
+                      </div>
+
+                      {lavoriPrecedenti.length === 0 ? (
+                        <p className="text-sm text-zinc-500">
+                          Nessun lavoro registrato per questa seduta.
+                        </p>
+                      ) : (
+                        <div className="overflow-x-auto rounded-xl border border-zinc-700">
+                          <table className="w-full min-w-[720px] border-collapse text-sm">
+                            <thead style={{ backgroundColor: themeColor }}>
+                              <tr className="text-left text-white">
+                                <th className="border border-black/10 px-3 py-2 font-semibold">
+                                  Sezione
+                                </th>
+                                <th className="border border-black/10 px-3 py-2 font-semibold">
+                                  Descrizione
+                                </th>
+                                <th className="border border-black/10 px-3 py-2 font-semibold">
+                                  Obbiettivo
+                                </th>
+                                <th className="border border-black/10 px-3 py-2 text-right font-semibold">
+                                  Tempo totale
+                                </th>
+                              </tr>
+                            </thead>
+
+                            <tbody>
+                              {lavoriPrecedenti.map((lavoro, index) => {
+                                const h2oRiga =
+                                  lavoro.sezione.trim().toUpperCase() === "H2O";
+
+                                return (
+                                  <tr
+                                    key={lavoro.id}
+                                    className={
+                                      index % 2 === 0
+                                        ? "bg-zinc-950"
+                                        : "bg-zinc-900/40"
+                                    }
+                                  >
+                                    <td
+                                      className="border border-zinc-800 bg-zinc-800/60 px-3 py-2 font-bold"
+                                      style={{
+                                        color: coloreSezione(
+                                          lavoro.sezione,
+                                          themeColor
+                                        ),
+                                      }}
+                                    >
+                                      {lavoro.sezione}
+                                    </td>
+
+                                    <td className="border border-zinc-800 px-3 py-2 text-zinc-300">
+                                      {h2oRiga
+                                        ? "Pausa acqua"
+                                        : lavoro.descrizione || "—"}
+                                    </td>
+
+                                    <td className="border border-zinc-800 px-3 py-2 text-zinc-300">
+                                      {h2oRiga
+                                        ? "—"
+                                        : lavoro.obbiettivo || "—"}
+                                    </td>
+
+                                    <td className="border border-zinc-800 bg-sky-900/30 px-3 py-2 text-right font-bold text-sky-200">
+                                      {lavoro.tempo_totale ?? 0} min
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </AppCard>
+
+            <AppCard>
+              <h2 className="text-lg font-bold text-white">
+                Settimana corrente
+              </h2>
+
+              <p className="mt-2 text-sm text-zinc-500">
+                Rispetto alla data selezionata.
+              </p>
+
+              <div className="mt-4 space-y-3">
+                {allenamentiSettimana.length === 0 && (
+                  <p className="text-sm text-zinc-500">
+                    Nessun allenamento nella settimana.
+                  </p>
+                )}
+
+                {allenamentiSettimana.map((allenamento) => (
+                  <div
+                    key={allenamento.id}
+                    className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"
+                  >
+                    <p className="text-sm font-semibold text-white">
+                      {allenamento.titolo}
+                    </p>
+
+                    <p className="text-xs text-zinc-500">
+                      {formatDataIT(allenamento.data_allenamento)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </AppCard>
+          </div>
 
           <AppCard>
             <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -848,11 +1453,10 @@ if (settimanaProgrammata?.fase_id) {
                 </h2>
 
                 <p className="mt-1 text-sm text-zinc-500">
-                  Aggiungi i lavori e assegna a ciascuno una sezione.
+                  Aggiungi i lavori e assegna a ciascuno un tipo.
+                  {" "}Vista impostata dall&apos;admin in Impostazioni.
                 </p>
               </div>
-
-              
             </div>
 
             {lavori.length === 0 ? (
@@ -869,6 +1473,291 @@ if (settimanaProgrammata?.fase_id) {
                 >
                   <Plus size={16} />
                   Inserisci il primo lavoro
+                </button>
+              </div>
+            ) : vistaLavori === "tabella" ? (
+              <div className="space-y-3">
+                <datalist id="sezioni-tabella-lavori-datalist">
+                  {SEZIONI.map((s) => (
+                    <option key={s} value={s} />
+                  ))}
+                </datalist>
+
+                <div className="overflow-x-auto rounded-2xl border border-zinc-800">
+                  <table className="min-w-[1500px] w-full border-collapse text-sm">
+                    <thead style={{ backgroundColor: themeColor }}>
+                      <tr className="text-left text-white">
+                        <th className="px-3 py-2.5 font-semibold">Orario</th>
+                        <th className="px-3 py-2.5 font-semibold">Tipo</th>
+                        <th className="px-3 py-2.5 font-semibold">Drill</th>
+                        <th className="min-w-[280px] px-3 py-2.5 font-semibold">
+                          Consegna e organizzazione
+                        </th>
+                        <th className="min-w-[280px] px-3 py-2.5 font-semibold">
+                          Punti chiave di coaching
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-semibold">
+                          T. lavoro
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-semibold">
+                          Ripet.
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-semibold">
+                          Recupero
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-semibold">
+                          Totale
+                        </th>
+                        <th className="px-3 py-2.5 text-center font-semibold">
+                          Contemp.
+                        </th>
+                        <th className="px-3 py-2.5" />
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {lavori.map((lavoro) => {
+                        const range = orariLavoriMap.get(lavoro.id);
+                        const h2oRiga = isLavoroH2O(lavoro);
+                        const semplificatoRiga = isLavoroSemplificato(lavoro);
+                        const tempoModificabile = h2oRiga || semplificatoRiga;
+                        const inGruppo = Boolean(
+                          lavoro.contemporaneo && lavoro.gruppo_id
+                        );
+
+                        function aggiornaCampoRiga(
+                          campo:
+                            | "sezione"
+                            | "tempo_lavoro"
+                            | "ripetizione"
+                            | "tempo_recupero",
+                          valore: string
+                        ) {
+                          if (lavoro.gruppo_id) {
+                            aggiornaCampoGruppo(lavoro.gruppo_id, campo, valore);
+                          } else {
+                            aggiornaLavoro(lavoro.id, campo, valore);
+                          }
+                        }
+
+                        return (
+                          <tr
+                            key={lavoro.id}
+                            className={`border-t align-top ${
+                              inGruppo
+                                ? "border-zinc-800 bg-zinc-900/40"
+                                : "border-zinc-800 bg-zinc-950/70"
+                            }`}
+                          >
+                            <td className="whitespace-nowrap px-3 py-2 text-zinc-400">
+                              {range ? `${range.inizio}–${range.fine}` : "—"}
+                            </td>
+
+                            <td className="px-3 py-2">
+                              <input
+                                type="text"
+                                list="sezioni-tabella-lavori-datalist"
+                                value={lavoro.sezione}
+                                onChange={(e) =>
+                                  aggiornaCampoRiga("sezione", e.target.value)
+                                }
+                                className="w-36 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-white outline-none"
+                              />
+                            </td>
+
+                            <td className="px-3 py-2">
+                              <input
+                                type="text"
+                                value={lavoro.descrizione}
+                                onChange={(e) =>
+                                  aggiornaLavoro(
+                                    lavoro.id,
+                                    "descrizione",
+                                    e.target.value
+                                  )
+                                }
+                                className="w-56 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-white outline-none"
+                              />
+                            </td>
+
+                            <td className="px-3 py-2">
+                              <input
+                                type="text"
+                                value={lavoro.obbiettivo}
+                                onChange={(e) =>
+                                  aggiornaLavoro(lavoro.id, "obbiettivo", e.target.value)
+                                }
+                                className="w-full min-w-[260px] rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-white outline-none"
+                              />
+                            </td>
+
+                            <td className="px-3 py-2">
+                              <input
+                                type="text"
+                                value={lavoro.punti_chiave_coaching}
+                                onChange={(e) =>
+                                  aggiornaLavoro(
+                                    lavoro.id,
+                                    "punti_chiave_coaching",
+                                    e.target.value
+                                  )
+                                }
+                                className="w-full min-w-[260px] rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-white outline-none"
+                              />
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {tempoModificabile ? (
+                                <span className="text-zinc-600">—</span>
+                              ) : (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={lavoro.tempo_lavoro}
+                                  onChange={(e) =>
+                                    aggiornaCampoRiga("tempo_lavoro", e.target.value)
+                                  }
+                                  className="w-16 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-right text-white outline-none"
+                                />
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {tempoModificabile ? (
+                                <span className="text-zinc-600">—</span>
+                              ) : (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={lavoro.ripetizione}
+                                  onChange={(e) =>
+                                    aggiornaCampoRiga("ripetizione", e.target.value)
+                                  }
+                                  className="w-16 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-right text-white outline-none"
+                                />
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {tempoModificabile ? (
+                                <span className="text-zinc-600">—</span>
+                              ) : (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={lavoro.tempo_recupero}
+                                  onChange={(e) =>
+                                    aggiornaCampoRiga("tempo_recupero", e.target.value)
+                                  }
+                                  className="w-16 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-right text-white outline-none"
+                                />
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              {tempoModificabile ? (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={lavoro.tempo_totale}
+                                  onChange={(e) =>
+                                    aggiornaLavoro(
+                                      lavoro.id,
+                                      "tempo_totale",
+                                      e.target.value
+                                    )
+                                  }
+                                  className="w-16 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-right text-white outline-none"
+                                />
+                              ) : (
+                                <span className="font-bold text-white">
+                                  {calcolaTempoTotale(lavoro)}
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="px-3 py-2">
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    inGruppo && lavoro.gruppo_id
+                                      ? disattivaContemporaneo(lavoro.gruppo_id)
+                                      : attivaContemporaneo(lavoro.id)
+                                  }
+                                  title={
+                                    inGruppo
+                                      ? "Sciogli il gruppo di lavori in contemporanea"
+                                      : "Rendi questo lavoro in contemporanea"
+                                  }
+                                  className={`flex h-7 w-7 items-center justify-center rounded-lg border transition ${
+                                    inGruppo
+                                      ? "border-transparent text-white"
+                                      : "border-zinc-800 text-zinc-500 hover:text-white"
+                                  }`}
+                                  style={
+                                    inGruppo
+                                      ? { backgroundColor: themeColor }
+                                      : undefined
+                                  }
+                                >
+                                  <Users size={13} />
+                                </button>
+
+                                {inGruppo && lavoro.gruppo_id && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      aggiungiLavoroParallelo(lavoro.gruppo_id!)
+                                    }
+                                    title="Aggiungi un altro lavoro parallelo a questo gruppo"
+                                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-800 text-zinc-500 transition hover:text-white"
+                                  >
+                                    <Plus size={13} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+
+                            <td className="px-3 py-2 text-right">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  inGruppo
+                                    ? rimuoviLavoroParallelo(lavoro.id)
+                                    : eliminaLavoro(lavoro.id)
+                                }
+                                className="text-red-500 hover:text-red-400"
+                                title="Elimina lavoro"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <p className="text-xs text-zinc-500">
+                  Immagini/video e i campi della tab Dettagli si gestiscono
+                  dalla vista card. I lavori dello stesso gruppo in
+                  contemporanea condividono Tipo, Tempo lavoro, Ripetizioni e
+                  Recupero.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={aggiungiLavoro}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white transition sm:w-auto"
+                  style={{
+                    backgroundColor: themeColor,
+                    boxShadow: `0 10px 25px ${themeColor}25`,
+                  }}
+                >
+                  <Plus size={16} />
+                  Aggiungi lavoro
                 </button>
               </div>
             ) : (
@@ -925,7 +1814,7 @@ if (settimanaProgrammata?.fase_id) {
 
                         <div className="mb-4">
                           <SelectField
-                            label="Sezione"
+                            label="Tipo"
                             value={lavoro.sezione}
                             options={SEZIONI}
                             onChange={(value) =>
@@ -936,7 +1825,98 @@ if (settimanaProgrammata?.fase_id) {
                           />
                         </div>
 
-                        {h2o ? (
+                        <div className="mb-3 inline-flex items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-950 p-1">
+                          {(
+                            [
+                              ["generale", "Generale"],
+                              ["dettagli", "Dettagli"],
+                              ["drillbank", "Drill bank"],
+                            ] as const
+                          ).map(([valore, etichetta]) => {
+                            const attiva =
+                              (tabLavoroAttiva[lavoro.id] || "generale") ===
+                              valore;
+
+                            return (
+                              <button
+                                key={valore}
+                                type="button"
+                                onClick={() =>
+                                  setTabLavoroAttiva((prev) => ({
+                                    ...prev,
+                                    [lavoro.id]: valore,
+                                  }))
+                                }
+                                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                                  attiva
+                                    ? "text-white"
+                                    : "text-zinc-500 hover:text-white"
+                                }`}
+                                style={
+                                  attiva
+                                    ? { backgroundColor: colore }
+                                    : undefined
+                                }
+                              >
+                                {etichetta}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {(tabLavoroAttiva[lavoro.id] || "generale") ===
+                        "drillbank" ? (
+                          <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
+                            <p className="mb-3 text-sm text-zinc-400">
+                              Carica un lavoro salvato in precedenza nel drill
+                              bank del club (copia indipendente, non un
+                              collegamento), oppure salva questo lavoro per
+                              riusarlo in altre sedute.
+                            </p>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <select
+                                value=""
+                                onChange={(e) => {
+                                  const drill = drillBank.find(
+                                    (d) => d.id === e.target.value
+                                  );
+                                  if (drill) applicaDrillBank(lavoro.id, drill);
+                                }}
+                                className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none"
+                              >
+                                <option value="">
+                                  {drillBank.length === 0
+                                    ? "Drill bank vuoto"
+                                    : "Carica dal drill bank..."}
+                                </option>
+                                {drillBank.map((drill) => (
+                                  <option key={drill.id} value={drill.id}>
+                                    {drill.codice
+                                      ? `${drill.codice} · ${drill.nome}`
+                                      : drill.nome}
+                                  </option>
+                                ))}
+                              </select>
+
+                              <button
+                                type="button"
+                                onClick={() => salvaNelDrillBank(lavoro)}
+                                className="rounded-lg border border-zinc-800 px-2 py-1.5 text-xs font-bold text-zinc-300 transition hover:text-white"
+                              >
+                                Salva nel drill bank
+                              </button>
+                            </div>
+                          </div>
+                        ) : (tabLavoroAttiva[lavoro.id] || "generale") ===
+                          "dettagli" ? (
+                          <DettagliLavoroForm
+                            lavoro={lavoro}
+                            onChange={(campo, value) =>
+                              aggiornaLavoro(lavoro.id, campo, value)
+                            }
+                          />
+                        ) : h2o ? (
                           <div
                             className="rounded-2xl border p-4"
                             style={{
@@ -991,7 +1971,7 @@ if (settimanaProgrammata?.fase_id) {
                           <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
                             <div className="md:col-span-2">
                               <label className="mb-1 block text-sm text-zinc-400">
-                                Descrizione
+                                Drill
                               </label>
 
                               <textarea
@@ -1045,7 +2025,7 @@ if (settimanaProgrammata?.fase_id) {
                             <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
                               <div className="md:col-span-2">
                                 <label className="mb-1 block text-sm text-zinc-400">
-                                  Descrizione
+                                  Drill
                                 </label>
 
                                 <textarea
@@ -1063,7 +2043,7 @@ if (settimanaProgrammata?.fase_id) {
                               </div>
 
                               <InputField
-                                label="Obbiettivo"
+                                label="Consegna e organizzazione"
                                 value={lavoro.obbiettivo}
                                 onChange={(value) =>
                                   aggiornaLavoro(lavoro.id, "obbiettivo", value)
@@ -1235,7 +2215,7 @@ if (settimanaProgrammata?.fase_id) {
                       <div className="mb-4 rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
                         <div className="mb-3">
                           <SelectField
-                            label="Sezione (condivisa dal gruppo)"
+                            label="Tipo (condiviso dal gruppo)"
                             value={riferimento.sezione}
                             options={SEZIONI.filter((s) => s !== "H2O")}
                             onChange={(value) =>
@@ -1336,10 +2316,103 @@ if (settimanaProgrammata?.fase_id) {
                               )}
                             </div>
 
+                            <div className="mb-3 inline-flex items-center gap-1 rounded-xl border border-zinc-800 bg-zinc-950 p-1">
+                              {(
+                                [
+                                  ["generale", "Generale"],
+                                  ["dettagli", "Dettagli"],
+                                  ["drillbank", "Drill bank"],
+                                ] as const
+                              ).map(([valore, etichetta]) => {
+                                const attiva =
+                                  (tabLavoroAttiva[membro.id] || "generale") ===
+                                  valore;
+
+                                return (
+                                  <button
+                                    key={valore}
+                                    type="button"
+                                    onClick={() =>
+                                      setTabLavoroAttiva((prev) => ({
+                                        ...prev,
+                                        [membro.id]: valore,
+                                      }))
+                                    }
+                                    className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                                      attiva
+                                        ? "text-white"
+                                        : "text-zinc-500 hover:text-white"
+                                    }`}
+                                    style={
+                                      attiva
+                                        ? { backgroundColor: coloreGruppo }
+                                        : undefined
+                                    }
+                                  >
+                                    {etichetta}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {(tabLavoroAttiva[membro.id] || "generale") ===
+                            "drillbank" ? (
+                              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
+                                <p className="mb-3 text-sm text-zinc-400">
+                                  Carica un lavoro salvato in precedenza nel
+                                  drill bank del club (copia indipendente),
+                                  oppure salva questo lavoro per riusarlo in
+                                  altre sedute.
+                                </p>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <select
+                                    value=""
+                                    onChange={(e) => {
+                                      const drill = drillBank.find(
+                                        (d) => d.id === e.target.value
+                                      );
+                                      if (drill)
+                                        applicaDrillBank(membro.id, drill);
+                                    }}
+                                    className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-300 outline-none"
+                                  >
+                                    <option value="">
+                                      {drillBank.length === 0
+                                        ? "Drill bank vuoto"
+                                        : "Carica dal drill bank..."}
+                                    </option>
+                                    {drillBank.map((drill) => (
+                                      <option key={drill.id} value={drill.id}>
+                                        {drill.codice
+                                          ? `${drill.codice} · ${drill.nome}`
+                                          : drill.nome}
+                                      </option>
+                                    ))}
+                                  </select>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => salvaNelDrillBank(membro)}
+                                    className="rounded-lg border border-zinc-800 px-2 py-1.5 text-xs font-bold text-zinc-300 transition hover:text-white"
+                                  >
+                                    Salva nel drill bank
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (tabLavoroAttiva[membro.id] || "generale") ===
+                              "dettagli" ? (
+                              <DettagliLavoroForm
+                                lavoro={membro}
+                                onChange={(campo, value) =>
+                                  aggiornaLavoro(membro.id, campo, value)
+                                }
+                              />
+                            ) : (
                             <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
                               <div className="md:col-span-2">
                                 <label className="mb-1 block text-sm text-zinc-400">
-                                  Descrizione
+                                  Drill
                                 </label>
 
                                 <textarea
@@ -1357,7 +2430,7 @@ if (settimanaProgrammata?.fase_id) {
                               </div>
 
                               <InputField
-                                label="Obbiettivo"
+                                label="Consegna e organizzazione"
                                 value={membro.obbiettivo}
                                 onChange={(value) =>
                                   aggiornaLavoro(
@@ -1410,6 +2483,7 @@ if (settimanaProgrammata?.fase_id) {
                                 />
                               </div>
                             </div>
+                            )}
                           </div>
                         ))}
 
@@ -1465,207 +2539,6 @@ if (settimanaProgrammata?.fase_id) {
             </button>
           </div>
           )}
-        </main>
-
-        <aside className="space-y-4 sm:space-y-6 xl:sticky xl:top-6 xl:self-start">
-          <AppCard>
-  <h2 className="text-lg font-bold text-white">
-    Dettagli programmazione
-  </h2>
-
-  <div className="mt-4 space-y-3 text-sm">
-    <SidebarRow
-      label="Programmazione"
-      value={dettagliProgrammazione.programmazione ?? "Non trovata"}
-    />
-
-    <SidebarRow
-      label="Mesociclo"
-      value={dettagliProgrammazione.mesociclo ?? "Non trovato"}
-    />
-
-    <SidebarRow
-      label="Focus tecnico"
-      value={dettagliProgrammazione.focusTecnico ?? "Non definito"}
-    />
-
-    <SidebarRow
-      label="Focus Avanti"
-      value={dettagliProgrammazione.focusAvanti ?? "Non definito"}
-    />
-
-    <SidebarRow
-      label="Focus Trequarti"
-      value={dettagliProgrammazione.focusTrequarti ?? "Non definito"}
-    />
-
-    <SidebarRow
-      label="Intensità"
-      value={
-        dettagliProgrammazione.intensita
-          ? dettagliProgrammazione.intensita.charAt(0).toUpperCase() +
-            dettagliProgrammazione.intensita.slice(1)
-          : "Non definita"
-      }
-    />
-
-    <RpeRow
-      rpe={dettagliProgrammazione.rpeTarget}
-      colore={
-        dettagliProgrammazione.coloreMesociclo ||
-        themeColor
-      }
-    />
-  </div>
-</AppCard>
-
-          <AppCard>
-            <h2 className="text-lg font-bold text-white">
-              Dettagli allenamento
-            </h2>
-
-            <p className="mt-1 text-sm text-zinc-500">
-              Minutaggio per ogni sezione
-            </p>
-
-            <div className="mt-4 space-y-3">
-              {riepilogoSezioni.length === 0 && (
-                <p className="text-sm text-zinc-500">
-                  Nessuna sezione inserita.
-                </p>
-              )}
-
-              {riepilogoSezioni.map((item) => {
-                const colore = coloreSezione(item.sezione, themeColor);
-
-                return (
-                  <div
-                    key={item.sezione}
-                    className="rounded-xl border p-3"
-                    style={{
-                      borderColor: `${colore}40`,
-                      backgroundColor:
-                        item.sezione.trim().toUpperCase() === "H2O"
-                          ? `${colore}12`
-                          : undefined,
-                    }}
-                  >
-                    <p
-                      className="text-sm font-semibold"
-                      style={{ color: colore }}
-                    >
-                      {item.sezione}
-                    </p>
-
-                    <p className="mt-1 text-xs text-zinc-400">
-                      {item.minuti} min · {item.esercizi}{" "}
-                      {item.sezione.trim().toUpperCase() === "H2O"
-                        ? "pause"
-                        : "lavori"}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-          </AppCard>
-
-          <AppCard>
-            <h2 className="text-lg font-bold text-white">
-              Distribuzione lavoro
-            </h2>
-
-            <div className="mt-5 flex justify-center">
-              <PieChart
-                sections={riepilogoSezioni}
-                themeColor={themeColor}
-              />
-            </div>
-          </AppCard>
-
-          <AppCard>
-            <h2 className="text-lg font-bold text-white">
-              Allenamento precedente
-            </h2>
-
-            {!allenamentoPrecedente && (
-              <p className="mt-3 text-sm text-zinc-500">
-                Seleziona una data per vedere il precedente.
-              </p>
-            )}
-
-            {allenamentoPrecedente && (
-              <div className="mt-4 space-y-3">
-                <div>
-                  <p className="font-semibold text-white">
-                    {allenamentoPrecedente.titolo}
-                  </p>
-
-                  <p className="text-sm text-zinc-500">
-                    {formatDataIT(allenamentoPrecedente.data_allenamento)}
-                  </p>
-                </div>
-
-                {lavoriPrecedenti.map((lavoro) => (
-                  <div
-                    key={lavoro.id}
-                    className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"
-                  >
-                    <p
-                      className="text-xs font-bold"
-                      style={{ color: coloreSezione(lavoro.sezione, themeColor) }}
-                    >
-                      {lavoro.sezione}
-                    </p>
-
-                    <p className="mt-1 text-sm text-zinc-300">
-                      {lavoro.sezione === "H2O"
-                        ? "Pausa acqua"
-                        : lavoro.descrizione ||
-                          "Senza descrizione"}
-                    </p>
-
-                    <p className="mt-1 text-xs text-zinc-500">
-                      {lavoro.tempo_totale ?? 0} min
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </AppCard>
-
-          <AppCard>
-            <h2 className="text-lg font-bold text-white">
-              Settimana corrente
-            </h2>
-
-            <p className="mt-2 text-sm text-zinc-500">
-              Rispetto alla data selezionata.
-            </p>
-
-            <div className="mt-4 space-y-3">
-              {allenamentiSettimana.length === 0 && (
-                <p className="text-sm text-zinc-500">
-                  Nessun allenamento nella settimana.
-                </p>
-              )}
-
-              {allenamentiSettimana.map((allenamento) => (
-                <div
-                  key={allenamento.id}
-                  className="rounded-xl border border-zinc-800 bg-zinc-950 p-3"
-                >
-                  <p className="text-sm font-semibold text-white">
-                    {allenamento.titolo}
-                  </p>
-
-                  <p className="text-xs text-zinc-500">
-                    {formatDataIT(allenamento.data_allenamento)}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </AppCard>
-        </aside>
       </div>
     </div>
   );
@@ -1714,6 +2587,96 @@ function InputField({
         onChange={(e) => onChange(e.target.value)}
         className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-white outline-none"
       />
+    </div>
+  );
+}
+
+// Tab "Dettagli" di un lavoro: approfondimenti facoltativi in stile
+// "drill bank" (codice, spazio, materiale, punti chiave di coaching,
+// progressione, riferimento GPS, perché serve), separati dai campi
+// principali per non appesantire il form di default.
+function DettagliLavoroForm({
+  lavoro,
+  onChange,
+}: {
+  lavoro: Lavoro;
+  onChange: (
+    campo:
+      | "codice"
+      | "spazio"
+      | "materiale"
+      | "punti_chiave_coaching"
+      | "progressione"
+      | "riferimento_gps"
+      | "perche_serve",
+    value: string
+  ) => void;
+}) {
+  return (
+    <div className="grid gap-3 sm:gap-4 md:grid-cols-2">
+      <InputField
+        label="Codice"
+        placeholder="Es. A1"
+        value={lavoro.codice}
+        onChange={(value) => onChange("codice", value)}
+      />
+
+      <InputField
+        label="Spazio"
+        placeholder="Es. 3 griglie parallele da 20×20 m"
+        value={lavoro.spazio}
+        onChange={(value) => onChange("spazio", value)}
+      />
+
+      <InputField
+        label="Materiale"
+        placeholder="Es. 12 coni, 3 palloni"
+        value={lavoro.materiale}
+        onChange={(value) => onChange("materiale", value)}
+      />
+
+      <InputField
+        label="Riferimento GPS"
+        placeholder="Es. 45-55 m/min"
+        value={lavoro.riferimento_gps}
+        onChange={(value) => onChange("riferimento_gps", value)}
+      />
+
+      <div className="md:col-span-2">
+        <label className="mb-1 block text-sm text-zinc-400">
+          Punti chiave di coaching
+        </label>
+        <textarea
+          value={lavoro.punti_chiave_coaching}
+          onChange={(e) => onChange("punti_chiave_coaching", e.target.value)}
+          rows={3}
+          className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-white outline-none"
+        />
+      </div>
+
+      <div className="md:col-span-2">
+        <label className="mb-1 block text-sm text-zinc-400">
+          Progressione
+        </label>
+        <textarea
+          value={lavoro.progressione}
+          onChange={(e) => onChange("progressione", e.target.value)}
+          rows={2}
+          className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-white outline-none"
+        />
+      </div>
+
+      <div className="md:col-span-2">
+        <label className="mb-1 block text-sm text-zinc-400">
+          Perché serve
+        </label>
+        <textarea
+          value={lavoro.perche_serve}
+          onChange={(e) => onChange("perche_serve", e.target.value)}
+          rows={2}
+          className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-white outline-none"
+        />
+      </div>
     </div>
   );
 }

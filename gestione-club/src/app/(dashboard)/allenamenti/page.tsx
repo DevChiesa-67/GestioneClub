@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import {
   ChevronDown,
   ClipboardCheck,
@@ -10,13 +9,13 @@ import {
   Pencil,
   Plus,
   Users,
-  X,
 } from "lucide-react";
 
 import { AppCard } from "@/components/ui/AppCard";
 import { DateInput } from "@/components/ui/DateInput";
 import { supabase } from "@/lib/supabase-client";
 import NuovoAllenamentoModal from "@/components/allenamenti/NuovoAllenamentoModal";
+import RegistraPresenzeModal from "@/components/allenamenti/RegistraPresenzeModal";
 import { generaPdfAllenamento } from "@/lib/pdf-allenamento";
 
 type StatoPresenza = "PM" | "PP" | "P" | "I" | "AG" | "AI";
@@ -53,6 +52,7 @@ type Lavoro = {
   titolo: string | null;
   descrizione: string | null;
   obbiettivo: string | null;
+  rango?: string | null;
   tempo_lavoro: number | null;
   ripetizione: number | null;
   tempo_recupero: number | null;
@@ -61,6 +61,13 @@ type Lavoro = {
   gruppo_contemporaneo?: string | null;
   ordine: number | null;
   immagine_lavoro?: string | null;
+  codice?: string | null;
+  spazio?: string | null;
+  materiale?: string | null;
+  punti_chiave_coaching?: string | null;
+  progressione?: string | null;
+  riferimento_gps?: string | null;
+  perche_serve?: string | null;
 };
 
 type Giocatore = {
@@ -85,7 +92,43 @@ type Profilo = {
   last_squadra_id: string | null;
 };
 
-type Vista = "odierno" | "resoconto" | "riepilogo" | "elenco";
+type Vista =
+  | "odierno"
+  | "resoconto"
+  | "riepilogo"
+  | "elenco"
+  | "microcicli"
+  | "macrocicli";
+
+// Settimane (microcicli) e fasi (macrocicli) vengono lette dalla
+// Programmazione già esistente: ogni allenamento viene abbinato alla
+// settimana/fase la cui data_inizio/data_fine lo contiene.
+type SettimanaProgrammazione = {
+  id: string;
+  numero_settimana: number;
+  data_inizio: string;
+  data_fine: string;
+  focus_settimana: string | null;
+};
+
+type FaseProgrammazione = {
+  id: string;
+  nome: string;
+  colore: string | null;
+  data_inizio: string;
+  data_fine: string;
+  obiettivo: string | null;
+  ordine: number | null;
+  programmazione_settimane: SettimanaProgrammazione[];
+};
+
+type Programmazione = {
+  id: string;
+  titolo: string;
+  data_inizio: string;
+  data_fine: string;
+  programmazione_fasi: FaseProgrammazione[];
+};
 
 const STATI_PRESENZA: {
   sigla: StatoPresenza;
@@ -134,6 +177,16 @@ function fineSettimanaISO() {
 function formattaData(data: string) {
   return new Intl.DateTimeFormat("it-IT", {
     weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(new Date(`${data}T00:00:00`));
+}
+
+// Versione breve (es. "18/08/2026"), usata per gli intervalli di date di
+// settimane/fasi nelle tab Microcicli/Macrocicli.
+function formatDataITBreve(data: string) {
+  return new Intl.DateTimeFormat("it-IT", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -218,18 +271,21 @@ export default function Page() {
   const [vista, setVista] = useState<Vista>("riepilogo");
   const [allenamenti, setAllenamenti] = useState<Allenamento[]>([]);
   const [lavori, setLavori] = useState<Lavoro[]>([]);
+  const [programmazioni, setProgrammazioni] = useState<Programmazione[]>([]);
   const [giocatori, setGiocatori] = useState<Giocatore[]>([]);
   const [presenze, setPresenze] = useState<Presenza[]>([]);
   const [profilo, setProfilo] = useState<Profilo | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [themeColor, setThemeColor] = useState("#d71920");
   const [clubLogoUrl, setClubLogoUrl] = useState<string | null>(null);
+  const [preferenzaVistaLavori, setPreferenzaVistaLavori] = useState<
+    "card" | "tabella"
+  >("card");
 
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
   const [openNuovoAllenamento, setOpenNuovoAllenamento] = useState(false);
-  const [modalPresenzeAllenamento, setModalPresenzeAllenamento] =
-    useState<Allenamento | null>(null);
+  const [openRegistraPresenze, setOpenRegistraPresenze] = useState(false);
 
   const [dataDa, setDataDa] = useState(inizioSettimanaISO());
   const [dataA, setDataA] = useState(fineSettimanaISO());
@@ -294,24 +350,69 @@ export default function Page() {
       );
     }
 
-    // Club, allenamenti e giocatori non dipendono l'uno dall'altro:
-    // richiesti in parallelo per ridurre il tempo di caricamento.
+    // Fasi (macrocicli) e settimane (microcicli) già create in
+    // "Programmazione": servono per le tab Microcicli/Macrocicli, che
+    // abbinano ogni seduta alla settimana/fase la cui data la contiene.
+    let programmazioniQuery = supabase
+      .from("programmazioni")
+      .select(
+        `
+        id,
+        titolo,
+        data_inizio,
+        data_fine,
+        programmazione_fasi (
+          id,
+          nome,
+          colore,
+          data_inizio,
+          data_fine,
+          obiettivo,
+          ordine,
+          programmazione_settimane (
+            id,
+            numero_settimana,
+            data_inizio,
+            data_fine,
+            focus_settimana
+          )
+        )
+      `,
+      )
+      .eq("club_id", profiloData.last_club_id)
+      .order("data_inizio", { ascending: false });
+
+    if (profiloData.last_squadra_id) {
+      // Come in ProgrammazioneClient: mostriamo sia le programmazioni della
+      // squadra attiva sia quelle create senza squadra specifica.
+      programmazioniQuery = programmazioniQuery.or(
+        `squadra_id.eq.${profiloData.last_squadra_id},squadra_id.is.null`,
+      );
+    }
+
+    // Club, allenamenti, giocatori e programmazioni non dipendono l'uno
+    // dall'altro: richiesti in parallelo per ridurre il tempo di caricamento.
     const [
       { data: clubData },
       { data: allenamentiData, error: allenamentiError },
       { data: giocatoriData, error: giocatoriError },
+      { data: programmazioniData, error: programmazioniError },
     ] = await Promise.all([
       supabase
         .from("club")
-        .select("colore_flag,logo_url")
+        .select("colore_flag,logo_url,preferenza_vista_lavori")
         .eq("id", profiloData.last_club_id)
         .single(),
       allenamentiQuery,
       giocatoriQuery,
+      programmazioniQuery,
     ]);
 
     setThemeColor(clubData?.colore_flag || "#d71920");
     setClubLogoUrl(clubData?.logo_url || null);
+    setPreferenzaVistaLavori(
+      clubData?.preferenza_vista_lavori === "tabella" ? "tabella" : "card",
+    );
 
     if (allenamentiError) {
       console.error(allenamentiError);
@@ -321,6 +422,14 @@ export default function Page() {
 
     if (giocatoriError) {
       console.error(giocatoriError);
+    }
+
+    if (programmazioniError) {
+      console.error(programmazioniError);
+    } else {
+      setProgrammazioni(
+        (programmazioniData as unknown as Programmazione[]) || [],
+      );
     }
 
     const idsAllenamenti = allenamentiData?.map((a) => a.id) || [];
@@ -479,6 +588,198 @@ export default function Page() {
     return lavori.filter((lavoro) => lavoro.allenamento_id === allenamentoId);
   };
 
+  // Orario di inizio/fine di ogni lavoro, calcolato accumulando i tempo_totale
+  // a partire dall'ora_inizio della seduta. I lavori "in contemporanea"
+  // condividono lo stesso slot orario (non avanzano il cursore due volte).
+  function orarioAMinuti(orario: string) {
+    const [ore, minuti] = orario.split(":").map((parte) => Number(parte) || 0);
+    return ore * 60 + minuti;
+  }
+
+  function minutiAOrario(minuti: number) {
+    const oreEffettive = Math.floor(minuti / 60) % 24;
+    const minutiEffettivi = ((minuti % 60) + 60) % 60;
+
+    return `${String(oreEffettive).padStart(2, "0")}:${String(
+      minutiEffettivi,
+    ).padStart(2, "0")}`;
+  }
+
+  function orariLavori(
+    oraInizio: string | null,
+    lavoriOrdinati: Lavoro[],
+  ): Map<string, { inizio: string; fine: string }> {
+    const risultato = new Map<string, { inizio: string; fine: string }>();
+
+    if (!oraInizio) return risultato;
+
+    let cursore = orarioAMinuti(oraInizio);
+    const gruppiVisti = new Map<string, { inizio: string; fine: string }>();
+
+    for (const lavoro of lavoriOrdinati) {
+      if (lavoro.gruppo_contemporaneo) {
+        const rangeGruppo = gruppiVisti.get(lavoro.gruppo_contemporaneo);
+
+        if (rangeGruppo) {
+          risultato.set(lavoro.id, rangeGruppo);
+          continue;
+        }
+      }
+
+      const inizio = cursore;
+      const fine = cursore + (lavoro.tempo_totale || 0);
+      const range = { inizio: minutiAOrario(inizio), fine: minutiAOrario(fine) };
+
+      risultato.set(lavoro.id, range);
+
+      if (lavoro.gruppo_contemporaneo) {
+        gruppiVisti.set(lavoro.gruppo_contemporaneo, range);
+      }
+
+      cursore = fine;
+    }
+
+    return risultato;
+  }
+
+  // Fasi (macrocicli) e settimane (microcicli), lette dalla Programmazione,
+  // appiattite in un'unica lista ciascuna per poterle scorrere facilmente.
+  const fasiFlat = useMemo(() => {
+    return programmazioni
+      .flatMap((programmazione) => programmazione.programmazione_fasi ?? [])
+      .sort((a, b) => a.data_inizio.localeCompare(b.data_inizio));
+  }, [programmazioni]);
+
+  const settimaneFlat = useMemo(() => {
+    return fasiFlat
+      .flatMap((fase) =>
+        (fase.programmazione_settimane ?? []).map((settimana) => ({
+          ...settimana,
+          faseNome: fase.nome,
+          faseColore: fase.colore,
+        })),
+      )
+      .sort((a, b) => a.data_inizio.localeCompare(b.data_inizio));
+  }, [fasiFlat]);
+
+  // Per ogni settimana/fase, le sedute la cui data cade nel suo intervallo.
+  // Vengono mostrate solo settimane/fasi con almeno una seduta, per non
+  // riempire la vista di gruppi vuoti.
+  const microcicli = useMemo(() => {
+    return settimaneFlat
+      .map((settimana) => ({
+        settimana,
+        sedute: allenamenti
+          .filter(
+            (allenamento) =>
+              allenamento.data_allenamento >= settimana.data_inizio &&
+              allenamento.data_allenamento <= settimana.data_fine,
+          )
+          .sort(
+            (a, b) =>
+              a.data_allenamento.localeCompare(b.data_allenamento) ||
+              (a.ora_inizio ?? "").localeCompare(b.ora_inizio ?? ""),
+          ),
+      }))
+      .filter((gruppo) => gruppo.sedute.length > 0);
+  }, [settimaneFlat, allenamenti]);
+
+  const macrocicli = useMemo(() => {
+    return fasiFlat
+      .map((fase) => ({
+        fase,
+        sedute: allenamenti
+          .filter(
+            (allenamento) =>
+              allenamento.data_allenamento >= fase.data_inizio &&
+              allenamento.data_allenamento <= fase.data_fine,
+          )
+          .sort(
+            (a, b) =>
+              a.data_allenamento.localeCompare(b.data_allenamento) ||
+              (a.ora_inizio ?? "").localeCompare(b.ora_inizio ?? ""),
+          ),
+      }))
+      .filter((gruppo) => gruppo.sedute.length > 0);
+  }, [fasiFlat, allenamenti]);
+
+  // Blocco riepilogativo di una singola seduta per le viste Microcicli e
+  // Macrocicli: intestazione (giorno, tipo, orario) + tabella dei lavori
+  // con Orario calcolato, riadattando i campi già esistenti di un lavoro
+  // (Tipo=Sezione, Drill=Descrizione, Consegna=Obiettivo).
+  function riepilogoSeduta(allenamento: Allenamento) {
+    const lavoriSeduta = lavoriPerAllenamento(allenamento.id).sort(
+      (a, b) => (a.ordine ?? 0) - (b.ordine ?? 0),
+    );
+    const orari = orariLavori(allenamento.ora_inizio, lavoriSeduta);
+    const partecipanti = presentiAllenamento(allenamento.id);
+
+    return (
+      <div key={allenamento.id} className="overflow-hidden rounded-2xl border border-zinc-800">
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm font-bold text-white"
+          style={{ backgroundColor: themeColor }}
+        >
+          <span>
+            {formattaData(allenamento.data_allenamento)}
+            {allenamento.tipo_allenamento ? ` — ${allenamento.tipo_allenamento}` : ""}
+            {allenamento.titolo ? ` — ${allenamento.titolo}` : ""}
+          </span>
+          <span className="font-semibold text-white/85">
+            Tutti ({partecipanti})
+            {allenamento.ora_inizio
+              ? ` · ${allenamento.ora_inizio.slice(0, 5)}${
+                  allenamento.ora_fine ? `–${allenamento.ora_fine.slice(0, 5)}` : ""
+                }`
+              : ""}
+          </span>
+        </div>
+
+        {lavoriSeduta.length === 0 ? (
+          <p className="px-4 py-3 text-sm text-zinc-500">Nessun lavoro inserito.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-[1100px] w-full border-collapse text-sm">
+              <thead className="bg-zinc-900">
+                <tr className="text-left text-zinc-400">
+                  <th className="px-3 py-2 font-semibold">Orario</th>
+                  <th className="px-3 py-2 font-semibold">Tipo</th>
+                  <th className="px-3 py-2 font-semibold">Stazione</th>
+                  <th className="px-3 py-2 font-semibold">Drill</th>
+                  <th className="px-3 py-2 font-semibold">Consegna e organizzazione</th>
+                  <th className="px-3 py-2 font-semibold">Punti chiave di coaching</th>
+                  <th className="px-3 py-2 text-right font-semibold">Totale</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {lavoriSeduta.map((lavoro) => {
+                  const range = orari.get(lavoro.id);
+
+                  return (
+                    <tr key={lavoro.id} className="border-t border-zinc-800 bg-zinc-950/70 text-zinc-200 align-top">
+                      <td className="whitespace-nowrap px-3 py-2 text-zinc-400">
+                        {range ? `${range.inizio}–${range.fine}` : "—"}
+                      </td>
+                      <td className="px-3 py-2 font-semibold text-white">{lavoro.sezione}</td>
+                      <td className="px-3 py-2 text-zinc-300">{lavoro.rango || "—"}</td>
+                      <td className="px-3 py-2">{lavoro.descrizione || "—"}</td>
+                      <td className="px-3 py-2">{lavoro.obbiettivo || "—"}</td>
+                      <td className="px-3 py-2">{lavoro.punti_chiave_coaching || "—"}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right font-bold">
+                        {lavoro.tempo_totale ?? "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // I lavori "in contemporanea" condividono lo stesso gruppo_contemporaneo:
   // vanno sommati una sola volta (il tempo è lo stesso intervallo, non due
   // intervalli distinti), altrimenti il minutaggio totale risulterebbe
@@ -619,20 +920,32 @@ export default function Page() {
       </p>
     </div>
 
-    {/* PULSANTE CREA SEDUTA - SOLO DESKTOP */}
+    {/* PULSANTI CREA SEDUTA / REGISTRA PRESENZE - SOLO DESKTOP */}
     {isAdmin && (
-    <button
-      type="button"
-      onClick={() => setOpenNuovoAllenamento(true)}
-      className="hidden items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-black text-white transition hover:brightness-110 active:scale-[0.98] lg:inline-flex"
-      style={{
-        backgroundColor: themeColor,
-        boxShadow: `0 16px 36px ${themeColor}38`,
-      }}
-    >
-      <Plus className="h-4 w-4" />
-      Crea seduta
-    </button>
+    <div className="hidden items-center gap-3 lg:flex">
+      <button
+        type="button"
+        onClick={() => setOpenRegistraPresenze(true)}
+        className="inline-flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-black text-white transition hover:bg-white/5 active:scale-[0.98]"
+        style={{ borderColor: `${themeColor}55` }}
+      >
+        <ClipboardCheck className="h-4 w-4" />
+        Registra presenze
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setOpenNuovoAllenamento(true)}
+        className="inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-black text-white transition hover:brightness-110 active:scale-[0.98]"
+        style={{
+          backgroundColor: themeColor,
+          boxShadow: `0 16px 36px ${themeColor}38`,
+        }}
+      >
+        <Plus className="h-4 w-4" />
+        Crea seduta
+      </button>
+    </div>
     )}
   </div>
 
@@ -681,6 +994,32 @@ export default function Page() {
 
       <button
         type="button"
+        onClick={() => setVista("microcicli")}
+        className={`shrink-0 rounded-2xl px-4 py-2.5 text-sm font-bold transition ${
+          vista === "microcicli"
+            ? ""
+            : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
+        }`}
+        style={tabButtonStyle("microcicli")}
+      >
+        Microcicli
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setVista("macrocicli")}
+        className={`shrink-0 rounded-2xl px-4 py-2.5 text-sm font-bold transition ${
+          vista === "macrocicli"
+            ? ""
+            : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
+        }`}
+        style={tabButtonStyle("macrocicli")}
+      >
+        Macrocicli
+      </button>
+
+      <button
+        type="button"
         onClick={() => setVista("resoconto")}
         className={`shrink-0 rounded-2xl px-4 py-2.5 text-sm font-bold transition ${
           vista === "resoconto"
@@ -692,7 +1031,19 @@ export default function Page() {
         Resoconto generale
       </button>
 
-      {/* ULTIMA TAB - SOLO MOBILE/TABLET */}
+      {/* ULTIME TAB - SOLO MOBILE/TABLET */}
+      {isAdmin && (
+      <button
+        type="button"
+        onClick={() => setOpenRegistraPresenze(true)}
+        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl border px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/5 active:scale-[0.98] lg:hidden"
+        style={{ borderColor: `${themeColor}55` }}
+      >
+        <ClipboardCheck className="h-4 w-4" />
+        Registra presenze
+      </button>
+      )}
+
       {isAdmin && (
       <button
         type="button"
@@ -847,6 +1198,97 @@ export default function Page() {
     )}
   </div>
 )}
+        {!loading && vista === "microcicli" && (
+          <div className="space-y-5">
+            {microcicli.length === 0 ? (
+              <AppCard>
+                <div className="flex min-h-[160px] flex-col items-center justify-center text-center">
+                  <h3 className="text-lg font-bold text-white">
+                    Nessun microciclo con sedute
+                  </h3>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    Crea una Programmazione con delle settimane e collega delle
+                    sedute alle relative date per vederle qui raggruppate.
+                  </p>
+                </div>
+              </AppCard>
+            ) : (
+              microcicli.map(({ settimana, sedute }) => (
+                <AppCard key={settimana.id}>
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p
+                        className="text-xs font-bold uppercase tracking-wide"
+                        style={{ color: settimana.faseColore || themeColor }}
+                      >
+                        {settimana.faseNome} · Settimana {settimana.numero_settimana}
+                      </p>
+                      <h3 className="mt-1 text-lg font-bold text-white">
+                        {settimana.focus_settimana || "Microciclo"}
+                      </h3>
+                      <p className="mt-1 text-sm text-zinc-400">
+                        {formatDataITBreve(settimana.data_inizio)} –{" "}
+                        {formatDataITBreve(settimana.data_fine)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {sedute.map((allenamento) => riepilogoSeduta(allenamento))}
+                  </div>
+                </AppCard>
+              ))
+            )}
+          </div>
+        )}
+
+        {!loading && vista === "macrocicli" && (
+          <div className="space-y-5">
+            {macrocicli.length === 0 ? (
+              <AppCard>
+                <div className="flex min-h-[160px] flex-col items-center justify-center text-center">
+                  <h3 className="text-lg font-bold text-white">
+                    Nessun macrociclo con sedute
+                  </h3>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    Crea una Programmazione con delle fasi e collega delle sedute
+                    alle relative date per vederle qui raggruppate.
+                  </p>
+                </div>
+              </AppCard>
+            ) : (
+              macrocicli.map(({ fase, sedute }) => (
+                <AppCard key={fase.id}>
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p
+                        className="text-xs font-bold uppercase tracking-wide"
+                        style={{ color: fase.colore || themeColor }}
+                      >
+                        Macrociclo
+                      </p>
+                      <h3 className="mt-1 text-lg font-bold text-white">
+                        {fase.nome}
+                      </h3>
+                      <p className="mt-1 text-sm text-zinc-400">
+                        {formatDataITBreve(fase.data_inizio)} –{" "}
+                        {formatDataITBreve(fase.data_fine)}
+                      </p>
+                      {fase.obiettivo && (
+                        <p className="mt-2 text-sm text-zinc-300">{fase.obiettivo}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {sedute.map((allenamento) => riepilogoSeduta(allenamento))}
+                  </div>
+                </AppCard>
+              ))
+            )}
+          </div>
+        )}
+
         {!loading && vista === "resoconto" && (
           <div className="grid gap-4 md:grid-cols-3">
             <AppCard>
@@ -973,15 +1415,6 @@ export default function Page() {
                           <Pencil className="h-4 w-4" />
                         </Link>
                       )}
-
-                      <button
-                        onClick={() => setModalPresenzeAllenamento(allenamento)}
-                        className="rounded-xl border bg-zinc-950 p-2 text-zinc-300 hover:text-white"
-                        style={{ borderColor: `${themeColor}33` }}
-                        title="Segna presenze"
-                      >
-                        <ClipboardCheck className="h-4 w-4" />
-                      </button>
 
                       <button
                         onClick={() =>
@@ -1159,7 +1592,7 @@ export default function Page() {
       {openNuovoAllenamento && (
         <div className="fixed inset-0 z-[9999] overflow-y-auto bg-black/80 px-3 py-4 backdrop-blur-sm sm:px-6 sm:py-8">
           <div
-            className="mx-auto max-w-7xl rounded-3xl border bg-[#090909] p-4 shadow-2xl sm:p-6"
+            className="mx-auto max-w-7xl min-w-0 overflow-x-hidden rounded-3xl border bg-[#090909] p-4 shadow-2xl sm:p-6"
             style={{
               borderColor: `${themeColor}55`,
               boxShadow: `0 30px 80px ${themeColor}22`,
@@ -1168,6 +1601,7 @@ export default function Page() {
             <NuovoAllenamentoModal
               themeColor={themeColor}
               isAdmin={isAdmin}
+              vistaLavoriPredefinita={preferenzaVistaLavori}
               onClose={() => setOpenNuovoAllenamento(false)}
               onSaved={async () => {
                 setOpenNuovoAllenamento(false);
@@ -1178,130 +1612,21 @@ export default function Page() {
         </div>
       )}
 
-      {modalPresenzeAllenamento && (
+      {openRegistraPresenze && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div
-            className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl border bg-zinc-950 shadow-2xl"
-            style={{ borderColor: `${themeColor}55` }}
-          >
-            <div className="flex items-center justify-between border-b border-zinc-800 p-5">
-              <div>
-                <h2 className="text-xl font-bold text-white">
-                  Presenze allenamento
-                </h2>
-                <p className="text-sm text-zinc-400">
-                  {formattaData(modalPresenzeAllenamento.data_allenamento)}
-                </p>
-              </div>
-
-              <button
-                onClick={() => setModalPresenzeAllenamento(null)}
-                className="rounded-xl bg-zinc-900 p-2 text-zinc-400 hover:text-white"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="max-h-[70vh] space-y-3 overflow-y-auto p-5">
-              {giocatori.map((giocatore) => {
-                const statoAttivo = statoGiocatore(
-                  modalPresenzeAllenamento.id,
-                  giocatore.id,
-                );
-
-                return (
-                  <div
-                    key={giocatore.id}
-                    className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4"
-                  >
-                    <div className="flex items-center gap-3">
-                      {giocatore.foto_url ? (
-                        <Image
-                          src={giocatore.foto_url}
-                          alt={`${giocatore.nome} ${giocatore.cognome}`}
-                          width={48}
-                          height={48}
-                          className="h-12 w-12 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div
-                          className="flex h-12 w-12 items-center justify-center rounded-full text-sm font-bold text-white"
-                          style={{ backgroundColor: `${themeColor}66` }}
-                        >
-                          {giocatore.nome.charAt(0)}
-                          {giocatore.cognome.charAt(0)}
-                        </div>
-                      )}
-
-                      <div>
-                        <p className="font-semibold text-white">
-                          {giocatore.nome} {giocatore.cognome}
-                        </p>
-                        <p className="text-sm text-zinc-500">
-                          {statoAttivo
-                            ? STATI_PRESENZA.find(
-                                (stato) => stato.sigla === statoAttivo,
-                              )?.label
-                            : "Presenza non segnata"}
-                        </p>
-                      </div>
-                    </div>
-
-                    {isAdmin && (
-                    <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
-                      {STATI_PRESENZA.map((stato) => {
-                        const active = statoAttivo === stato.sigla;
-
-                        return (
-                          <button
-                            key={stato.sigla}
-                            onClick={() => {
-                              if (active) {
-                                eliminaPresenza(
-                                  modalPresenzeAllenamento.id,
-                                  giocatore.id,
-                                );
-                                return;
-                              }
-
-                              salvaPresenza(
-                                modalPresenzeAllenamento,
-                                giocatore.id,
-                                stato.sigla,
-                              );
-                            }}
-                            className={`group flex h-10 w-full items-center justify-center overflow-hidden rounded-xl border px-2 text-sm font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-10 sm:hover:w-48 ${
-                              active
-                                ? COLORE_STATO[stato.sigla]
-                                : "border-zinc-700 bg-zinc-950 text-zinc-300 hover:text-white"
-                            }`}
-                            style={
-                              !active
-                                ? { borderColor: `${themeColor}33` }
-                                : undefined
-                            }
-                            title={stato.label}
-                          >
-                            <span className="shrink-0">{stato.sigla}</span>
-                            <span className="ml-2 hidden whitespace-nowrap text-xs font-medium sm:group-hover:inline">
-                              {stato.label}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    )}
-                  </div>
-                );
-              })}
-
-              {giocatori.length === 0 && (
-                <p className="text-zinc-400">
-                  Nessun giocatore trovato per la squadra selezionata.
-                </p>
-              )}
-            </div>
-          </div>
+          <RegistraPresenzeModal
+            allenamenti={allenamenti}
+            giocatori={giocatori}
+            isAdmin={isAdmin}
+            themeColor={themeColor}
+            formattaData={formattaData}
+            statiPresenza={STATI_PRESENZA}
+            coloreStato={COLORE_STATO}
+            statoGiocatore={statoGiocatore}
+            salvaPresenza={salvaPresenza}
+            eliminaPresenza={eliminaPresenza}
+            onClose={() => setOpenRegistraPresenze(false)}
+          />
         </div>
       )}
     </>

@@ -99,6 +99,7 @@ type Props = {
   splitOptions: SplitOption[];
   sessioni: SessioneCatapult[];
   giocatoreId?: string | null;
+  tipoProfilo?: string | null;
 };
 
 function chiaveSessione(sessione: SessioneCatapult) {
@@ -208,6 +209,7 @@ export default function ReportTabsClient({
   splitOptions,
   sessioni,
   giocatoreId: giocatoreIdIniziale = null,
+  tipoProfilo = null,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabKey>("riepilogo");
 
@@ -1055,6 +1057,7 @@ export default function ReportTabsClient({
             tipiSeduta={tipiSeduta}
             sessionTitles={sessionTitlesFiltro}
             splitSelezionati={splitSelezionati}
+            tipoProfilo={tipoProfilo}
           />
 
           <ReportAcwrClient

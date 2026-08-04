@@ -1,15 +1,10 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
-import {
-  BarChart3,
-  Plus,
-  LayoutDashboard,
-  Users,
-  Activity,
-  FlaskConical,
-  Eye,
-  Pencil,
-} from "lucide-react";
+import { Plus, LayoutDashboard, Users, Activity, FlaskConical } from "lucide-react";
+
+import { createClient } from "@/lib/supabase-server";
 import { AppCard } from "@/components/ui/AppCard";
+import ReportisticaListaClient from "@/components/reportistica/ReportisticaListaClient";
 
 const sezioni = [
   {
@@ -32,36 +27,83 @@ const sezioni = [
   },
 ];
 
-const reportDemo = [
-  {
-    id: "1",
-    nome: "Presenze per giocatore",
-    sezione: "Presenze",
-    tipo: "Grafico barre",
-  },
-  {
-    id: "2",
-    nome: "Distanza media settimanale",
-    sezione: "Performance",
-    tipo: "Linea",
-  },
-  {
-    id: "3",
-    nome: "Confronto test velocità",
-    sezione: "Test",
-    tipo: "Tabella",
-  },
-];
+export default async function ReportisticaPage() {
+  const supabase = await createClient();
 
-export default function ReportisticaPage() {
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    redirect("/login");
+  }
+
+  const { data: profilo, error: profiloError } = await supabase
+    .from("profili")
+    .select("id, tipo_profilo, last_club_id")
+    .eq("auth_user_id", user.id)
+    .single();
+
+  if (profiloError || !profilo) {
+    return (
+      <AppCard>
+        <p className="text-sm text-red-400">Profilo non trovato.</p>
+      </AppCard>
+    );
+  }
+
+  const isAdmin =
+    String(profilo.tipo_profilo ?? "").toLowerCase() === "admin";
+
+  if (!isAdmin) {
+    return (
+      <AppCard>
+        <p className="text-sm text-zinc-400">
+          La reportistica è riservata agli amministratori del club.
+        </p>
+      </AppCard>
+    );
+  }
+
+  if (!profilo.last_club_id) {
+    return (
+      <AppCard>
+        <p className="text-sm text-zinc-400">
+          Nessun club attivo selezionato.
+        </p>
+      </AppCard>
+    );
+  }
+
+  const [{ data: reportData, error: reportError }, { data: tipiProfiloData }] =
+    await Promise.all([
+      supabase
+        .from("report_personalizzati")
+        .select(
+          "id, nome, descrizione, sezione_performance, tipo_visualizzazione, pubblicato, tipi_profilo_visibili, campo_catapult"
+        )
+        .eq("club_id", profilo.last_club_id)
+        .order("created_at", { ascending: false }),
+      supabase.from("tipi_profili").select("codice, nome"),
+    ]);
+
+  if (reportError) {
+    console.error("Errore caricamento report_personalizzati:", reportError);
+  }
+
+  const nomiTipiProfilo = Object.fromEntries(
+    (tipiProfiloData ?? []).map((tipo) => [tipo.codice, tipo.nome])
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
         <div>
           <h1 className="text-2xl font-semibold text-white">Reportistica</h1>
           <p className="mt-1 text-sm text-zinc-400">
-            Crea report personalizzati e pubblicali nelle sezioni Presenze,
-            Performance e Test.
+            Crea report personalizzati e pubblica i parametri Catapult che
+            vuoi mostrare nel riepilogo Performance, per gruppo.
           </p>
         </div>
 
@@ -106,77 +148,19 @@ export default function ReportisticaPage() {
               I tuoi report
             </h2>
             <p className="mt-1 text-sm text-zinc-500">
-              Elenco dei report creati per il club corrente.
+              Elenco dei report creati per il club corrente. Attiva
+              &quot;Pubblicato&quot; per farli comparire nel riepilogo
+              Performance ai gruppi selezionati.
             </p>
           </div>
 
           <LayoutDashboard className="h-5 w-5 text-zinc-600" />
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-zinc-800">
-          <table className="w-full text-left">
-            <thead className="bg-zinc-900">
-              <tr>
-                <th className="px-4 py-3 text-xs font-medium text-zinc-500">
-                  Report
-                </th>
-                <th className="px-4 py-3 text-xs font-medium text-zinc-500">
-                  Sezione
-                </th>
-                <th className="px-4 py-3 text-xs font-medium text-zinc-500">
-                  Tipo
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500">
-                  Azioni
-                </th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {reportDemo.map((report) => (
-                <tr
-                  key={report.id}
-                  className="border-t border-zinc-800 bg-zinc-950"
-                >
-                  <td className="px-4 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-zinc-900 text-zinc-400">
-                        <BarChart3 className="h-4 w-4" />
-                      </div>
-
-                      <span className="text-sm font-medium text-white">
-                        {report.nome}
-                      </span>
-                    </div>
-                  </td>
-
-                  <td className="px-4 py-4 text-sm text-zinc-400">
-                    {report.sezione}
-                  </td>
-
-                  <td className="px-4 py-4 text-sm text-zinc-400">
-                    {report.tipo}
-                  </td>
-
-                  <td className="px-4 py-4">
-                    <div className="flex justify-end gap-2">
-                      <button className="rounded-lg border border-zinc-800 p-2 text-zinc-400 transition hover:border-zinc-700 hover:text-white">
-                        <Eye className="h-4 w-4" />
-                      </button>
-
-                      <Link
-                        href={`/reportistica/${report.id}`}
-                        className="rounded-lg border border-zinc-800 p-2 text-zinc-400 transition hover:border-zinc-700 hover:text-white"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Link>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ReportisticaListaClient
+          reports={reportData ?? []}
+          nomiTipiProfilo={nomiTipiProfilo}
+        />
       </AppCard>
     </div>
   );

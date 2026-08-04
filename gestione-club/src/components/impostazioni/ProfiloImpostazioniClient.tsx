@@ -2,8 +2,11 @@
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
-import { User, Mail, Shield, Save, Loader2 } from "lucide-react";
-import { aggiornaProfiloPersonale } from "@/app/(dashboard)/impostazioni/actions";
+import { User, Mail, Shield, Save, Loader2, LayoutGrid } from "lucide-react";
+import {
+  aggiornaProfiloPersonale,
+  aggiornaPreferenzaVistaLavori,
+} from "@/app/(dashboard)/impostazioni/actions";
 import { AppCard } from "@/components/ui/AppCard";
 
 type Profilo = {
@@ -16,9 +19,11 @@ type Profilo = {
 };
 
 type Club = {
+  id: string | null;
   nome: string;
   logo_url: string | null;
   colore: string;
+  preferenzaVistaLavori: "card" | "tabella";
 };
 
 type Props = {
@@ -32,6 +37,42 @@ export default function ProfiloImpostazioniClient({ profilo, club }: Props) {
   const [loading, setLoading] = useState(false);
   const [messaggio, setMessaggio] = useState<string | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
+
+  const isAdmin = String(profilo.tipo_profilo || "").toLowerCase() === "admin";
+
+  const [preferenzaVista, setPreferenzaVista] = useState<"card" | "tabella">(
+    club.preferenzaVistaLavori
+  );
+  const [salvandoPreferenza, setSalvandoPreferenza] = useState(false);
+  const [messaggioPreferenza, setMessaggioPreferenza] = useState<string | null>(
+    null
+  );
+  const [erroreVista, setErroreVista] = useState<string | null>(null);
+
+  async function salvaPreferenzaVista(valore: "card" | "tabella") {
+    if (!club.id) {
+      setErroreVista("Nessun club associato al profilo.");
+      return;
+    }
+
+    const precedente = preferenzaVista;
+    setPreferenzaVista(valore);
+    setSalvandoPreferenza(true);
+    setMessaggioPreferenza(null);
+    setErroreVista(null);
+
+    const result = await aggiornaPreferenzaVistaLavori(club.id, valore);
+
+    setSalvandoPreferenza(false);
+
+    if (!result.success) {
+      setPreferenzaVista(precedente);
+      setErroreVista(result.message);
+      return;
+    }
+
+    setMessaggioPreferenza("Preferenza aggiornata correttamente.");
+  }
 
   const iniziali = useMemo(() => {
     const inizialeNome = nome.trim()?.[0] ?? "";
@@ -69,6 +110,7 @@ export default function ProfiloImpostazioniClient({ profilo, club }: Props) {
 }
 
   return (
+    <div className="grid gap-6">
     <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
       <AppCard>
         <div className="mb-6 flex items-center gap-3">
@@ -213,6 +255,99 @@ export default function ProfiloImpostazioniClient({ profilo, club }: Props) {
           </div>
         </div>
       </AppCard>
+    </div>
+
+      {isAdmin && (
+        <AppCard>
+          <div className="mb-5 flex items-center gap-3">
+            <div
+              className="flex h-11 w-11 items-center justify-center rounded-2xl text-white shadow-lg"
+              style={{ backgroundColor: club.colore }}
+            >
+              <LayoutGrid size={22} />
+            </div>
+
+            <div>
+              <h2 className="text-lg font-semibold text-zinc-100">
+                Creazione seduta di allenamento
+              </h2>
+              <p className="text-sm text-zinc-400">
+                Vista predefinita usata da tutti gli utenti del club quando
+                creano una seduta.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <label
+              className={`flex cursor-pointer items-center gap-4 rounded-2xl border p-4 transition ${
+                preferenzaVista === "card"
+                  ? "border-zinc-400 bg-zinc-800/60"
+                  : "border-zinc-800 bg-zinc-950 hover:border-zinc-600"
+              }`}
+            >
+              <input
+                type="radio"
+                name="preferenza_vista_lavori"
+                value="card"
+                checked={preferenzaVista === "card"}
+                onChange={() => salvaPreferenzaVista("card")}
+                disabled={salvandoPreferenza}
+                className="h-4 w-4 accent-zinc-200"
+              />
+
+              <span>
+                <span className="block font-semibold text-zinc-100">
+                  Vista card
+                </span>
+                <span className="mt-1 block text-sm text-zinc-400">
+                  Un lavoro alla volta, con tutti i campi visibili.
+                </span>
+              </span>
+            </label>
+
+            <label
+              className={`flex cursor-pointer items-center gap-4 rounded-2xl border p-4 transition ${
+                preferenzaVista === "tabella"
+                  ? "border-zinc-400 bg-zinc-800/60"
+                  : "border-zinc-800 bg-zinc-950 hover:border-zinc-600"
+              }`}
+            >
+              <input
+                type="radio"
+                name="preferenza_vista_lavori"
+                value="tabella"
+                checked={preferenzaVista === "tabella"}
+                onChange={() => salvaPreferenzaVista("tabella")}
+                disabled={salvandoPreferenza}
+                className="h-4 w-4 accent-zinc-200"
+              />
+
+              <span>
+                <span className="block font-semibold text-zinc-100">
+                  Vista tabella
+                </span>
+                <span className="mt-1 block text-sm text-zinc-400">
+                  Griglia con orario calcolato, per compilare più lavori di
+                  fila.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          {erroreVista && (
+            <div className="mt-4 rounded-xl border border-red-900/60 bg-red-950/30 px-4 py-3 text-sm text-red-300">
+              {erroreVista}
+            </div>
+          )}
+
+          {messaggioPreferenza && !erroreVista && (
+            <div className="mt-4 rounded-xl border border-emerald-900/60 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-300">
+              {messaggioPreferenza}
+            </div>
+          )}
+        </AppCard>
+      )}
     </div>
   );
 }

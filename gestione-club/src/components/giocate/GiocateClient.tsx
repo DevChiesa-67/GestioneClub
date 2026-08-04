@@ -9,11 +9,8 @@ import {
   Footprints,
   Map,
   X,
-  Play,
   ChevronRight,
 } from "lucide-react";
-
-import RugbyPlayAnimation from "./RugbyPlayAnimation";
 
 type SezioneGiocata = "attacco" | "difesa" | "calci" | "bulls_map";
 
@@ -28,6 +25,17 @@ type Giocata = {
   animation_key: string | null;
   animation_duration_ms?: number | null;
 };
+
+// Estrae dalla descrizione le frasi che contengono una percentuale (es.
+// "Il 35% delle azioni nasce da qui") per mostrarle come elenco puntato
+// invece che lasciarle sepolte nel paragrafo.
+function estraiPercentuali(testo: string): string[] {
+  return testo
+    .split(/(?<=[.!?\n])\s+|\n+/)
+    .map((frase) => frase.trim())
+    .filter((frase) => /\d+([.,]\d+)?\s?%/.test(frase))
+    .map((frase) => frase.replace(/[.\s]+$/, ""));
+}
 
 type Props = {
   giocate: Giocata[];
@@ -213,16 +221,6 @@ export default function GiocateClient({ giocate, coloreClub }: Props) {
                           <div className="text-base font-bold text-white">
                             {item.codice}
                           </div>
-
-                          {item.animation_key && (
-                            <div
-                              className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium"
-                              style={{ color: coloreClub }}
-                            >
-                              <Play className="h-3 w-3 fill-current" />
-                              Animazione disponibile
-                            </div>
-                          )}
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -301,41 +299,18 @@ export default function GiocateClient({ giocate, coloreClub }: Props) {
               </button>
             </div>
 
-            <div className="grid gap-6 p-5 md:p-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.7fr)]">
-              <div className="min-w-0">
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-white">
-                    Movimento tattico
-                  </h3>
+            <div className="grid gap-6 p-5 md:p-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(240px,0.6fr)]">
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                  Descrizione
+                </p>
 
-                  {giocataSelezionata.animation_key && (
-                    <div
-                      className="flex items-center gap-1.5 text-xs font-medium"
-                      style={{ color: coloreClub }}
-                    >
-                      <Play className="h-3 w-3 fill-current" />
-                      Animazione
-                    </div>
-                  )}
-                </div>
-
-                <RugbyPlayAnimation
-                  animationKey={giocataSelezionata.animation_key}
-                  coloreClub={coloreClub}
-                />
+                <p className="mt-3 text-sm leading-7 text-zinc-300">
+                  {giocataSelezionata.descrizione}
+                </p>
               </div>
 
               <aside className="space-y-4">
-                <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                    Descrizione
-                  </p>
-
-                  <p className="mt-3 text-sm leading-7 text-zinc-300">
-                    {giocataSelezionata.descrizione}
-                  </p>
-                </div>
-
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
                     Informazioni
@@ -358,15 +333,6 @@ export default function GiocateClient({ giocate, coloreClub }: Props) {
                         giocataSelezionata.prioritaria
                           ? "Prioritaria"
                           : "Standard"
-                      }
-                    />
-
-                    <InfoRow
-                      label="Animazione"
-                      value={
-                        giocataSelezionata.animation_key
-                          ? "Disponibile"
-                          : "Non disponibile"
                       }
                     />
                   </div>
@@ -427,6 +393,12 @@ function BullsMapField({
 
   const selectedZone =
     zone.find((item) => item.id === selectedId) ?? zone[0] ?? null;
+
+  const percentualiZona = useMemo(
+    () =>
+      selectedZone ? estraiPercentuali(selectedZone.descrizione) : [],
+    [selectedZone]
+  );
 
   if (items.length === 0) {
     return (
@@ -591,6 +563,23 @@ function BullsMapField({
                   <p className="mt-4 text-sm leading-7 text-zinc-300">
                     {selectedZone.descrizione}
                   </p>
+
+                  {percentualiZona.length > 0 && (
+                    <ul className="mt-4 space-y-2 border-t border-zinc-800 pt-4">
+                      {percentualiZona.map((frase, indice) => (
+                        <li
+                          key={indice}
+                          className="flex items-start gap-2 text-sm text-zinc-300"
+                        >
+                          <span
+                            className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+                            style={{ backgroundColor: coloreClub }}
+                          />
+                          <span>{frase}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               )}
 

@@ -191,9 +191,8 @@ async function getLogoSignedUrl(
   return data.signedUrl;
 }
 
-export async function getUpcomingEvents() {
-  const { supabase, clubId, squadraId } =
-    await getSelectedContext();
+export async function getUpcomingAllenamenti(limit = 4) {
+  const { supabase, clubId, squadraId } = await getSelectedContext();
 
   if (!clubId) {
     return [];
@@ -221,7 +220,44 @@ export async function getUpcomingEvents() {
     .order("ora_inizio", {
       ascending: true,
     })
-    .limit(4);
+    .limit(limit);
+
+  if (squadraId) {
+    allenamentiQuery = allenamentiQuery.eq("squadra_id", squadraId);
+  }
+
+  const { data: allenamenti, error: allenamentiError } =
+    await allenamentiQuery;
+
+  if (allenamentiError) {
+    console.error(
+      "Errore caricamento allenamenti dashboard:",
+      allenamentiError
+    );
+  }
+
+  return (allenamenti ?? []).map((allenamento) => ({
+    id: allenamento.id,
+    type: "Allenamento" as const,
+    title: allenamento.titolo,
+    date: allenamento.data_allenamento,
+    time: `${allenamento.ora_inizio?.slice(0, 5) ?? ""}${
+      allenamento.ora_fine ? ` - ${allenamento.ora_fine.slice(0, 5)}` : ""
+    }`,
+    place: allenamento.luogo ?? "Campo",
+    logoCasa: null as string | null,
+    logoFuori: null as string | null,
+  }));
+}
+
+export async function getUpcomingPartite(limit = 4) {
+  const { supabase, clubId, squadraId } = await getSelectedContext();
+
+  if (!clubId) {
+    return [];
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
 
   let partiteQuery = supabase
     .from("partite")
@@ -250,40 +286,13 @@ export async function getUpcomingEvents() {
     .order("ora_partita", {
       ascending: true,
     })
-    .limit(5);
+    .limit(limit);
 
   if (squadraId) {
-    allenamentiQuery = allenamentiQuery.eq(
-      "squadra_id",
-      squadraId
-    );
-
-    partiteQuery = partiteQuery.eq(
-      "squadra_id",
-      squadraId
-    );
+    partiteQuery = partiteQuery.eq("squadra_id", squadraId);
   }
 
-  const [
-    {
-      data: allenamenti,
-      error: allenamentiError,
-    },
-    {
-      data: partite,
-      error: partiteError,
-    },
-  ] = await Promise.all([
-    allenamentiQuery,
-    partiteQuery,
-  ]);
-
-  if (allenamentiError) {
-    console.error(
-      "Errore caricamento allenamenti dashboard:",
-      allenamentiError
-    );
-  }
+  const { data: partite, error: partiteError } = await partiteQuery;
 
   if (partiteError) {
     console.error(
@@ -292,64 +301,48 @@ export async function getUpcomingEvents() {
     );
   }
 
-  const eventiAllenamenti = (allenamenti ?? []).map(
-    (allenamento) => ({
-      id: allenamento.id,
-      type: "Allenamento" as const,
-      title: allenamento.titolo,
-      date: allenamento.data_allenamento,
-      time: `${
-        allenamento.ora_inizio?.slice(0, 5) ?? ""
-      }${
-        allenamento.ora_fine
-          ? ` - ${allenamento.ora_fine.slice(0, 5)}`
-          : ""
-      }`,
-      place: allenamento.luogo ?? "Campo",
-      logoCasa: null,
-      logoFuori: null,
+  return Promise.all(
+    (partite ?? []).map(async (partita) => {
+      const squadraCasa = firstJoin(
+        partita.squadra_casa as
+          | SquadraPartitaJoin
+          | SquadraPartitaJoin[]
+          | null
+      );
+
+      const squadraFuori = firstJoin(
+        partita.squadra_fuori as
+          | SquadraPartitaJoin
+          | SquadraPartitaJoin[]
+          | null
+      );
+
+      return {
+        id: partita.id,
+        type: "Partita" as const,
+        title:
+          squadraCasa?.nome && squadraFuori?.nome
+            ? `${squadraCasa.nome} vs ${squadraFuori.nome}`
+            : `Partita vs ${partita.avversario ?? "avversario"}`,
+        date: partita.data_partita,
+        time: partita.ora_partita?.slice(0, 5) ?? "",
+        place: partita.luogo ?? "Campo",
+        logoCasa: await getLogoSignedUrl(supabase, squadraCasa?.logo_path),
+        logoFuori: await getLogoSignedUrl(supabase, squadraFuori?.logo_path),
+      };
     })
   );
+}
 
-  const eventiPartite = await Promise.all(
-  (partite ?? []).map(async (partita) => {
-    const squadraCasa = firstJoin(
-      partita.squadra_casa as
-        | SquadraPartitaJoin
-        | SquadraPartitaJoin[]
-        | null
-    );
+export async function getUpcomingEvents() {
+  const [allenamenti, partite] = await Promise.all([
+    getUpcomingAllenamenti(4),
+    getUpcomingPartite(5),
+  ]);
 
-    const squadraFuori = firstJoin(
-      partita.squadra_fuori as
-        | SquadraPartitaJoin
-        | SquadraPartitaJoin[]
-        | null
-    );
-
-    return {
-      id: partita.id,
-      type: "Partita" as const,
-      title:
-        squadraCasa?.nome && squadraFuori?.nome
-          ? `${squadraCasa.nome} vs ${squadraFuori.nome}`
-          : `Partita vs ${partita.avversario ?? "avversario"}`,
-      date: partita.data_partita,
-      time: partita.ora_partita?.slice(0, 5) ?? "",
-      place: partita.luogo ?? "Campo",
-      logoCasa: await getLogoSignedUrl(supabase, squadraCasa?.logo_path),
-      logoFuori: await getLogoSignedUrl(supabase, squadraFuori?.logo_path),
-    };
-  })
-);
-
-  return [
-    ...eventiAllenamenti,
-    ...eventiPartite,
-  ]
+  return [...allenamenti, ...partite]
     .sort((a, b) => {
-      const dateComparison =
-        a.date.localeCompare(b.date);
+      const dateComparison = a.date.localeCompare(b.date);
 
       if (dateComparison !== 0) {
         return dateComparison;
@@ -556,18 +549,41 @@ export async function getPerformanceData() {
 }
 
 
-export type DashboardPlayerLoadPoint = {
+export type DashboardAttendancePoint = {
   data: string;
-  player_load: number;
-  acwr_medio: number | null;
+  presenti: number;
+  totale: number;
+  percentuale: number;
 };
 
-export type DashboardAcwrTeamPoint = {
-  data: string;
-  acwr_ewma: number;
+type StatoPresenzaDb =
+  | "presente_mattina"
+  | "presente_pomeriggio"
+  | "presente_entrambe"
+  | "infortunato"
+  | "assenza_giustificata"
+  | "assenza_ingiustificata";
+
+type PresenzaDashboardRow = {
+  stato: StatoPresenzaDb;
+  allenamento: {
+    data_allenamento: string;
+  } | null;
 };
 
-export async function getDashboardPlayerLoadData(): Promise<DashboardAcwrTeamPoint[]> {
+const STATI_PRESENTE: StatoPresenzaDb[] = [
+  "presente_mattina",
+  "presente_pomeriggio",
+  "presente_entrambe",
+];
+
+/*
+ * Andamento delle presenze alle sedute (allenamenti), mostrato nella
+ * dashboard al posto dell'ACWR medio squadra: percentuale di giocatori
+ * presenti per ciascuna seduta registrata negli ultimi 60 giorni,
+ * limitata alle ultime 10 sedute per leggibilità del grafico.
+ */
+export async function getDashboardAttendanceData(): Promise<DashboardAttendancePoint[]> {
   const supabase = await createClient();
 
   const {
@@ -585,17 +601,21 @@ export async function getDashboardPlayerLoadData(): Promise<DashboardAcwrTeamPoi
 
   if (!profilo?.last_club_id) return [];
 
-  const fourteenDaysAgo = new Date();
-  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
-  const startDate = fourteenDaysAgo.toISOString().slice(0, 10);
+  const sixtyDaysAgo = new Date();
+  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+  const startDate = sixtyDaysAgo.toISOString().slice(0, 10);
 
   let query = supabase
-    .from("catapult_acwr")
-    .select("data, acwr_ewma")
-    .eq("club_id", profilo.last_club_id)
-    .not("acwr_ewma", "is", null)
-    .gte("data", startDate)
-    .order("data", { ascending: true });
+    .from("presenze_allenamenti")
+    .select(
+      `
+        stato,
+        allenamento:allenamenti!presenze_allenamenti_allenamento_id_fkey (
+          data_allenamento
+        )
+      `
+    )
+    .eq("club_id", profilo.last_club_id);
 
   if (profilo.last_squadra_id) {
     query = query.eq("squadra_id", profilo.last_squadra_id);
@@ -604,23 +624,36 @@ export async function getDashboardPlayerLoadData(): Promise<DashboardAcwrTeamPoi
   const { data, error } = await query;
 
   if (error || !data) {
-    console.error("Errore caricamento ACWR dashboard:", error);
+    console.error("Errore caricamento presenze dashboard:", error);
     return [];
   }
 
-  const grouped = new Map<string, { sum: number; count: number }>();
+  const grouped = new Map<string, { presenti: number; totale: number }>();
 
-  for (const row of data) {
-    const current = grouped.get(row.data) ?? { sum: 0, count: 0 };
+  for (const row of (data as unknown as PresenzaDashboardRow[])) {
+    const dataSeduta = row.allenamento?.data_allenamento;
 
-    current.sum += Number(row.acwr_ewma ?? 0);
-    current.count += 1;
+    if (!dataSeduta || dataSeduta < startDate) continue;
 
-    grouped.set(row.data, current);
+    const current = grouped.get(dataSeduta) ?? { presenti: 0, totale: 0 };
+
+    current.totale += 1;
+
+    if (STATI_PRESENTE.includes(row.stato)) {
+      current.presenti += 1;
+    }
+
+    grouped.set(dataSeduta, current);
   }
 
-  return Array.from(grouped.entries()).map(([data, value]) => ({
-    data,
-    acwr_ewma: value.count > 0 ? value.sum / value.count : 0,
-  }));
+  return Array.from(grouped.entries())
+    .map(([data, value]) => ({
+      data,
+      presenti: value.presenti,
+      totale: value.totale,
+      percentuale:
+        value.totale > 0 ? Math.round((value.presenti / value.totale) * 100) : 0,
+    }))
+    .sort((a, b) => a.data.localeCompare(b.data))
+    .slice(-10);
 }

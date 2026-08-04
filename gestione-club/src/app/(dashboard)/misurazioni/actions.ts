@@ -235,6 +235,226 @@ export async function creaPostAllenamentoAction(
   }
 }
 
+/*
+ * Nuovo questionario "Come va" (self-report del giocatore): sostituisce
+ * il vecchio creaPostAllenamentoAction. Tre percorsi possibili, tutti
+ * salvati sulla stessa tabella misurazioni_benessere:
+ *   - campo:    seduta (Mattino/Sera) + RPE 1-10 + fastidio
+ *   - palestra: seduta (Forza/Potenza/Richiamo) + RPE 1-10 + fastidio
+ *   - mattino:  indice di Hooper, 4 valori 1-7 (sonno, stanchezza,
+ *               indolenzimento, stress)
+ */
+export async function creaMisurazioneBenessereAction(
+  formData: FormData,
+): Promise<MisurazioniActionResult> {
+  try {
+    const { supabase, profilo } = await getCurrentContext();
+
+    const tipoProfilo = String(
+      profilo.tipo_profilo || "",
+    ).toLowerCase();
+
+    if (tipoProfilo !== "giocatore") {
+      return {
+        success: false,
+        message:
+          "Solo un giocatore può registrare il proprio stato.",
+      };
+    }
+
+    const { data: giocatore, error: giocatoreError } = await supabase
+      .from("giocatori")
+      .select("id, squadra_id")
+      .eq("id_atleta", profilo.id)
+      .eq("club_id", profilo.last_club_id)
+      .maybeSingle();
+
+    if (giocatoreError || !giocatore) {
+      return {
+        success: false,
+        message:
+          "Il tuo profilo non è collegato a un giocatore della squadra attiva.",
+      };
+    }
+
+    const dataCompilazione =
+      getString(formData.get("data_compilazione")) ||
+      new Date().toISOString().slice(0, 10);
+
+    const tipoCompilazione = getString(formData.get("tipo_compilazione"));
+
+    if (!["campo", "palestra", "mattino"].includes(tipoCompilazione)) {
+      return {
+        success: false,
+        message: "Indica cosa stai compilando.",
+      };
+    }
+
+    function getScala(
+      campo: string,
+      etichetta: string,
+      min: number,
+      max: number,
+    ): { valore: number } | { errore: string } {
+      const valore = getNullableNumber(formData.get(campo));
+
+      if (
+        valore === null ||
+        valore < min ||
+        valore > max ||
+        !Number.isInteger(valore)
+      ) {
+        return { errore: `Indica ${etichetta} (da ${min} a ${max}).` };
+      }
+
+      return { valore };
+    }
+
+    const payload: {
+      club_id: string;
+      squadra_id: string | null;
+      giocatore_id: string;
+      data_compilazione: string;
+      tipo_compilazione: string;
+      seduta: string | null;
+      rpe: number | null;
+      fastidio: string | null;
+      fastidio_dettaglio: string | null;
+      sonno: number | null;
+      stanchezza: number | null;
+      indolenzimento: number | null;
+      stress: number | null;
+    } = {
+      club_id: profilo.last_club_id,
+      squadra_id: giocatore.squadra_id ?? null,
+      giocatore_id: giocatore.id,
+      data_compilazione: dataCompilazione,
+      tipo_compilazione: tipoCompilazione,
+      seduta: null,
+      rpe: null,
+      fastidio: null,
+      fastidio_dettaglio: null,
+      sonno: null,
+      stanchezza: null,
+      indolenzimento: null,
+      stress: null,
+    };
+
+    if (tipoCompilazione === "campo" || tipoCompilazione === "palestra") {
+      const seduta = getString(formData.get("seduta"));
+
+      if (!seduta) {
+        return { success: false, message: "Indica quale seduta." };
+      }
+
+      const rpeRisultato = getScala(
+        "rpe",
+        "quanto è stata dura questa seduta",
+        1,
+        10,
+      );
+
+      if ("errore" in rpeRisultato) {
+        return { success: false, message: rpeRisultato.errore };
+      }
+
+      const fastidio = getString(formData.get("fastidio"));
+
+      if (!["no", "leggero", "preoccupante"].includes(fastidio)) {
+        return {
+          success: false,
+          message: "Indica se hai qualche fastidio o dolore.",
+        };
+      }
+
+      payload.seduta = seduta;
+      payload.rpe = rpeRisultato.valore;
+      payload.fastidio = fastidio;
+      payload.fastidio_dettaglio =
+        fastidio !== "no"
+          ? getNullableString(formData.get("fastidio_dettaglio"))
+          : null;
+    } else {
+      const sonnoRisultato = getScala("sonno", "come hai dormito", 1, 7);
+
+      if ("errore" in sonnoRisultato) {
+        return { success: false, message: sonnoRisultato.errore };
+      }
+
+      const stanchezzaRisultato = getScala(
+        "stanchezza",
+        "quanto sei stanco",
+        1,
+        7,
+      );
+
+      if ("errore" in stanchezzaRisultato) {
+        return { success: false, message: stanchezzaRisultato.errore };
+      }
+
+      const indolenzimentoRisultato = getScala(
+        "indolenzimento",
+        "quanto hai i muscoli indolenziti",
+        1,
+        7,
+      );
+
+      if ("errore" in indolenzimentoRisultato) {
+        return { success: false, message: indolenzimentoRisultato.errore };
+      }
+
+      const stressRisultato = getScala(
+        "stress",
+        "quanto sei stressato o nervoso",
+        1,
+        7,
+      );
+
+      if ("errore" in stressRisultato) {
+        return { success: false, message: stressRisultato.errore };
+      }
+
+      payload.sonno = sonnoRisultato.valore;
+      payload.stanchezza = stanchezzaRisultato.valore;
+      payload.indolenzimento = indolenzimentoRisultato.valore;
+      payload.stress = stressRisultato.valore;
+    }
+
+    const { error: insertError } = await supabase
+      .from("misurazioni_benessere")
+      .insert(payload);
+
+    if (insertError) {
+      console.error(
+        "Errore inserimento misurazione benessere:",
+        insertError,
+      );
+
+      return {
+        success: false,
+        message: insertError.message,
+      };
+    }
+
+    revalidatePath("/misurazioni");
+
+    return {
+      success: true,
+      message: "Risposta salvata correttamente.",
+    };
+  } catch (error) {
+    console.error("Errore creaMisurazioneBenessereAction:", error);
+
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Errore imprevisto.",
+    };
+  }
+}
+
 export async function creaMisurazioneAntropometricaAction(
   formData: FormData,
 ): Promise<MisurazioniActionResult> {

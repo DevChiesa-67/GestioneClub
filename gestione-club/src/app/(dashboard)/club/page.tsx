@@ -25,6 +25,7 @@ type Club = {
   colore_secondario: string | null;
   colore_flag: string | null;
   attivo: boolean;
+  preferenza_vista_lavori: string | null;
   squadre?: Squadra[];
 };
 
@@ -344,7 +345,7 @@ export default async function ClubPage() {
   const { data: clubs = [], error: clubsError } = await supabase
     .from("club")
     .select(
-      "id,nome,slug,logo_url,stagione_corrente,colore_primario,colore_secondario,colore_flag,attivo"
+      "id,nome,slug,logo_url,stagione_corrente,colore_primario,colore_secondario,colore_flag,attivo,preferenza_vista_lavori"
     )
     .order("created_at", { ascending: false });
 
@@ -780,6 +781,11 @@ export default async function ClubPage() {
       </div>
     </div>
   </div>
+
+  <p className="text-sm text-zinc-500">
+    La vista predefinita per la creazione delle sedute (card/tabella) si
+    imposta ora dalla pagina Impostazioni.
+  </p>
 
   <div className="rounded-3xl border border-zinc-800 bg-zinc-950/40 p-5">
     <h4 className="mb-4 flex items-center gap-3 text-lg font-bold text-white">

@@ -12,9 +12,13 @@ export default async function Page() {
 
   const { data: profilo } = await supabase
     .from("profili")
-    .select("id, last_club_id, last_squadra_id")
+    .select("id, last_club_id, last_squadra_id, tipo_profilo")
     .eq("auth_user_id", user.id)
     .single();
+
+  const tipoProfilo = profilo?.tipo_profilo
+    ? String(profilo.tipo_profilo).toLowerCase()
+    : null;
 
   if (!profilo?.last_club_id) {
     return (
@@ -133,6 +137,7 @@ export default async function Page() {
       giocatori={giocatori ?? []}
       splitOptions={splitOptions}
       sessioni={sessioniCatapult}
+      tipoProfilo={tipoProfilo}
     />
   );
 }
