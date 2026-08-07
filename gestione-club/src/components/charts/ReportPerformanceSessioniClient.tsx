@@ -395,7 +395,7 @@ async function fetchValoriCatapultPerCampi(params: {
     return {};
   }
 
-  const righe = (data ?? []) as Record<string, unknown>[];
+  const righe = (data ?? []) as unknown as Record<string, unknown>[];
   const risultato: Record<string, ValoreCatapultDinamico[]> = {};
 
   for (const colonna of colonneUniche) {
