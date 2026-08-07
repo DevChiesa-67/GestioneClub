@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ClipboardCheck,
   FileDown,
+  FileUp,
   Pencil,
   Plus,
   Users,
@@ -16,6 +17,7 @@ import { DateInput } from "@/components/ui/DateInput";
 import { supabase } from "@/lib/supabase-client";
 import NuovoAllenamentoModal from "@/components/allenamenti/NuovoAllenamentoModal";
 import RegistraPresenzeModal from "@/components/allenamenti/RegistraPresenzeModal";
+import ImportaAllenamentiModal from "@/components/allenamenti/ImportaAllenamentiModal";
 import { generaPdfAllenamento } from "@/lib/pdf-allenamento";
 
 type StatoPresenza = "PM" | "PP" | "P" | "I" | "AG" | "AI";
@@ -286,6 +288,7 @@ export default function Page() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [openNuovoAllenamento, setOpenNuovoAllenamento] = useState(false);
   const [openRegistraPresenze, setOpenRegistraPresenze] = useState(false);
+  const [openImportaExcel, setOpenImportaExcel] = useState(false);
 
   const [dataDa, setDataDa] = useState(inizioSettimanaISO());
   const [dataA, setDataA] = useState(fineSettimanaISO());
@@ -920,7 +923,7 @@ export default function Page() {
       </p>
     </div>
 
-    {/* PULSANTI CREA SEDUTA / REGISTRA PRESENZE - SOLO DESKTOP */}
+    {/* PULSANTI CREA SEDUTA / REGISTRA PRESENZE / IMPORTA EXCEL - SOLO DESKTOP */}
     {isAdmin && (
     <div className="hidden items-center gap-3 lg:flex">
       <button
@@ -931,6 +934,16 @@ export default function Page() {
       >
         <ClipboardCheck className="h-4 w-4" />
         Registra presenze
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setOpenImportaExcel(true)}
+        className="inline-flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-black text-white transition hover:bg-white/5 active:scale-[0.98]"
+        style={{ borderColor: `${themeColor}55` }}
+      >
+        <FileUp className="h-4 w-4" />
+        Importa Excel
       </button>
 
       <button
@@ -1041,6 +1054,18 @@ export default function Page() {
       >
         <ClipboardCheck className="h-4 w-4" />
         Registra presenze
+      </button>
+      )}
+
+      {isAdmin && (
+      <button
+        type="button"
+        onClick={() => setOpenImportaExcel(true)}
+        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl border px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/5 active:scale-[0.98] lg:hidden"
+        style={{ borderColor: `${themeColor}55` }}
+      >
+        <FileUp className="h-4 w-4" />
+        Importa Excel
       </button>
       )}
 
@@ -1605,6 +1630,28 @@ export default function Page() {
               onClose={() => setOpenNuovoAllenamento(false)}
               onSaved={async () => {
                 setOpenNuovoAllenamento(false);
+                await caricaDati();
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {openImportaExcel && (
+        <div className="fixed inset-0 z-[9999] overflow-y-auto bg-black/80 px-3 py-4 backdrop-blur-sm sm:px-6 sm:py-8">
+          <div
+            className="mx-auto max-w-7xl min-w-0 overflow-x-hidden rounded-3xl border bg-[#090909] p-4 shadow-2xl sm:p-6"
+            style={{
+              borderColor: `${themeColor}55`,
+              boxShadow: `0 30px 80px ${themeColor}22`,
+            }}
+          >
+            <ImportaAllenamentiModal
+              themeColor={themeColor}
+              isAdmin={isAdmin}
+              onClose={() => setOpenImportaExcel(false)}
+              onSaved={async () => {
+                setOpenImportaExcel(false);
                 await caricaDati();
               }}
             />
