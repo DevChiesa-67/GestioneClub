@@ -359,6 +359,24 @@ export default function ImportaAllenamentiModal({
 
             if (deleteLavoriError) throw deleteLavoriError;
 
+            // Supabase non segnala errore se le RLS bloccano la DELETE
+            // senza permessi sufficienti: la query "riesce" ma non
+            // cancella nulla. Verifichiamo che i lavori vecchi siano
+            // davvero spariti, altrimenti l'insert successivo li
+            // raddoppierebbe silenziosamente ad ogni reimport.
+            const { count: rimasti, error: verificaError } = await supabase
+              .from("lavori_allenamento")
+              .select("id", { count: "exact", head: true })
+              .eq("allenamento_id", allenamentoId);
+
+            if (verificaError) throw verificaError;
+
+            if ((rimasti ?? 0) > 0) {
+              throw new Error(
+                `Impossibile sostituire i lavori esistenti: ${rimasti} lavori vecchi non cancellati (probabile permesso mancante sulla cancellazione). Import di questa seduta annullato per non duplicare.`
+              );
+            }
+
             const { error: updateError } = await supabase
               .from("allenamenti")
               .update({
