@@ -262,7 +262,9 @@ export default function ImportaAllenamentiModal({
           erroreDrillBank =
             error instanceof Error
               ? error.message
-              : "Errore durante il salvataggio del Drill bank.";
+              : typeof error === "object" && error && "message" in error
+                ? String((error as { message: unknown }).message)
+                : "Errore durante il salvataggio del Drill bank.";
         }
       }
 
@@ -298,14 +300,19 @@ export default function ImportaAllenamentiModal({
 
           const durataMinuti = calcolaDurataSeduta(seduta);
 
+          // .limit(1) prima di .maybeSingle(): se per qualche motivo
+          // esistessero già più righe corrispondenti (es. doppioni storici),
+          // evita che la query vada in errore "multiple rows returned" e
+          // blocchi l'import di questa seduta.
           const { data: allenamentoEsistente, error: checkError } =
             await supabase
               .from("allenamenti")
-              .select("id, durata_minuti")
+              .select("id")
               .eq("club_id", profilo.last_club_id)
               .eq("squadra_id", profilo.last_squadra_id)
               .eq("data_allenamento", seduta.data_allenamento)
               .eq("tipo_allenamento", seduta.tipo_allenamento)
+              .limit(1)
               .maybeSingle();
 
           if (checkError) throw checkError;
@@ -338,14 +345,27 @@ export default function ImportaAllenamentiModal({
 
             allenamentoId = nuovoAllenamento.id;
           } else {
+            // Seduta già presente: aggiorniamo i campi con i valori freschi
+            // del file (non sommiamo) e sostituiamo per intero i lavori,
+            // così eventuali modifiche fatte nell'Excel (o una correzione
+            // di un import precedente) si riflettono correttamente invece
+            // di accumularsi ad ogni reimport.
             allenamentoId = allenamentoEsistente.id;
+
+            const { error: deleteLavoriError } = await supabase
+              .from("lavori_allenamento")
+              .delete()
+              .eq("allenamento_id", allenamentoId);
+
+            if (deleteLavoriError) throw deleteLavoriError;
 
             const { error: updateError } = await supabase
               .from("allenamenti")
               .update({
-                durata_minuti:
-                  (allenamentoEsistente.durata_minuti ?? 0) + durataMinuti,
+                titolo: seduta.titolo,
+                ora_inizio: seduta.ora_inizio,
                 ora_fine: seduta.ora_fine,
+                durata_minuti: durataMinuti,
                 updated_at: new Date().toISOString(),
               })
               .eq("id", allenamentoId);
@@ -354,25 +374,13 @@ export default function ImportaAllenamentiModal({
           }
 
           if (lavoriDaSalvare.length > 0) {
-            const { data: ultimiLavori, error: ultimiLavoriError } =
-              await supabase
-                .from("lavori_allenamento")
-                .select("ordine")
-                .eq("allenamento_id", allenamentoId)
-                .order("ordine", { ascending: false })
-                .limit(1);
-
-            if (ultimiLavoriError) throw ultimiLavoriError;
-
-            const ultimoOrdine = ultimiLavori?.[0]?.ordine ?? 0;
-
             const { error: lavoriError } = await supabase
               .from("lavori_allenamento")
               .insert(
                 lavoriDaSalvare.map((lavoro, index) => ({
                   ...lavoro,
                   allenamento_id: allenamentoId,
-                  ordine: ultimoOrdine + index + 1,
+                  ordine: index + 1,
                 }))
               );
 
@@ -385,7 +393,15 @@ export default function ImportaAllenamentiModal({
             `Errore import seduta ${seduta.data_allenamento}:`,
             error
           );
-          errori.push(`${seduta.titolo} (${seduta.data_allenamento})`);
+          const dettaglio =
+            error instanceof Error
+              ? error.message
+              : typeof error === "object" && error && "message" in error
+                ? String((error as { message: unknown }).message)
+                : "errore sconosciuto";
+          errori.push(
+            `${seduta.titolo} (${seduta.data_allenamento}): ${dettaglio}`
+          );
         }
       }
 
