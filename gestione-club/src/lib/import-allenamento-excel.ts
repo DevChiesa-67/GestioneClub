@@ -24,11 +24,38 @@ export type LavoroImportato = {
   tempo_lavoro: number | null;
   tempo_recupero: number | null;
   tempo_totale: number | null;
+  // true per H2O/CAMBIO e per i lavori il cui minutaggio arriva dal foglio
+  // "Drill bank" (colonna Durata, tramite il codice fra parentesi nel
+  // nome, es. "(A1)"): in questi casi tempo_totale va usato così com'è,
+  // senza ricalcolarlo da ripetizione × tempo_lavoro + recupero.
+  tempo_totale_fisso: boolean;
+  // true quando tempo_totale_fisso è stato impostato leggendo il Drill
+  // bank (per mostrarlo in anteprima): non salvato su lavori_allenamento.
+  tempo_da_drill_bank: boolean;
   contemporaneo: boolean;
   gruppo_contemporaneo: string | null;
+  spazio: string | null;
+  materiale: string | null;
+  progressione: string | null;
+  riferimento_gps: string | null;
+  perche_serve: string | null;
   // Solo per l'anteprima (mostra l'orario originale del foglio Excel):
   // non è una colonna di lavori_allenamento e va escluso dal salvataggio.
   orario_riferimento: string | null;
+};
+
+type VoceDrillBank = {
+  codice: string;
+  categoria: string | null;
+  nome: string | null;
+  durataMinuti: number | null;
+  spazio: string | null;
+  materiale: string | null;
+  organizzazione: string | null;
+  puntiChiaveCoaching: string | null;
+  progressione: string | null;
+  riferimentoGps: string | null;
+  percheServe: string | null;
 };
 
 export type SedutaImportata = {
@@ -109,9 +136,65 @@ function celle(riga: unknown[] | undefined, indice: number): unknown {
   return riga[indice] ?? null;
 }
 
+const CODICE_VOCE_RE = /^[A-Za-z]{1,3}\d{1,3}$/;
+
+// Legge il foglio "Drill bank" (se presente): colonne fisse Codice /
+// Categoria / Nome / Durata / Spazio / Materiale / Organizzazione / Punti
+// chiave di coaching / Progressione / Riferimento GPS / Perché serve.
+// Restituisce una mappa codice → voce, usata per completare i lavori della
+// seduta che riportano lo stesso codice fra parentesi nel nome del drill.
+function parseDrillBank(
+  workbook: XLSX.WorkBook
+): Map<string, VoceDrillBank> {
+  const mappa = new Map<string, VoceDrillBank>();
+
+  const nomeFoglio = workbook.SheetNames.find((nome) =>
+    /drill\s*bank/i.test(nome)
+  );
+  if (!nomeFoglio) return mappa;
+
+  const foglio = workbook.Sheets[nomeFoglio];
+  const righe = XLSX.utils.sheet_to_json(foglio, {
+    header: 1,
+    defval: null,
+    raw: false,
+  }) as unknown[][];
+
+  for (const riga of righe) {
+    const codiceGrezzo = pulisci(celle(riga, 0));
+    if (!codiceGrezzo) continue;
+
+    const codice = codiceGrezzo.toUpperCase();
+    if (!CODICE_VOCE_RE.test(codice)) continue; // salta intestazione/titolo
+
+    mappa.set(codice, {
+      codice,
+      categoria: pulisci(celle(riga, 1)),
+      nome: pulisci(celle(riga, 2)),
+      durataMinuti: estraiMinuti(celle(riga, 3)),
+      spazio: pulisci(celle(riga, 4)),
+      materiale: pulisci(celle(riga, 5)),
+      organizzazione: pulisci(celle(riga, 6)),
+      puntiChiaveCoaching: pulisci(celle(riga, 7)),
+      progressione: pulisci(celle(riga, 8)),
+      riferimentoGps: pulisci(celle(riga, 9)),
+      percheServe: pulisci(celle(riga, 10)),
+    });
+  }
+
+  return mappa;
+}
+
 export function parseSeduteDaExcel(dati: ArrayBuffer): RisultatoImportExcel {
   const avvisi: string[] = [];
   const workbook = XLSX.read(dati, { type: "array" });
+
+  const drillBank = parseDrillBank(workbook);
+  if (drillBank.size === 0) {
+    avvisi.push(
+      "Nessun foglio \"Drill bank\" trovato: il minutaggio dei lavori con codice verrà preso solo da ripetizioni/minuti/recupero del foglio principale."
+    );
+  }
 
   const nomeFoglio =
     workbook.SheetNames.find((nome) => /settiman|microcicl/i.test(nome)) ??
@@ -196,20 +279,34 @@ export function parseSeduteDaExcel(dati: ArrayBuffer): RisultatoImportExcel {
     // Riga di un nuovo lavoro (identificata dall'orario "HH:MM–HH:MM").
     if (a && RIGA_ORARIO_RE.test(a)) {
       const { titolo, codice } = estraiTitoloECodice(d);
+      const voceBank = codice ? drillBank.get(codice.toUpperCase()) : undefined;
+
+      if (codice && !voceBank && drillBank.size > 0) {
+        avvisi.push(
+          `Codice "${codice}" (riga ${i + 1}) non trovato nel Drill bank: minutaggio preso da ripetizioni/minuti/recupero.`
+        );
+      }
 
       lavoroCorrente = {
         sezione: b ?? "ALTRO",
         rango: c,
         titolo,
         codice,
-        descrizione: pulisci(e),
-        punti_chiave_coaching: pulisci(f),
+        descrizione: pulisci(e) ?? voceBank?.organizzazione ?? null,
+        punti_chiave_coaching: pulisci(f) ?? voceBank?.puntiChiaveCoaching ?? null,
         ripetizione: null,
         tempo_lavoro: null,
         tempo_recupero: null,
-        tempo_totale: null,
+        tempo_totale: voceBank?.durataMinuti ?? null,
+        tempo_totale_fisso: Boolean(voceBank?.durataMinuti != null),
+        tempo_da_drill_bank: Boolean(voceBank?.durataMinuti != null),
         contemporaneo: false,
         gruppo_contemporaneo: null,
+        spazio: voceBank?.spazio ?? null,
+        materiale: voceBank?.materiale ?? null,
+        progressione: voceBank?.progressione ?? null,
+        riferimento_gps: voceBank?.riferimentoGps ?? null,
+        perche_serve: voceBank?.percheServe ?? null,
         orario_riferimento: a,
       };
       sedutaCorrente.lavori.push(lavoroCorrente);
@@ -229,8 +326,15 @@ export function parseSeduteDaExcel(dati: ArrayBuffer): RisultatoImportExcel {
         tempo_lavoro: null,
         tempo_recupero: null,
         tempo_totale: estraiMinuti(e) ?? 1,
+        tempo_totale_fisso: true,
+        tempo_da_drill_bank: false,
         contemporaneo: false,
         gruppo_contemporaneo: null,
+        spazio: null,
+        materiale: null,
+        progressione: null,
+        riferimento_gps: null,
+        perche_serve: null,
         orario_riferimento: null,
       });
       lavoroCorrente = null;
@@ -251,8 +355,15 @@ export function parseSeduteDaExcel(dati: ArrayBuffer): RisultatoImportExcel {
         tempo_lavoro: null,
         tempo_recupero: null,
         tempo_totale: estraiMinuti(e) ?? 0,
+        tempo_totale_fisso: true,
+        tempo_da_drill_bank: false,
         contemporaneo: false,
         gruppo_contemporaneo: null,
+        spazio: null,
+        materiale: null,
+        progressione: null,
+        riferimento_gps: null,
+        perche_serve: null,
         orario_riferimento: null,
       });
       lavoroCorrente = null;

@@ -33,9 +33,11 @@ type Props = {
 
 // Stessa formula di calcolaTempoTotale usata nel builder manuale (vedi
 // NuovoAllenamentoModal.tsx), riscritta qui sui campi già numerici prodotti
-// dal parser Excel invece che sui campi stringa del form.
+// dal parser Excel invece che sui campi stringa del form. Per H2O/CAMBIO e
+// per i lavori con minutaggio letto dal Drill bank (tempo_totale_fisso),
+// il valore va usato così com'è, senza ricalcolarlo da ripetizioni.
 function calcolaTempoTotaleImportato(lavoro: LavoroImportato): number {
-  if (lavoro.sezione === "H2O" || lavoro.sezione === "CAMBIO") {
+  if (lavoro.tempo_totale_fisso) {
     return lavoro.tempo_totale ?? 0;
   }
 
@@ -203,12 +205,12 @@ export default function ImportaAllenamentiModal({
             contemporaneo: lavoro.contemporaneo,
             gruppo_contemporaneo: lavoro.gruppo_contemporaneo,
             codice: lavoro.codice,
-            spazio: null as string | null,
-            materiale: null as string | null,
+            spazio: lavoro.spazio,
+            materiale: lavoro.materiale,
             punti_chiave_coaching: lavoro.punti_chiave_coaching,
-            progressione: null as string | null,
-            riferimento_gps: null as string | null,
-            perche_serve: null as string | null,
+            progressione: lavoro.progressione,
+            riferimento_gps: lavoro.riferimento_gps,
+            perche_serve: lavoro.perche_serve,
           }));
 
           const durataMinuti = calcolaDurataSeduta(seduta);
@@ -711,6 +713,11 @@ function SedutaPreviewCard({
                       }`}
                     >
                       {calcolaTempoTotaleImportato(lavoro)} min
+                      {lavoro.tempo_da_drill_bank && (
+                        <span className="ml-1 text-[10px] font-normal text-emerald-400">
+                          (drill bank)
+                        </span>
+                      )}
                     </td>
                   </tr>
                 );
