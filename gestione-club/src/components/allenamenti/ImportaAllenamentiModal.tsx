@@ -15,6 +15,7 @@ import { supabase } from "@/lib/supabase-client";
 import { useToast } from "@/components/ui/Toast";
 import {
   parseSeduteDaExcel,
+  risolviDurataLavoro,
   type SedutaImportata,
   type LavoroImportato,
   type VoceDrillBank,
@@ -32,24 +33,11 @@ type Props = {
   isAdmin: boolean;
 };
 
-// Stessa formula di calcolaTempoTotale usata nel builder manuale (vedi
-// NuovoAllenamentoModal.tsx), riscritta qui sui campi già numerici prodotti
-// dal parser Excel invece che sui campi stringa del form. Per H2O/CAMBIO e
-// per i lavori con minutaggio letto dal Drill bank (tempo_totale_fisso),
-// il valore va usato così com'è, senza ricalcolarlo da ripetizioni.
+// Priorità del minutaggio (vedi risolviDurataLavoro in
+// import-allenamento-excel.ts): Drill bank -> ripetizioni × minuti a
+// ripetizione + recupero -> differenza di orario come ultima spiaggia.
 function calcolaTempoTotaleImportato(lavoro: LavoroImportato): number {
-  if (lavoro.tempo_totale_fisso) {
-    return lavoro.tempo_totale ?? 0;
-  }
-
-  const tempoLavoro = lavoro.tempo_lavoro ?? 0;
-  const ripetizioni = lavoro.ripetizione ?? 0;
-  const recupero = lavoro.tempo_recupero ?? 0;
-
-  if (ripetizioni <= 0) return 0;
-  if (ripetizioni === 1) return tempoLavoro;
-
-  return tempoLavoro * ripetizioni + recupero * (ripetizioni - 1);
+  return risolviDurataLavoro(lavoro).minuti;
 }
 
 // Somma i tempo_totale dei lavori di una seduta deduplicando i gruppi
@@ -887,16 +875,24 @@ function SedutaPreviewCard({
                       }`}
                     >
                       {calcolaTempoTotaleImportato(lavoro)} min
-                      {lavoro.tempo_da_drill_bank && (
-                        <span className="ml-1 text-[10px] font-normal text-emerald-400">
-                          (drill bank)
-                        </span>
-                      )}
-                      {lavoro.tempo_da_orario && (
-                        <span className="ml-1 text-[10px] font-normal text-amber-400">
-                          (da orario)
-                        </span>
-                      )}
+                      {(() => {
+                        const { fonte } = risolviDurataLavoro(lavoro);
+                        if (fonte === "drill_bank") {
+                          return (
+                            <span className="ml-1 text-[10px] font-normal text-emerald-400">
+                              (drill bank)
+                            </span>
+                          );
+                        }
+                        if (fonte === "orario") {
+                          return (
+                            <span className="ml-1 text-[10px] font-normal text-amber-400">
+                              (da orario)
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
                     </td>
                   </tr>
                 );
