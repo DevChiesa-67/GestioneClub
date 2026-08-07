@@ -156,6 +156,12 @@ const COLORE_STATO: Record<StatoPresenza, string> = {
   AI: "bg-red-800 border-red-700 text-white",
 };
 
+const COLORE_H2O = "#38bdf8";
+
+function coloreSezione(sezione: string, themeColor: string) {
+  return sezione.trim().toUpperCase() === "H2O" ? COLORE_H2O : themeColor;
+}
+
 function oggiISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -285,6 +291,9 @@ export default function Page() {
   const [preferenzaVistaLavori, setPreferenzaVistaLavori] = useState<
     "card" | "tabella"
   >("card");
+  const [vistaElencoLavori, setVistaElencoLavori] = useState<
+    "card" | "tabella"
+  >("tabella");
 
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -1507,7 +1516,139 @@ export default function Page() {
                           </p>
                         )}
 
-                        {(() => {
+                        {listaLavori.length > 0 && (
+                          <div className="flex justify-end gap-1 rounded-xl border border-zinc-800 bg-zinc-950 p-1">
+                            <button
+                              type="button"
+                              onClick={() => setVistaElencoLavori("card")}
+                              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                                vistaElencoLavori === "card"
+                                  ? "text-white"
+                                  : "text-zinc-500 hover:text-white"
+                              }`}
+                              style={
+                                vistaElencoLavori === "card"
+                                  ? { backgroundColor: themeColor }
+                                  : undefined
+                              }
+                            >
+                              Card
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setVistaElencoLavori("tabella")}
+                              className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                                vistaElencoLavori === "tabella"
+                                  ? "text-white"
+                                  : "text-zinc-500 hover:text-white"
+                              }`}
+                              style={
+                                vistaElencoLavori === "tabella"
+                                  ? { backgroundColor: themeColor }
+                                  : undefined
+                              }
+                            >
+                              Tabella
+                            </button>
+                          </div>
+                        )}
+
+                        {listaLavori.length > 0 &&
+                          vistaElencoLavori === "tabella" && (
+                            <div className="overflow-x-auto rounded-xl border border-zinc-700">
+                              <table className="w-full min-w-[820px] border-collapse text-sm">
+                                <thead style={{ backgroundColor: themeColor }}>
+                                  <tr className="text-left text-white">
+                                    <th className="border border-black/10 px-3 py-2 font-semibold">
+                                      Sezione
+                                    </th>
+                                    <th className="border border-black/10 px-3 py-2 font-semibold">
+                                      Descrizione
+                                    </th>
+                                    <th className="border border-black/10 px-3 py-2 text-right font-semibold">
+                                      Rip.
+                                    </th>
+                                    <th className="border border-black/10 px-3 py-2 text-right font-semibold">
+                                      Tempo
+                                    </th>
+                                    <th className="border border-black/10 px-3 py-2 text-right font-semibold">
+                                      Rec.
+                                    </th>
+                                    <th className="border border-black/10 px-3 py-2 text-right font-semibold">
+                                      Totale
+                                    </th>
+                                  </tr>
+                                </thead>
+
+                                <tbody>
+                                  {listaLavori.map((lavoro, index) => {
+                                    const h2oRiga =
+                                      lavoro.sezione.trim().toUpperCase() ===
+                                      "H2O";
+
+                                    return (
+                                      <tr
+                                        key={lavoro.id}
+                                        className={
+                                          index % 2 === 0
+                                            ? "bg-zinc-950"
+                                            : "bg-zinc-900/40"
+                                        }
+                                      >
+                                        <td
+                                          className="border border-zinc-800 bg-zinc-800/60 px-3 py-2 font-bold"
+                                          style={{
+                                            color: coloreSezione(
+                                              lavoro.sezione,
+                                              themeColor,
+                                            ),
+                                          }}
+                                        >
+                                          {lavoro.sezione}
+                                          {lavoro.contemporaneo && (
+                                            <span className="ml-1 text-[10px] font-normal text-zinc-400">
+                                              (parallelo)
+                                            </span>
+                                          )}
+                                        </td>
+
+                                        <td className="border border-zinc-800 px-3 py-2 text-zinc-300">
+                                          {h2oRiga
+                                            ? "Pausa acqua"
+                                            : lavoro.descrizione || "—"}
+                                        </td>
+
+                                        <td className="border border-zinc-800 px-3 py-2 text-right text-zinc-400">
+                                          {h2oRiga
+                                            ? "—"
+                                            : (lavoro.ripetizione ?? "—")}
+                                        </td>
+
+                                        <td className="border border-zinc-800 px-3 py-2 text-right text-zinc-400">
+                                          {h2oRiga
+                                            ? "—"
+                                            : (lavoro.tempo_lavoro ?? "—")}
+                                        </td>
+
+                                        <td className="border border-zinc-800 px-3 py-2 text-right text-zinc-400">
+                                          {h2oRiga
+                                            ? "—"
+                                            : (lavoro.tempo_recupero ?? "—")}
+                                        </td>
+
+                                        <td className="border border-zinc-800 bg-sky-900/30 px-3 py-2 text-right font-bold text-sky-200">
+                                          {lavoro.tempo_totale ?? 0} min
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+
+                        {vistaElencoLavori === "card" && (() => {
                           const gruppiRenderizzati = new Set<string>();
 
                           const cardLavoro = (
