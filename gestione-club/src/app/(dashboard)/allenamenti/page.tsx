@@ -7,6 +7,7 @@ import {
   ClipboardCheck,
   FileDown,
   FileUp,
+  Loader2,
   Pencil,
   Plus,
   Users,
@@ -18,7 +19,8 @@ import { supabase } from "@/lib/supabase-client";
 import NuovoAllenamentoModal from "@/components/allenamenti/NuovoAllenamentoModal";
 import RegistraPresenzeModal from "@/components/allenamenti/RegistraPresenzeModal";
 import ImportaAllenamentiModal from "@/components/allenamenti/ImportaAllenamentiModal";
-import { generaPdfAllenamento } from "@/lib/pdf-allenamento";
+import PdfPreviewModal from "@/components/allenamenti/PdfPreviewModal";
+import { generaPdfAllenamento, scaricaPdfAllenamento } from "@/lib/pdf-allenamento";
 
 type StatoPresenza = "PM" | "PP" | "P" | "I" | "AG" | "AI";
 
@@ -289,6 +291,12 @@ export default function Page() {
   const [openNuovoAllenamento, setOpenNuovoAllenamento] = useState(false);
   const [openRegistraPresenze, setOpenRegistraPresenze] = useState(false);
   const [openImportaExcel, setOpenImportaExcel] = useState(false);
+  const [pdfInAnteprima, setPdfInAnteprima] = useState<{
+    doc: Awaited<ReturnType<typeof generaPdfAllenamento>>["doc"];
+    blobUrl: string;
+    nomeFile: string;
+  } | null>(null);
+  const [generandoPdfId, setGenerandoPdfId] = useState<string | null>(null);
 
   const [dataDa, setDataDa] = useState(inizioSettimanaISO());
   const [dataA, setDataA] = useState(fineSettimanaISO());
@@ -563,6 +571,30 @@ export default function Page() {
           ),
       ),
     );
+  }
+
+  async function apriAnteprimaPdf(allenamento: Allenamento) {
+    setGenerandoPdfId(allenamento.id);
+
+    try {
+      const { doc, nomeFile } = await generaPdfAllenamento(
+        allenamento,
+        lavoriPerAllenamento(allenamento.id),
+        { logo_url: clubLogoUrl },
+      );
+
+      const blobUrl = URL.createObjectURL(doc.output("blob"));
+      setPdfInAnteprima({ doc, blobUrl, nomeFile });
+    } catch (error) {
+      console.error("Errore generazione PDF:", error);
+    } finally {
+      setGenerandoPdfId(null);
+    }
+  }
+
+  function chiudiAnteprimaPdf() {
+    if (pdfInAnteprima) URL.revokeObjectURL(pdfInAnteprima.blobUrl);
+    setPdfInAnteprima(null);
   }
 
   const allenamentiSettimana = useMemo(() => {
@@ -1442,18 +1474,17 @@ export default function Page() {
                       )}
 
                       <button
-                        onClick={() =>
-                          generaPdfAllenamento(
-                            allenamento,
-                            lavoriPerAllenamento(allenamento.id),
-                            { logo_url: clubLogoUrl },
-                          )
-                        }
-                        className="rounded-xl border bg-zinc-950 p-2 text-zinc-300 hover:text-white"
+                        onClick={() => apriAnteprimaPdf(allenamento)}
+                        disabled={generandoPdfId === allenamento.id}
+                        className="rounded-xl border bg-zinc-950 p-2 text-zinc-300 hover:text-white disabled:opacity-50"
                         style={{ borderColor: `${themeColor}33` }}
-                        title="Scarica PDF"
+                        title="Anteprima PDF"
                       >
-                        <FileDown className="h-4 w-4" />
+                        {generandoPdfId === allenamento.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <FileDown className="h-4 w-4" />
+                        )}
                       </button>
                     </div>
                   </div>
@@ -1674,6 +1705,31 @@ export default function Page() {
             eliminaPresenza={eliminaPresenza}
             onClose={() => setOpenRegistraPresenze(false)}
           />
+        </div>
+      )}
+
+      {pdfInAnteprima && (
+        <div className="fixed inset-0 z-[9999] overflow-y-auto bg-black/80 px-3 py-4 backdrop-blur-sm sm:px-6 sm:py-8">
+          <div
+            className="mx-auto max-w-4xl min-w-0 overflow-x-hidden rounded-3xl border bg-[#090909] p-4 shadow-2xl sm:p-6"
+            style={{
+              borderColor: `${themeColor}55`,
+              boxShadow: `0 30px 80px ${themeColor}22`,
+            }}
+          >
+            <PdfPreviewModal
+              blobUrl={pdfInAnteprima.blobUrl}
+              nomeFile={pdfInAnteprima.nomeFile}
+              themeColor={themeColor}
+              onDownload={() =>
+                scaricaPdfAllenamento({
+                  doc: pdfInAnteprima.doc,
+                  nomeFile: pdfInAnteprima.nomeFile,
+                })
+              }
+              onClose={chiudiAnteprimaPdf}
+            />
+          </div>
         </div>
       )}
     </>

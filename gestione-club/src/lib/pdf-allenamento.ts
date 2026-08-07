@@ -259,18 +259,27 @@ function raggruppaInRun(lavori: LavoroPdf[]) {
   return run;
 }
 
+export type PdfAllenamentoGenerato = {
+  doc: jsPDF;
+  nomeFile: string;
+};
+
 /**
- * Genera e scarica un PDF dell'allenamento nel formato "foglio di lavoro"
- * classico usato dallo staff tecnico: barra titolo rosso scuro con box logo
- * a destra, header verde scuro, righe di sezione grigie, riga di pausa h2o
- * e colonna Tempo Totale evidenziate in azzurro, celle unite per i lavori
- * svolti in contemporanea da più gruppi.
+ * Costruisce il PDF dell'allenamento nel formato "foglio di lavoro" classico
+ * usato dallo staff tecnico: barra titolo rosso scuro con box logo a destra,
+ * header verde scuro, righe di sezione grigie, riga di pausa h2o e colonna
+ * Tempo Totale evidenziate in azzurro, celle unite per i lavori svolti in
+ * contemporanea da più gruppi.
+ *
+ * Ritorna il documento jsPDF pronto (senza scaricarlo): il chiamante decide
+ * se mostrarlo prima in anteprima (vedi PdfPreviewModal) e/o scaricarlo con
+ * scaricaPdfAllenamento().
  */
 export async function generaPdfAllenamento(
   allenamento: AllenamentoPdf,
   lavori: LavoroPdf[],
   club?: ClubPdf | null
-) {
+): Promise<PdfAllenamentoGenerato> {
   const doc = new jsPDF();
   const larghezzaPagina = doc.internal.pageSize.getWidth();
   const margine = 14;
@@ -290,11 +299,18 @@ export async function generaPdfAllenamento(
   doc.setDrawColor(0, 0, 0);
   doc.rect(margine, 12, larghezzaTitolo, 9, "FD");
 
+  const orarioSeduta =
+    allenamento.ora_inizio || allenamento.ora_fine
+      ? ` · ${formatOra(allenamento.ora_inizio)}${
+          allenamento.ora_fine ? `–${formatOra(allenamento.ora_fine)}` : ""
+        }`
+      : "";
+
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.setTextColor(255, 255, 255);
   doc.text(
-    `ALLENAMENTO ${formatDataIT(allenamento.data_allenamento)}`,
+    `ALLENAMENTO ${formatDataIT(allenamento.data_allenamento)}${orarioSeduta}`,
     margine + 3,
     18.5,
     { align: "left" }
@@ -665,5 +681,10 @@ export async function generaPdfAllenamento(
   });
 
   const nomeFile = `allenamento-${allenamento.data_allenamento}.pdf`;
+  return { doc, nomeFile };
+}
+
+/** Scarica un documento già generato da generaPdfAllenamento(). */
+export function scaricaPdfAllenamento({ doc, nomeFile }: PdfAllenamentoGenerato) {
   doc.save(nomeFile);
 }
