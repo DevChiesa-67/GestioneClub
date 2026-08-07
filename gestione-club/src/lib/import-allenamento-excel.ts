@@ -32,6 +32,11 @@ export type LavoroImportato = {
   // true quando tempo_totale_fisso è stato impostato leggendo il Drill
   // bank (per mostrarlo in anteprima): non salvato su lavori_allenamento.
   tempo_da_drill_bank: boolean;
+  // true quando tempo_totale_fisso è stato impostato dalla differenza fra
+  // inizio e fine dell'orario del lavoro (fallback quando il codice non è
+  // nel Drill bank, per mostrarlo in anteprima): non salvato su
+  // lavori_allenamento.
+  tempo_da_orario: boolean;
   contemporaneo: boolean;
   gruppo_contemporaneo: string | null;
   spazio: string | null;
@@ -134,6 +139,23 @@ function estraiTitoloECodice(valore: unknown): {
 function celle(riga: unknown[] | undefined, indice: number): unknown {
   if (!riga) return null;
   return riga[indice] ?? null;
+}
+
+// Calcola la durata in minuti di un lavoro dalla sua riga orario
+// "HH:MM–HH:MM" (usata come fallback quando il codice non è nel Drill
+// bank, al posto di ricalcolarla da ripetizioni/minuti/recupero).
+function estraiDurataDaOrario(orario: string | null): number | null {
+  if (!orario) return null;
+  const match = orario.match(/^(\d{1,2}):(\d{2})\s*[–\-‐]\s*(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+
+  const [, h1, m1, h2, m2] = match;
+  const inizio = Number(h1) * 60 + Number(m1);
+  let fine = Number(h2) * 60 + Number(m2);
+  if (fine < inizio) fine += 24 * 60; // difensivo, in caso di orario a cavallo di mezzanotte
+
+  const durata = fine - inizio;
+  return durata > 0 ? durata : null;
 }
 
 const CODICE_VOCE_RE = /^[A-Za-z]{1,3}\d{1,3}$/;
@@ -280,10 +302,33 @@ export function parseSeduteDaExcel(dati: ArrayBuffer): RisultatoImportExcel {
     if (a && RIGA_ORARIO_RE.test(a)) {
       const { titolo, codice } = estraiTitoloECodice(d);
       const voceBank = codice ? drillBank.get(codice.toUpperCase()) : undefined;
+      const durataDaOrario = estraiDurataDaOrario(a);
+
+      let tempoTotale: number | null;
+      let tempoTotaleFisso: boolean;
+      let tempoDaDrillBank: boolean;
+      let tempoDaOrario: boolean;
+
+      if (voceBank?.durataMinuti != null) {
+        tempoTotale = voceBank.durataMinuti;
+        tempoTotaleFisso = true;
+        tempoDaDrillBank = true;
+        tempoDaOrario = false;
+      } else if (durataDaOrario != null) {
+        tempoTotale = durataDaOrario;
+        tempoTotaleFisso = true;
+        tempoDaDrillBank = false;
+        tempoDaOrario = true;
+      } else {
+        tempoTotale = null;
+        tempoTotaleFisso = false;
+        tempoDaDrillBank = false;
+        tempoDaOrario = false;
+      }
 
       if (codice && !voceBank && drillBank.size > 0) {
         avvisi.push(
-          `Codice "${codice}" (riga ${i + 1}) non trovato nel Drill bank: minutaggio preso da ripetizioni/minuti/recupero.`
+          `Codice "${codice}" (riga ${i + 1}) non trovato nel Drill bank: minutaggio preso dalla differenza di orario.`
         );
       }
 
@@ -297,9 +342,10 @@ export function parseSeduteDaExcel(dati: ArrayBuffer): RisultatoImportExcel {
         ripetizione: null,
         tempo_lavoro: null,
         tempo_recupero: null,
-        tempo_totale: voceBank?.durataMinuti ?? null,
-        tempo_totale_fisso: Boolean(voceBank?.durataMinuti != null),
-        tempo_da_drill_bank: Boolean(voceBank?.durataMinuti != null),
+        tempo_totale: tempoTotale,
+        tempo_totale_fisso: tempoTotaleFisso,
+        tempo_da_drill_bank: tempoDaDrillBank,
+        tempo_da_orario: tempoDaOrario,
         contemporaneo: false,
         gruppo_contemporaneo: null,
         spazio: voceBank?.spazio ?? null,
@@ -328,6 +374,7 @@ export function parseSeduteDaExcel(dati: ArrayBuffer): RisultatoImportExcel {
         tempo_totale: estraiMinuti(e) ?? 1,
         tempo_totale_fisso: true,
         tempo_da_drill_bank: false,
+        tempo_da_orario: false,
         contemporaneo: false,
         gruppo_contemporaneo: null,
         spazio: null,
@@ -357,6 +404,7 @@ export function parseSeduteDaExcel(dati: ArrayBuffer): RisultatoImportExcel {
         tempo_totale: estraiMinuti(e) ?? 0,
         tempo_totale_fisso: true,
         tempo_da_drill_bank: false,
+        tempo_da_orario: false,
         contemporaneo: false,
         gruppo_contemporaneo: null,
         spazio: null,

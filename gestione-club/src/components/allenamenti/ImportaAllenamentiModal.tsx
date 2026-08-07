@@ -718,6 +718,11 @@ function SedutaPreviewCard({
                           (drill bank)
                         </span>
                       )}
+                      {lavoro.tempo_da_orario && (
+                        <span className="ml-1 text-[10px] font-normal text-amber-400">
+                          (da orario)
+                        </span>
+                      )}
                     </td>
                   </tr>
                 );
