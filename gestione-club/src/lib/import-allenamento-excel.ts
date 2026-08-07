@@ -49,7 +49,7 @@ export type LavoroImportato = {
   orario_riferimento: string | null;
 };
 
-type VoceDrillBank = {
+export type VoceDrillBank = {
   codice: string;
   categoria: string | null;
   nome: string | null;
@@ -74,6 +74,7 @@ export type SedutaImportata = {
 
 export type RisultatoImportExcel = {
   sedute: SedutaImportata[];
+  drillBank: VoceDrillBank[];
   avvisi: string[];
 };
 
@@ -225,6 +226,7 @@ export function parseSeduteDaExcel(dati: ArrayBuffer): RisultatoImportExcel {
   if (!nomeFoglio) {
     return {
       sedute: [],
+      drillBank: [...drillBank.values()],
       avvisi: ["Il file Excel non contiene nessun foglio leggibile."],
     };
   }
@@ -473,5 +475,5 @@ export function parseSeduteDaExcel(dati: ArrayBuffer): RisultatoImportExcel {
     );
   }
 
-  return { sedute, avvisi };
+  return { sedute, drillBank: [...drillBank.values()], avvisi };
 }

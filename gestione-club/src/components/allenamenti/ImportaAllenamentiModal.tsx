@@ -17,6 +17,7 @@ import {
   parseSeduteDaExcel,
   type SedutaImportata,
   type LavoroImportato,
+  type VoceDrillBank,
 } from "@/lib/import-allenamento-excel";
 
 type SedutaModificabile = SedutaImportata & {
@@ -86,6 +87,10 @@ export default function ImportaAllenamentiModal({
   const [sedute, setSedute] = useState<SedutaModificabile[] | null>(null);
   const [sedutaEspansa, setSedutaEspansa] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [drillBank, setDrillBank] = useState<VoceDrillBank[]>([]);
+  const [tabAttiva, setTabAttiva] = useState<"sedute" | "drillbank">(
+    "sedute"
+  );
 
   async function handleFile(file: File) {
     setErroreFile(null);
@@ -110,8 +115,10 @@ export default function ImportaAllenamentiModal({
           selezionata: true,
         }))
       );
+      setDrillBank(risultato.drillBank);
       setAvvisi(risultato.avvisi);
       setSedutaEspansa(null);
+      setTabAttiva("sedute");
     } catch (error) {
       console.error("Errore lettura file Excel:", error);
       setErroreFile(
@@ -136,6 +143,7 @@ export default function ImportaAllenamentiModal({
 
   function ricominciaDaCapo() {
     setSedute(null);
+    setDrillBank([]);
     setAvvisi([]);
     setErroreFile(null);
   }
@@ -181,6 +189,81 @@ export default function ImportaAllenamentiModal({
 
       if (!profilo.last_squadra_id) {
         throw new Error("Nessuna squadra selezionata.");
+      }
+
+      let drillBankSalvate = 0;
+      let erroreDrillBank: string | null = null;
+
+      if (drillBank.length > 0) {
+        try {
+          const codici = drillBank.map((voce) => voce.codice);
+
+          const { data: esistenti, error: esistentiError } = await supabase
+            .from("drill_bank")
+            .select("id, codice")
+            .eq("club_id", profilo.last_club_id)
+            .in("codice", codici);
+
+          if (esistentiError) throw esistentiError;
+
+          const mappaEsistenti = new Map(
+            (esistenti ?? []).map((riga) => [riga.codice, riga.id as string])
+          );
+
+          const daInserire: Record<string, unknown>[] = [];
+          const daAggiornare: { id: string; valori: Record<string, unknown> }[] =
+            [];
+
+          for (const voce of drillBank) {
+            const valori = {
+              nome: voce.nome,
+              sezione: voce.categoria,
+              descrizione: voce.organizzazione,
+              codice: voce.codice,
+              tempo_totale: voce.durataMinuti,
+              spazio: voce.spazio,
+              materiale: voce.materiale,
+              punti_chiave_coaching: voce.puntiChiaveCoaching,
+              progressione: voce.progressione,
+              riferimento_gps: voce.riferimentoGps,
+              perche_serve: voce.percheServe,
+            };
+
+            const idEsistente = mappaEsistenti.get(voce.codice);
+            if (idEsistente) {
+              daAggiornare.push({ id: idEsistente, valori });
+            } else {
+              daInserire.push({
+                ...valori,
+                club_id: profilo.last_club_id,
+                created_by: user.id,
+              });
+            }
+          }
+
+          if (daInserire.length > 0) {
+            const { error: insertError } = await supabase
+              .from("drill_bank")
+              .insert(daInserire);
+            if (insertError) throw insertError;
+          }
+
+          for (const { id, valori } of daAggiornare) {
+            const { error: updateError } = await supabase
+              .from("drill_bank")
+              .update({ ...valori, updated_at: new Date().toISOString() })
+              .eq("id", id);
+            if (updateError) throw updateError;
+          }
+
+          drillBankSalvate = daInserire.length + daAggiornare.length;
+        } catch (error) {
+          console.error("Errore salvataggio Drill bank:", error);
+          erroreDrillBank =
+            error instanceof Error
+              ? error.message
+              : "Errore durante il salvataggio del Drill bank.";
+        }
       }
 
       let importate = 0;
@@ -310,19 +393,26 @@ export default function ImportaAllenamentiModal({
         await onSaved();
       }
 
+      const suffissoDrillBank = erroreDrillBank
+        ? ` Drill bank non salvato: ${erroreDrillBank}`
+        : drillBankSalvate > 0
+          ? ` Drill bank aggiornato (${drillBankSalvate} voci).`
+          : "";
+
       if (errori.length === 0) {
         showToast({
-          type: "success",
-          message: `${importate} sedute importate correttamente.`,
+          type: erroreDrillBank ? "info" : "success",
+          message: `${importate} sedute importate correttamente.${suffissoDrillBank}`,
         });
         onClose();
       } else {
         showToast({
           type: importate > 0 ? "success" : "error",
           message:
-            importate > 0
+            (importate > 0
               ? `${importate} sedute importate. Errore su: ${errori.join(", ")}.`
-              : `Import fallito per tutte le sedute selezionate: ${errori.join(", ")}.`,
+              : `Import fallito per tutte le sedute selezionate: ${errori.join(", ")}.`) +
+            suffissoDrillBank,
         });
       }
     } catch (error) {
@@ -418,6 +508,16 @@ export default function ImportaAllenamentiModal({
                 {sedute.length}
               </span>{" "}
               sedute — {seduteSelezionate.length} selezionate per l&apos;import.
+              {drillBank.length > 0 && (
+                <>
+                  {" "}
+                  Verranno salvate anche{" "}
+                  <span className="font-semibold text-white">
+                    {drillBank.length}
+                  </span>{" "}
+                  voci del Drill bank.
+                </>
+              )}
             </p>
 
             <button
@@ -445,24 +545,64 @@ export default function ImportaAllenamentiModal({
             </div>
           )}
 
-          <div className="space-y-3">
-            {sedute.map((seduta) => (
-              <SedutaPreviewCard
-                key={seduta.id}
-                seduta={seduta}
-                espansa={sedutaEspansa === seduta.id}
-                onToggleEspansa={() =>
-                  setSedutaEspansa((prev) =>
-                    prev === seduta.id ? null : seduta.id
-                  )
-                }
-                onChange={(campo, valore) =>
-                  aggiornaSeduta(seduta.id, campo, valore)
-                }
-                themeColor={themeColor}
-              />
-            ))}
+          <div className="flex gap-2 border-b border-white/10">
+            <button
+              type="button"
+              onClick={() => setTabAttiva("sedute")}
+              className={`rounded-t-xl px-4 py-2 text-sm font-bold transition ${
+                tabAttiva === "sedute"
+                  ? "text-white"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+              style={
+                tabAttiva === "sedute"
+                  ? { borderBottom: `2px solid ${themeColor}` }
+                  : undefined
+              }
+            >
+              Sedute ({sedute.length})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setTabAttiva("drillbank")}
+              className={`rounded-t-xl px-4 py-2 text-sm font-bold transition ${
+                tabAttiva === "drillbank"
+                  ? "text-white"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+              style={
+                tabAttiva === "drillbank"
+                  ? { borderBottom: `2px solid ${themeColor}` }
+                  : undefined
+              }
+            >
+              Drill bank ({drillBank.length})
+            </button>
           </div>
+
+          {tabAttiva === "sedute" ? (
+            <div className="space-y-3">
+              {sedute.map((seduta) => (
+                <SedutaPreviewCard
+                  key={seduta.id}
+                  seduta={seduta}
+                  espansa={sedutaEspansa === seduta.id}
+                  onToggleEspansa={() =>
+                    setSedutaEspansa((prev) =>
+                      prev === seduta.id ? null : seduta.id
+                    )
+                  }
+                  onChange={(campo, valore) =>
+                    aggiornaSeduta(seduta.id, campo, valore)
+                  }
+                  themeColor={themeColor}
+                />
+              ))}
+            </div>
+          ) : (
+            <DrillBankPreview drillBank={drillBank} themeColor={themeColor} />
+          )}
         </div>
       )}
 
@@ -731,6 +871,111 @@ function SedutaPreviewCard({
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+function DrillBankPreview({
+  drillBank,
+  themeColor,
+}: {
+  drillBank: VoceDrillBank[];
+  themeColor: string;
+}) {
+  if (drillBank.length === 0) {
+    return (
+      <AppCard>
+        <p className="p-4 text-sm text-zinc-400">
+          Nessun foglio &quot;Drill bank&quot; trovato nel file.
+        </p>
+      </AppCard>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-zinc-800">
+      <table className="w-full min-w-[900px] border-collapse text-sm">
+        <thead style={{ backgroundColor: themeColor }}>
+          <tr className="text-left text-white">
+            <th className="border border-black/10 px-3 py-2 font-semibold">
+              Codice
+            </th>
+            <th className="border border-black/10 px-3 py-2 font-semibold">
+              Categoria
+            </th>
+            <th className="min-w-[160px] border border-black/10 px-3 py-2 font-semibold">
+              Nome
+            </th>
+            <th className="border border-black/10 px-3 py-2 text-right font-semibold">
+              Durata
+            </th>
+            <th className="border border-black/10 px-3 py-2 font-semibold">
+              Spazio
+            </th>
+            <th className="border border-black/10 px-3 py-2 font-semibold">
+              Materiale
+            </th>
+            <th className="min-w-[200px] border border-black/10 px-3 py-2 font-semibold">
+              Organizzazione
+            </th>
+            <th className="min-w-[200px] border border-black/10 px-3 py-2 font-semibold">
+              Punti chiave
+            </th>
+            <th className="min-w-[160px] border border-black/10 px-3 py-2 font-semibold">
+              Progressione
+            </th>
+            <th className="border border-black/10 px-3 py-2 font-semibold">
+              Rif. GPS
+            </th>
+            <th className="min-w-[200px] border border-black/10 px-3 py-2 font-semibold">
+              Perché serve
+            </th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {drillBank.map((voce, index) => (
+            <tr
+              key={voce.codice}
+              className={index % 2 === 0 ? "bg-zinc-950" : "bg-zinc-900/40"}
+            >
+              <td className="border border-zinc-800 bg-zinc-800/60 px-3 py-2 font-bold text-white">
+                {voce.codice}
+              </td>
+              <td className="border border-zinc-800 px-3 py-2 text-zinc-400">
+                {voce.categoria ?? "—"}
+              </td>
+              <td className="border border-zinc-800 px-3 py-2 text-zinc-300">
+                {voce.nome ?? "—"}
+              </td>
+              <td className="border border-zinc-800 px-3 py-2 text-right font-bold text-white">
+                {voce.durataMinuti != null ? `${voce.durataMinuti} min` : "—"}
+              </td>
+              <td className="border border-zinc-800 px-3 py-2 text-zinc-400">
+                {voce.spazio ?? "—"}
+              </td>
+              <td className="border border-zinc-800 px-3 py-2 text-zinc-400">
+                {voce.materiale ?? "—"}
+              </td>
+              <td className="border border-zinc-800 px-3 py-2 text-zinc-400">
+                {voce.organizzazione ?? "—"}
+              </td>
+              <td className="border border-zinc-800 px-3 py-2 text-zinc-400">
+                {voce.puntiChiaveCoaching ?? "—"}
+              </td>
+              <td className="border border-zinc-800 px-3 py-2 text-zinc-400">
+                {voce.progressione ?? "—"}
+              </td>
+              <td className="border border-zinc-800 px-3 py-2 text-zinc-400">
+                {voce.riferimentoGps ?? "—"}
+              </td>
+              <td className="border border-zinc-800 px-3 py-2 text-zinc-400">
+                {voce.percheServe ?? "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
