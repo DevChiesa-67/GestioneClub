@@ -11,10 +11,25 @@ type StatoPresenzaDef = {
   label: string;
 };
 
+// Stessa forma del tipo Allenamento definito in allenamenti/page.tsx: deve
+// combaciare esattamente, perché salvaPresenza/eliminaPresenza (passate come
+// prop da quella pagina) sono tipizzate su quell'oggetto completo, non solo
+// sui campi usati per il menu a tendina.
 type AllenamentoOpzione = {
   id: string;
+  club_id: string;
+  squadra_id: string | null;
   titolo: string | null;
+  tipo_allenamento: string | null;
   data_allenamento: string;
+  ora_inizio: string | null;
+  ora_fine: string | null;
+  luogo: string | null;
+  obiettivo: string | null;
+  note: string | null;
+  durata_minuti: number | null;
+  stato: string;
+  created_at: string;
 };
 
 type Giocatore = {
