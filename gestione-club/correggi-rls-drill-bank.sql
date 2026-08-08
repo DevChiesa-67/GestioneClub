@@ -51,6 +51,6 @@ CREATE POLICY drill_bank_delete
   );
 
 -- Verifica: ti aspetti 4 righe (select/insert/update/delete).
-SELECT polname, cmd
+SELECT polname, polcmd
 FROM pg_policy
 WHERE polrelid = 'public.drill_bank'::regclass;

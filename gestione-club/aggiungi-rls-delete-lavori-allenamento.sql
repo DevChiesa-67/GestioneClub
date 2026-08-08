@@ -41,6 +41,6 @@ CREATE POLICY lavori_allenamento_update
 
 -- Verifica: ti aspetti due righe, "lavori_allenamento_delete" e
 -- "lavori_allenamento_update".
-SELECT polname, cmd
+SELECT polname, polcmd
 FROM pg_policy
 WHERE polrelid = 'public.lavori_allenamento'::regclass;
