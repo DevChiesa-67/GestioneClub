@@ -324,6 +324,7 @@ function GiocatoreSelect({
   onOpenChange,
   placeholder = "Seleziona giocatore",
   compact = false,
+  openDirection = "down",
 }: {
   id: string;
   giocatori: Giocatore[];
@@ -333,12 +334,40 @@ function GiocatoreSelect({
   onOpenChange: (id: string | null) => void;
   placeholder?: string;
   compact?: boolean;
+  /** "up" per le card vicine al bordo basso del campo (es. ali/estremo),
+   * così l'elenco si apre sopra il bottone invece di finire tagliato dal
+   * bordo del campo/della pagina. */
+  openDirection?: "up" | "down";
 }) {
   const open = openId === id;
 
   const selezionato = giocatori.find((g) => g.id === value) ?? null;
 
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Chiude il menu quando si clicca al di fuori: un listener sul document
+  // invece del solito overlay "fixed inset-0", perché le card sul campo
+  // vivono dentro contenitori con `transform` (-translate-x-1/2), che
+  // creano un containing block diverso dal viewport per gli elementi
+  // "fixed" — un overlay del genere finirebbe per coprire solo l'area
+  // della card che lo contiene, non l'intero schermo, e i click sulle
+  // altre card o fuori dal campo non lo richiuderebbero.
+  useEffect(() => {
+    if (!open) return;
+
+    function chiudiSeFuori(event: MouseEvent) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        onOpenChange(null);
+      }
+    }
+
+    document.addEventListener("mousedown", chiudiSeFuori);
+    return () => document.removeEventListener("mousedown", chiudiSeFuori);
+  }, [open, onOpenChange]);
 
   const [tooltip, setTooltip] = useState<{
     giocatore: Giocatore;
@@ -384,7 +413,7 @@ function GiocatoreSelect({
   }
 
   return (
-    <div className="relative min-w-0">
+    <div ref={containerRef} className="relative min-w-0">
       <button
         type="button"
         onClick={() => onOpenChange(open ? null : id)}
@@ -419,14 +448,11 @@ function GiocatoreSelect({
 
       {open && (
         <>
-          <button
-            type="button"
-            className="fixed inset-0 z-40 cursor-default"
-            onClick={() => onOpenChange(null)}
-            aria-label="Chiudi selezione giocatore"
-          />
-
-          <div className="absolute left-0 z-50 mt-1 max-h-64 w-max min-w-full max-w-[240px] overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl">
+          <div
+            className={`absolute left-0 z-50 max-h-64 w-max min-w-full max-w-[240px] overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-950 p-1.5 shadow-2xl ${
+              openDirection === "up" ? "bottom-full mb-1" : "mt-1"
+            }`}
+          >
             <button
               type="button"
               onClick={() => {
@@ -2328,14 +2354,14 @@ function giocatoriPerPosizione(
                   className="
                     @container
                     relative
-                    h-[760px]
+                    h-[900px]
                     w-full
                     overflow-hidden
                     rounded-[2rem]
                     border border-white/20
                     bg-[#68a51b]
                     shadow-2xl
-                    2xl:h-[900px]
+                    2xl:h-[1050px]
                   "
                 >
                   {/* LINEE CAMPO */}
@@ -2378,8 +2404,8 @@ function giocatoriPerPosizione(
                         absolute
                         left-1/2
                         top-0
-                        h-[72px]
-                        w-[130px]
+                        h-[85px]
+                        w-[154px]
                         -translate-x-1/2
                         border-x-4
                         border-b-4
@@ -2393,8 +2419,8 @@ function giocatoriPerPosizione(
                         absolute
                         bottom-0
                         left-1/2
-                        h-[72px]
-                        w-[130px]
+                        h-[85px]
+                        w-[154px]
                         -translate-x-1/2
                         border-x-4
                         border-t-4
@@ -2546,6 +2572,9 @@ function giocatoriPerPosizione(
                             }}
                             placeholder="Giocatore"
                             compact
+                            openDirection={
+                              slot.numero >= 11 ? "up" : "down"
+                            }
                           />
                         </div>
                       </div>
