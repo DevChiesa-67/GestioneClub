@@ -11,7 +11,7 @@ import { AppCard } from "@/components/ui/AppCard";
 import { DateInput } from "@/components/ui/DateInput";
 import { formatDataIT } from "@/lib/date";
 import ReportPerformanceSessioniClient, {
-  BASE_COLUMNS,
+  COLONNE_PDF,
   fetchPerformanceRows,
   formatDate as formatDataPerformance,
   formatNumber as formatNumeroPerformance,
@@ -437,13 +437,13 @@ export default function ReportTabsClient({
         splitSelezionati,
       });
 
-      const colonnePdf = BASE_COLUMNS.map((column) => ({
+      const colonnePdf = COLONNE_PDF.map((column) => ({
         label: column.label,
         align: column.align ?? ("left" as const),
       }));
 
       const righePdf = performanceRows.map((row) =>
-        BASE_COLUMNS.map((column) => {
+        COLONNE_PDF.map((column) => {
           const value = row[column.key];
 
           if (column.type === "date") {

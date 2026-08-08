@@ -13,6 +13,7 @@ import {
   SPLIT_TUTTA_SEDUTA,
   type TipoSedutaSingolo,
 } from "@/lib/performance/catapult-filtri";
+import { PARAMETRI_CATAPULT } from "@/lib/performance/catapult-parametri";
 
 type TipoSeduta = "tutte" | "allenamento" | "partita";
 
@@ -36,29 +37,28 @@ export type PerformanceRow = {
   impacts: number | null;
   max_acc: number | null;
   max_dec: number | null;
+  // Tutti gli altri ~90 parametri Catapult (vedi PARAMETRI_CATAPULT) sono
+  // accessibili con il loro nome colonna originale, es. row["hr_load"] o
+  // row["distance_speed_zone_1_metres"].
+  [campoCatapult: string]: string | number | null;
 };
 
-type CatapultRow = {
-  id: string;
-  club_id: string;
-  squadra_id: string | null;
-  giocatore_id: string | null;
-  date: string | null;
-  session_title: string | null;
-  player_name: string | null;
-  split_name: string | null;
-  duration: number | string | null;
-  distance_metres: number | string | null;
-  sprint_distance_m: number | string | null;
-  top_speed_m_s: number | string | null;
-  distance_per_min_m_min: number | string | null;
-  power_score_w_kg: number | string | null;
-  work_ratio: number | string | null;
-  player_load: number | string | null;
-  impacts: number | string | null;
-  max_acceleration_m_s_s: number | string | null;
-  max_deceleration_m_s_s: number | string | null;
-};
+// Campi "core" già coperti (con nome ed eventuale conversione dedicati) dalle
+// proprietà esplicite di PerformanceRow sopra: non vanno duplicati come
+// colonna extra col loro nome grezzo.
+const CAMPI_CORE_GIA_COPERTI = new Set([
+  "duration",
+  "distance_metres",
+  "sprint_distance_m",
+  "distance_per_min_m_min",
+  "top_speed_m_s",
+  "power_score_w_kg",
+  "work_ratio",
+  "player_load",
+  "impacts",
+  "max_acceleration_m_s_s",
+  "max_deceleration_m_s_s",
+]);
 
 type Props = {
   mode: "summary" | "table";
@@ -93,7 +93,11 @@ type CustomColumn = {
   decimals: number;
 };
 
-export const BASE_COLUMNS: BaseColumn[] = [
+// Sottoinsieme curato (i 15 parametri più usati): usato per il PDF, dove
+// includere tutti i ~90 parametri Catapult di BASE_COLUMNS renderebbe la
+// tabella illeggibile. La tab Performance a schermo invece mostra
+// BASE_COLUMNS per intero (curati + extra), vedi sotto.
+export const COLONNE_PDF: BaseColumn[] = [
   { key: "date", label: "Data", type: "date" },
   { key: "session_title", label: "Sessione", type: "text" },
   { key: "player_name", label: "Giocatore", type: "text" },
@@ -109,6 +113,36 @@ export const BASE_COLUMNS: BaseColumn[] = [
   { key: "impacts", label: "Impacts", type: "number", align: "right", decimals: 0 },
   { key: "max_acc", label: "Max Acc (m/s²)", type: "number", align: "right", decimals: 2 },
   { key: "max_dec", label: "Max Dec (m/s²)", type: "number", align: "right", decimals: 2 },
+];
+
+// Decimali di default per le colonne extra generate da PARAMETRI_CATAPULT:
+// solo una stima ragionevole (0 per conteggi/metri, 1 per il resto), tanto
+// servono soprattutto come input grezzo per le colonne calcolate.
+function decimaliPredefiniti(campo: string): number {
+  if (campo.endsWith("_metres") || campo === "power_plays" || campo === "hr_load" || campo === "hr_max_bpm") {
+    return 0;
+  }
+  return 1;
+}
+
+// Tutti gli altri parametri Catapult (zone di velocità, accelerazione,
+// decelerazione, potenza, impatti, frequenza cardiaca...) non coperti dalle
+// colonne curate sopra: mostrati con il loro nome colonna originale, così
+// l'utente vede l'elenco completo e decide lui cosa nascondere e cosa usare
+// per le colonne calcolate.
+const COLONNE_CATAPULT_EXTRA: BaseColumn[] = PARAMETRI_CATAPULT.filter(
+  (parametro) => !CAMPI_CORE_GIA_COPERTI.has(parametro.campo)
+).map((parametro) => ({
+  key: parametro.campo,
+  label: `${parametro.label} (${parametro.categoria})`,
+  type: "number",
+  align: "right",
+  decimals: decimaliPredefiniti(parametro.campo),
+}));
+
+export const BASE_COLUMNS: BaseColumn[] = [
+  ...COLONNE_PDF,
+  ...COLONNE_CATAPULT_EXTRA,
 ];
 
 const NUMERIC_FIELDS = BASE_COLUMNS.filter((column) => column.type === "number");
@@ -171,29 +205,29 @@ export async function fetchPerformanceRows(params: {
 }): Promise<PerformanceRow[]> {
   const tags = tagsPerTipiSeduta(params.tipiSeduta ?? []);
 
+  // Seleziona tutte le colonne numeriche note di catapult_data (vedi
+  // PARAMETRI_CATAPULT), non solo il sottoinsieme curato: la tab
+  // Performance deve mostrare tutti i parametri disponibili, l'utente
+  // sceglie poi cosa nascondere.
+  const colonneCatapult = Array.from(
+    new Set(PARAMETRI_CATAPULT.map((parametro) => parametro.campo))
+  );
+
   let query = supabase
     .from("catapult_data")
-    .select(`
-      id,
-      club_id,
-      squadra_id,
-      giocatore_id,
-      date,
-      session_title,
-      player_name,
-      split_name,
-      duration,
-      distance_metres,
-      sprint_distance_m,
-      top_speed_m_s,
-      distance_per_min_m_min,
-      power_score_w_kg,
-      work_ratio,
-      player_load,
-      impacts,
-      max_acceleration_m_s_s,
-      max_deceleration_m_s_s
-    `)
+    .select(
+      [
+        "id",
+        "club_id",
+        "squadra_id",
+        "giocatore_id",
+        "date",
+        "session_title",
+        "player_name",
+        "split_name",
+        ...colonneCatapult,
+      ].join(",")
+    )
     .eq("club_id", params.clubId);
 
   if (params.squadraId) {
@@ -249,29 +283,40 @@ export async function fetchPerformanceRows(params: {
     return [];
   }
 
-  const catapultRows = (data ?? []) as CatapultRow[];
+  const catapultRows = (data ?? []) as unknown as Record<string, unknown>[];
 
-  return catapultRows.map((row) => ({
-    id: row.id,
-    club_id: row.club_id,
-    squadra_id: row.squadra_id,
-    giocatore_id: row.giocatore_id,
-    date: row.date,
-    session_title: row.session_title,
-    player_name: row.player_name,
-    split_name: row.split_name,
-    duration: secondiInMinuti(row.duration),
-    distance: normalizeNumber(row.distance_metres),
-    sprint_distance: normalizeNumber(row.sprint_distance_m),
-    top_speed: normalizeNumber(row.top_speed_m_s),
-    distance_per_minute: normalizeNumber(row.distance_per_min_m_min),
-    power_score: normalizeNumber(row.power_score_w_kg),
-    work_ratio: normalizeNumber(row.work_ratio),
-    player_load: normalizeNumber(row.player_load),
-    impacts: normalizeNumber(row.impacts),
-    max_acc: normalizeNumber(row.max_acceleration_m_s_s),
-    max_dec: normalizeNumber(row.max_deceleration_m_s_s),
-  }));
+  return catapultRows.map((row) => {
+    const risultato: PerformanceRow = {
+      id: row.id as string,
+      club_id: row.club_id as string,
+      squadra_id: row.squadra_id as string | null,
+      giocatore_id: row.giocatore_id as string | null,
+      date: row.date as string | null,
+      session_title: row.session_title as string | null,
+      player_name: row.player_name as string | null,
+      split_name: row.split_name as string | null,
+      duration: secondiInMinuti(row.duration),
+      distance: normalizeNumber(row.distance_metres),
+      sprint_distance: normalizeNumber(row.sprint_distance_m),
+      top_speed: normalizeNumber(row.top_speed_m_s),
+      distance_per_minute: normalizeNumber(row.distance_per_min_m_min),
+      power_score: normalizeNumber(row.power_score_w_kg),
+      work_ratio: normalizeNumber(row.work_ratio),
+      player_load: normalizeNumber(row.player_load),
+      impacts: normalizeNumber(row.impacts),
+      max_acc: normalizeNumber(row.max_acceleration_m_s_s),
+      max_dec: normalizeNumber(row.max_deceleration_m_s_s),
+    };
+
+    // Tutti gli altri parametri Catapult non "core": copiati col loro nome
+    // colonna originale (vedi COLONNE_CATAPULT_EXTRA).
+    for (const parametro of PARAMETRI_CATAPULT) {
+      if (CAMPI_CORE_GIA_COPERTI.has(parametro.campo)) continue;
+      risultato[parametro.campo] = normalizeNumber(row[parametro.campo]);
+    }
+
+    return risultato;
+  });
 }
 
 /**
