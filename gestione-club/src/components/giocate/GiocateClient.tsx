@@ -26,15 +26,27 @@ type Giocata = {
   animation_duration_ms?: number | null;
 };
 
+type PercentualeZona = {
+  testo: string;
+  valore: number;
+};
+
 // Estrae dalla descrizione le frasi che contengono una percentuale (es.
-// "Il 35% delle azioni nasce da qui") per mostrarle come elenco puntato
-// invece che lasciarle sepolte nel paragrafo.
-function estraiPercentuali(testo: string): string[] {
+// "Il 35% delle azioni nasce da qui") per mostrarle come istogramma
+// orizzontale invece che lasciarle sepolte nel paragrafo. Ordinate dalla
+// percentuale più alta alla più bassa.
+function estraiPercentuali(testo: string): PercentualeZona[] {
   return testo
     .split(/(?<=[.!?\n])\s+|\n+/)
     .map((frase) => frase.trim())
     .filter((frase) => /\d+([.,]\d+)?\s?%/.test(frase))
-    .map((frase) => frase.replace(/[.\s]+$/, ""));
+    .map((frase) => frase.replace(/[.\s]+$/, ""))
+    .map((frase) => {
+      const match = frase.match(/(\d+(?:[.,]\d+)?)\s?%/);
+      const valore = match ? Number(match[1].replace(",", ".")) : 0;
+      return { testo: frase, valore };
+    })
+    .sort((a, b) => b.valore - a.valore);
 }
 
 type Props = {
@@ -565,20 +577,24 @@ function BullsMapField({
                   </p>
 
                   {percentualiZona.length > 0 && (
-                    <ul className="mt-4 space-y-2 border-t border-zinc-800 pt-4">
-                      {percentualiZona.map((frase, indice) => (
-                        <li
-                          key={indice}
-                          className="flex items-start gap-2 text-sm text-zinc-300"
-                        >
-                          <span
-                            className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                            style={{ backgroundColor: coloreClub }}
-                          />
-                          <span>{frase}</span>
-                        </li>
+                    <div className="mt-4 space-y-3 border-t border-zinc-800 pt-4">
+                      {percentualiZona.map((percentuale, indice) => (
+                        <div key={indice}>
+                          <p className="mb-1 text-sm text-zinc-300">
+                            {percentuale.testo}
+                          </p>
+                          <div className="h-2.5 w-full overflow-hidden rounded-full bg-zinc-800">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${Math.min(percentuale.valore, 100)}%`,
+                                backgroundColor: coloreClub,
+                              }}
+                            />
+                          </div>
+                        </div>
                       ))}
-                    </ul>
+                    </div>
                   )}
                 </div>
               )}
