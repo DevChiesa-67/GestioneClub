@@ -47,6 +47,31 @@ export type Partita = Omit<PartitaRaw, "squadra_casa" | "squadra_fuori"> & {
   squadra_fuori: SquadraPartitaVisual | null;
 };
 
+export type GiocatoreMinutaggio = {
+  id: string;
+  nome: string;
+  cognome: string;
+  foto_url: string | null;
+};
+
+type MinutaggioImportRaw = {
+  id: string;
+  nome_file: string;
+  file_path: string | null;
+  avversario_rilevato: string | null;
+  data_rilevata: string | null;
+  luogo_rilevato: string | null;
+  durata_minuti: number;
+  stato: "da_associare" | "associato";
+  partita_id: string | null;
+  created_at: string;
+};
+
+export type MinutaggioImport = MinutaggioImportRaw & {
+  file_url: string | null;
+  partita: Partita | null;
+};
+
 function normalizeSquadraPartita(
   squadra: SquadraPartitaRel | SquadraPartitaRel[] | null
 ): SquadraPartitaRel | null {
@@ -189,6 +214,72 @@ export default async function Page() {
     })
   );
 
+  /*
+   * Giocatori del club (per il matching nomi del file MINUTAGGIO) e
+   * import minutaggi già caricati (per l'elenco "Minutaggi" e per
+   * risalire alla partita associata).
+   */
+  let giocatoriMinutaggioQuery = supabase
+    .from("giocatori")
+    .select("id, nome, cognome, foto_url")
+    .eq("club_id", clubId)
+    .eq("attivo", true)
+    .order("cognome", { ascending: true });
+
+  if (squadraId) {
+    giocatoriMinutaggioQuery = giocatoriMinutaggioQuery.eq(
+      "squadra_id",
+      squadraId
+    );
+  }
+
+  const [{ data: giocatoriMinutaggio }, { data: minutaggiRaw }] =
+    await Promise.all([
+      giocatoriMinutaggioQuery,
+      supabase
+        .from("partite_minutaggi_import")
+        .select(
+          `
+          id,
+          nome_file,
+          file_path,
+          avversario_rilevato,
+          data_rilevata,
+          luogo_rilevato,
+          durata_minuti,
+          stato,
+          partita_id,
+          created_at
+        `
+        )
+        .eq("club_id", clubId)
+        .order("created_at", { ascending: false }),
+    ]);
+
+  const partiteById = new Map(tutteLePartite.map((p) => [p.id, p]));
+
+  const minutaggiImport: MinutaggioImport[] = await Promise.all(
+    ((minutaggiRaw ?? []) as MinutaggioImportRaw[]).map(async (riga) => {
+      let file_url: string | null = null;
+
+      if (riga.file_path) {
+        const { data: signed } = await supabase.storage
+          .from("minutaggi-partite")
+          .createSignedUrl(riga.file_path, 60 * 60);
+
+        file_url = signed?.signedUrl ?? null;
+      }
+
+      return {
+        ...riga,
+        file_url,
+        partita: riga.partita_id
+          ? partiteById.get(riga.partita_id) ?? null
+          : null,
+      };
+    })
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex justify-end">
@@ -200,7 +291,12 @@ export default async function Page() {
           <p className="text-red-400">Errore nel caricamento delle partite.</p>
         </AppCard>
       ) : (
-        <PartiteTabs partite={tutteLePartite} coloreClub={coloreClub} />
+        <PartiteTabs
+          partite={tutteLePartite}
+          coloreClub={coloreClub}
+          giocatori={(giocatoriMinutaggio ?? []) as GiocatoreMinutaggio[]}
+          minutaggi={minutaggiImport}
+        />
       )}
     </div>
   );

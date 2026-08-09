@@ -2,13 +2,21 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
+  AlertTriangle,
   CalendarDays,
+  CheckCircle2,
   Clock,
+  Download,
   History,
+  Link2,
+  Loader2,
   MapPin,
   Shield,
+  Timer,
+  Trash2,
   Trophy,
   Users,
   Settings,
@@ -16,13 +24,28 @@ import {
 } from "lucide-react";
 
 import { AppCard } from "@/components/ui/AppCard";
-import type { Partita } from "@/app/(dashboard)/partite/page";
+import { useToast } from "@/components/ui/Toast";
+import type {
+  GiocatoreMinutaggio,
+  MinutaggioImport,
+  Partita,
+} from "@/app/(dashboard)/partite/page";
+import AggiungiMinutaggioModal from "@/components/partite/AggiungiMinutaggioModal";
+import SelettorePartita, {
+  formatDataPartita,
+} from "@/components/partite/SelettorePartita";
+import {
+  associaMinutaggioImport,
+  eliminaMinutaggioImport,
+} from "@/app/(dashboard)/partite/minutaggi/actions";
 
-type TabKey = "prossime" | "tutte" | "classifica";
+type TabKey = "prossime" | "tutte" | "classifica" | "minutaggi";
 
 type Props = {
   partite: Partita[];
   coloreClub: string;
+  giocatori: GiocatoreMinutaggio[];
+  minutaggi: MinutaggioImport[];
 };
 
 function formatData(data: string) {
@@ -464,8 +487,185 @@ function PartitaCard({
   );
 }
 
-export function PartiteTabs({ partite, coloreClub }: Props) {
+function formatDataCaricamento(data: string) {
+  return new Intl.DateTimeFormat("it-IT", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(data));
+}
+
+function MinutaggioCard({
+  minutaggio,
+  partite,
+  coloreClub,
+  onChanged,
+}: {
+  minutaggio: MinutaggioImport;
+  partite: Partita[];
+  coloreClub: string;
+  onChanged: () => void;
+}) {
+  const { showToast } = useToast();
+  const router = useRouter();
+  const [associando, setAssociando] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
+  const [partitaScelta, setPartitaScelta] = useState<Partita | null>(
+    minutaggio.partita
+  );
+
+  const associato = minutaggio.stato === "associato" && minutaggio.partita;
+
+  async function confermaAssociazione() {
+    if (!partitaScelta) return;
+
+    setAssociando(true);
+    const result = await associaMinutaggioImport(
+      minutaggio.id,
+      partitaScelta.id
+    );
+    setAssociando(false);
+
+    if (!result.success) {
+      showToast({ type: "error", message: result.message });
+      return;
+    }
+
+    showToast({ type: "success", message: result.message });
+    router.refresh();
+    onChanged();
+  }
+
+  async function handleElimina() {
+    const confermato = window.confirm(
+      `Eliminare il minutaggio "${minutaggio.nome_file}"? L'operazione non è reversibile.`
+    );
+    if (!confermato) return;
+
+    setEliminando(true);
+    const result = await eliminaMinutaggioImport(minutaggio.id);
+    setEliminando(false);
+
+    if (!result.success) {
+      showToast({ type: "error", message: result.message });
+      return;
+    }
+
+    showToast({ type: "success", message: result.message });
+    router.refresh();
+    onChanged();
+  }
+
+  return (
+    <div
+      className={`overflow-hidden rounded-2xl border bg-zinc-950 ${
+        associato ? "border-emerald-500/40" : "border-amber-500/30"
+      }`}
+    >
+      <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold ${
+                associato
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                  : "border-amber-500/40 bg-amber-500/10 text-amber-300"
+              }`}
+            >
+              {associato ? (
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              ) : (
+                <AlertTriangle className="h-3.5 w-3.5" />
+              )}
+              {associato
+                ? `${minutaggio.partita!.squadra_casa?.nome || "Casa"} vs ${
+                    minutaggio.partita!.squadra_fuori?.nome || "Trasferta"
+                  } · ${formatDataPartita(minutaggio.partita!.data_partita)}`
+                : "Da associare"}
+            </span>
+          </div>
+
+          <p className="mt-2 truncate text-sm font-semibold text-white">
+            {minutaggio.nome_file}
+          </p>
+
+          <p className="mt-0.5 text-xs text-zinc-500">
+            Caricato il {formatDataCaricamento(minutaggio.created_at)} ·
+            Durata {minutaggio.durata_minuti} min
+          </p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          {minutaggio.file_url && (
+            <a
+              href={minutaggio.file_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 transition hover:text-white"
+              title="Scarica file originale"
+            >
+              <Download className="h-4 w-4" />
+            </a>
+          )}
+
+          <button
+            type="button"
+            onClick={handleElimina}
+            disabled={eliminando}
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 transition hover:border-red-500/40 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Elimina"
+          >
+            {eliminando ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {!associato && (
+        <div className="flex flex-col gap-3 border-t border-zinc-800 bg-zinc-900/40 p-4 sm:flex-row sm:items-center sm:p-5">
+          <div className="flex-1">
+            <SelettorePartita
+              partite={partite}
+              value={partitaScelta}
+              onChange={setPartitaScelta}
+              placeholder="Seleziona la partita corretta..."
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={confermaAssociazione}
+            disabled={!partitaScelta || associando}
+            className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl px-4 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ backgroundColor: coloreClub }}
+          >
+            {associando ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Link2 className="h-4 w-4" />
+            )}
+            Associa
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function PartiteTabs({
+  partite,
+  coloreClub,
+  giocatori,
+  minutaggi,
+}: Props) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>("prossime");
+  const [modalMinutaggioAperto, setModalMinutaggioAperto] = useState(false);
 
   const oggi = new Date();
   oggi.setHours(0, 0, 0, 0);
@@ -527,6 +727,13 @@ export function PartiteTabs({ partite, coloreClub }: Props) {
       mobileLabel: "Classifica",
       icon: Trophy,
       count: null,
+    },
+    {
+      key: "minutaggi" as const,
+      label: "Minutaggi",
+      mobileLabel: "Minutaggi",
+      icon: Timer,
+      count: minutaggi.length,
     },
   ];
 
@@ -698,6 +905,53 @@ export function PartiteTabs({ partite, coloreClub }: Props) {
             </p>
           </div>
         </div>
+      )}
+
+      {/* MINUTAGGI */}
+      {activeTab === "minutaggi" && (
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setModalMinutaggioAperto(true)}
+              className="flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-white transition hover:brightness-110"
+              style={{ backgroundColor: coloreClub }}
+            >
+              <Plus className="h-4 w-4" />
+              Aggiungi Minutaggio
+            </button>
+          </div>
+
+          {minutaggi.length === 0 ? (
+            <EmptyState
+              title="Nessun minutaggio caricato"
+              description='Carica il file MINUTAGGIO (tabella CAMBI) di una partita con "Aggiungi Minutaggio" per iniziare a tracciare i minuti giocati.'
+              coloreClub={coloreClub}
+            />
+          ) : (
+            <div className="space-y-3">
+              {minutaggi.map((minutaggio) => (
+                <MinutaggioCard
+                  key={minutaggio.id}
+                  minutaggio={minutaggio}
+                  partite={partite}
+                  coloreClub={coloreClub}
+                  onChanged={() => router.refresh()}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {modalMinutaggioAperto && (
+        <AggiungiMinutaggioModal
+          onClose={() => setModalMinutaggioAperto(false)}
+          onSaved={() => router.refresh()}
+          themeColor={coloreClub}
+          giocatori={giocatori}
+          partite={partite}
+        />
       )}
     </div>
   );

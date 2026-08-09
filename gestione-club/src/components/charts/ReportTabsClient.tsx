@@ -20,6 +20,7 @@ import ReportPerformanceSessioniClient, {
 import PerformanceDashboardChartsClient from "@/components/charts/PerformanceDashboardChartsClient";
 import ReportTestClient from "@/components/charts/ReportTestClient";
 import ConfrontoPerformanceClient from "@/components/charts/ConfrontoPerformanceClient";
+import MinutaggioPartiteClient from "@/components/charts/MinutaggioPartiteClient";
 import {
   generaPdfPerformance,
   type AndamentoSessionePdf,
@@ -35,7 +36,8 @@ type TabKey =
   | "performance"
   | "acwr"
   | "test"
-  | "confronto";
+  | "confronto"
+  | "minutaggio_partite";
 
 // I valori reali di split_name per le partite dipendono da come Catapult
 // esporta il CSV (varia da dispositivo/versione: "1st Half", "H1", "1",
@@ -198,6 +200,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "acwr", label: "ACWR" },
   { key: "test", label: "Test" },
   { key: "confronto", label: "Confronto" },
+  { key: "minutaggio_partite", label: "Minutaggio Partite" },
 ];
 
 export default function ReportTabsClient({
@@ -1151,6 +1154,17 @@ export default function ReportTabsClient({
         />
       )}
 
+      {activeTab === "minutaggio_partite" && (
+        <MinutaggioPartiteClient
+          clubId={clubId}
+          squadraId={squadraId}
+          giocatori={giocatori}
+          giocatoreIds={giocatoreIds}
+          dataDa={dataDa}
+          dataA={dataA}
+          coloreFlag={coloreFlag}
+        />
+      )}
 
     </div>
   );
