@@ -709,7 +709,20 @@ function PerformanceSummary({
 }
 
 
-function PerformanceTable({ rows }: { rows: PerformanceRow[] }) {
+// Preferenze di visualizzazione (colonne nascoste/mostrate e colonne
+// calcolate) salvate per club nel browser, così restano impostate anche
+// dopo un refresh o riaprendo la pagina.
+function chiavePreferenzeColonne(clubId: string) {
+  return `performance-colonne:${clubId}`;
+}
+
+function PerformanceTable({
+  rows,
+  clubId,
+}: {
+  rows: PerformanceRow[];
+  clubId: string;
+}) {
   const [showCreateColumnPanel, setShowCreateColumnPanel] = useState(false);
   const [showHideColumnsPanel, setShowHideColumnsPanel] = useState(false);
 
@@ -724,6 +737,59 @@ function PerformanceTable({ rows }: { rows: PerformanceRow[] }) {
   const [newLabel, setNewLabel] = useState("");
   const [newFormula, setNewFormula] = useState("");
   const [newDecimals, setNewDecimals] = useState(2);
+
+  // Carica le preferenze salvate per questo club (se presenti) al primo
+  // render e ogni volta che cambia club. Il flag "pronto" evita che
+  // l'effetto di salvataggio sotto sovrascriva subito i dati appena
+  // caricati con lo stato di default.
+  const [preferenzeCaricate, setPreferenzeCaricate] = useState(false);
+
+  useEffect(() => {
+    setPreferenzeCaricate(false);
+
+    if (!clubId || typeof window === "undefined") {
+      setPreferenzeCaricate(true);
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(
+        chiavePreferenzeColonne(clubId)
+      );
+
+      if (raw) {
+        const salvate = JSON.parse(raw) as {
+          visibleColumns?: Record<string, boolean>;
+          customColumns?: CustomColumn[];
+        };
+
+        if (salvate.visibleColumns) {
+          setVisibleColumns((prev) => ({ ...prev, ...salvate.visibleColumns }));
+        }
+
+        if (Array.isArray(salvate.customColumns)) {
+          setCustomColumns(salvate.customColumns);
+        }
+      }
+    } catch (error) {
+      console.error("Errore caricamento preferenze colonne Performance:", error);
+    } finally {
+      setPreferenzeCaricate(true);
+    }
+  }, [clubId]);
+
+  useEffect(() => {
+    if (!preferenzeCaricate || !clubId || typeof window === "undefined") return;
+
+    try {
+      window.localStorage.setItem(
+        chiavePreferenzeColonne(clubId),
+        JSON.stringify({ visibleColumns, customColumns })
+      );
+    } catch (error) {
+      console.error("Errore salvataggio preferenze colonne Performance:", error);
+    }
+  }, [preferenzeCaricate, clubId, visibleColumns, customColumns]);
 
   const activeBaseColumns = BASE_COLUMNS.filter(
     (column) => visibleColumns[String(column.key)]
@@ -1269,6 +1335,6 @@ export default function ReportPerformanceSessioniClient({
     );
   }
 
-  return <PerformanceTable rows={rows} />;
+  return <PerformanceTable rows={rows} clubId={clubId} />;
 }
 

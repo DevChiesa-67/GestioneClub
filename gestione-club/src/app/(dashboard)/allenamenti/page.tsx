@@ -3,13 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  BookOpen,
   ChevronDown,
   ClipboardCheck,
   FileDown,
   FileUp,
+  Info,
   Loader2,
   Pencil,
   Plus,
+  Search,
   Users,
 } from "lucide-react";
 
@@ -20,6 +23,7 @@ import NuovoAllenamentoModal from "@/components/allenamenti/NuovoAllenamentoModa
 import RegistraPresenzeModal from "@/components/allenamenti/RegistraPresenzeModal";
 import ImportaAllenamentiModal from "@/components/allenamenti/ImportaAllenamentiModal";
 import PdfPreviewModal from "@/components/allenamenti/PdfPreviewModal";
+import DettaglioLavoroModal from "@/components/allenamenti/DettaglioLavoroModal";
 import { generaPdfAllenamento, scaricaPdfAllenamento } from "@/lib/pdf-allenamento";
 
 type StatoPresenza = "PM" | "PP" | "P" | "I" | "AG" | "AI";
@@ -74,6 +78,26 @@ type Lavoro = {
   perche_serve?: string | null;
 };
 
+type DrillBankRow = {
+  id: string;
+  club_id: string;
+  nome: string;
+  sezione: string | null;
+  descrizione: string | null;
+  obbiettivo: string | null;
+  tempo_lavoro: number | null;
+  ripetizione: number | null;
+  tempo_recupero: number | null;
+  tempo_totale: number | null;
+  codice: string | null;
+  spazio: string | null;
+  materiale: string | null;
+  punti_chiave_coaching: string | null;
+  progressione: string | null;
+  riferimento_gps: string | null;
+  perche_serve: string | null;
+};
+
 type Giocatore = {
   id: string;
   nome: string;
@@ -102,7 +126,7 @@ type Vista =
   | "riepilogo"
   | "elenco"
   | "microcicli"
-  | "macrocicli";
+  | "drillbank";
 
 // Settimane (microcicli) e fasi (macrocicli) vengono lette dalla
 // Programmazione già esistente: ogni allenamento viene abbinato alla
@@ -281,6 +305,10 @@ export default function Page() {
   const [vista, setVista] = useState<Vista>("riepilogo");
   const [allenamenti, setAllenamenti] = useState<Allenamento[]>([]);
   const [lavori, setLavori] = useState<Lavoro[]>([]);
+  const [drillBank, setDrillBank] = useState<DrillBankRow[]>([]);
+  const [ricercaDrillBank, setRicercaDrillBank] = useState("");
+  const [lavoroDrillBankAperto, setLavoroDrillBankAperto] =
+    useState<Lavoro | null>(null);
   const [programmazioni, setProgrammazioni] = useState<Programmazione[]>([]);
   const [giocatori, setGiocatori] = useState<Giocatore[]>([]);
   const [presenze, setPresenze] = useState<Presenza[]>([]);
@@ -417,6 +445,7 @@ export default function Page() {
       { data: allenamentiData, error: allenamentiError },
       { data: giocatoriData, error: giocatoriError },
       { data: programmazioniData, error: programmazioniError },
+      { data: drillBankData, error: drillBankError },
     ] = await Promise.all([
       supabase
         .from("club")
@@ -426,7 +455,18 @@ export default function Page() {
       allenamentiQuery,
       giocatoriQuery,
       programmazioniQuery,
+      supabase
+        .from("drill_bank")
+        .select("*")
+        .eq("club_id", profiloData.last_club_id)
+        .order("codice", { ascending: true }),
     ]);
+
+    if (drillBankError) {
+      console.error(drillBankError);
+    } else {
+      setDrillBank(drillBankData || []);
+    }
 
     setThemeColor(clubData?.colore_flag || "#d71920");
     setClubLogoUrl(clubData?.logo_url || null);
@@ -728,27 +768,8 @@ export default function Page() {
       .filter((gruppo) => gruppo.sedute.length > 0);
   }, [settimaneFlat, allenamenti]);
 
-  const macrocicli = useMemo(() => {
-    return fasiFlat
-      .map((fase) => ({
-        fase,
-        sedute: allenamenti
-          .filter(
-            (allenamento) =>
-              allenamento.data_allenamento >= fase.data_inizio &&
-              allenamento.data_allenamento <= fase.data_fine,
-          )
-          .sort(
-            (a, b) =>
-              a.data_allenamento.localeCompare(b.data_allenamento) ||
-              (a.ora_inizio ?? "").localeCompare(b.ora_inizio ?? ""),
-          ),
-      }))
-      .filter((gruppo) => gruppo.sedute.length > 0);
-  }, [fasiFlat, allenamenti]);
-
-  // Blocco riepilogativo di una singola seduta per le viste Microcicli e
-  // Macrocicli: intestazione (giorno, tipo, orario) + tabella dei lavori
+  // Blocco riepilogativo di una singola seduta per la vista Microcicli:
+  // intestazione (giorno, tipo, orario) + tabella dei lavori
   // con Orario calcolato, riadattando i campi già esistenti di un lavoro
   // (Tipo=Sezione, Drill=Descrizione, Consegna=Obiettivo).
   function riepilogoSeduta(allenamento: Allenamento) {
@@ -1061,19 +1082,6 @@ export default function Page() {
 
       <button
         type="button"
-        onClick={() => setVista("macrocicli")}
-        className={`shrink-0 rounded-2xl px-4 py-2.5 text-sm font-bold transition ${
-          vista === "macrocicli"
-            ? ""
-            : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
-        }`}
-        style={tabButtonStyle("macrocicli")}
-      >
-        Macrocicli
-      </button>
-
-      <button
-        type="button"
         onClick={() => setVista("resoconto")}
         className={`shrink-0 rounded-2xl px-4 py-2.5 text-sm font-bold transition ${
           vista === "resoconto"
@@ -1083,6 +1091,20 @@ export default function Page() {
         style={tabButtonStyle("resoconto")}
       >
         Resoconto generale
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setVista("drillbank")}
+        className={`shrink-0 flex items-center gap-1.5 rounded-2xl px-4 py-2.5 text-sm font-bold transition ${
+          vista === "drillbank"
+            ? ""
+            : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
+        }`}
+        style={tabButtonStyle("drillbank")}
+      >
+        <BookOpen className="h-4 w-4" />
+        Drill Bank
       </button>
 
       {/* ULTIME TAB - SOLO MOBILE/TABLET */}
@@ -1308,53 +1330,6 @@ export default function Page() {
           </div>
         )}
 
-        {!loading && vista === "macrocicli" && (
-          <div className="space-y-5">
-            {macrocicli.length === 0 ? (
-              <AppCard>
-                <div className="flex min-h-[160px] flex-col items-center justify-center text-center">
-                  <h3 className="text-lg font-bold text-white">
-                    Nessun macrociclo con sedute
-                  </h3>
-                  <p className="mt-2 text-sm text-zinc-400">
-                    Crea una Programmazione con delle fasi e collega delle sedute
-                    alle relative date per vederle qui raggruppate.
-                  </p>
-                </div>
-              </AppCard>
-            ) : (
-              macrocicli.map(({ fase, sedute }) => (
-                <AppCard key={fase.id}>
-                  <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p
-                        className="text-xs font-bold uppercase tracking-wide"
-                        style={{ color: fase.colore || themeColor }}
-                      >
-                        Macrociclo
-                      </p>
-                      <h3 className="mt-1 text-lg font-bold text-white">
-                        {fase.nome}
-                      </h3>
-                      <p className="mt-1 text-sm text-zinc-400">
-                        {formatDataITBreve(fase.data_inizio)} –{" "}
-                        {formatDataITBreve(fase.data_fine)}
-                      </p>
-                      {fase.obiettivo && (
-                        <p className="mt-2 text-sm text-zinc-300">{fase.obiettivo}</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    {sedute.map((allenamento) => riepilogoSeduta(allenamento))}
-                  </div>
-                </AppCard>
-              ))
-            )}
-          </div>
-        )}
-
         {!loading && vista === "resoconto" && (
           <div className="grid gap-4 md:grid-cols-3">
             <AppCard>
@@ -1426,7 +1401,149 @@ export default function Page() {
           </AppCard>
         )}
 
-        {!loading && vista !== "resoconto" && vista !== "odierno" && (
+        {!loading && vista === "drillbank" && (
+          <AppCard>
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-white">
+                  Libreria Drill Bank
+                </h3>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Esercizi salvati per il club, riutilizzabili tra i cicli di
+                  sedute (import Excel o creazione manuale seduta).
+                </p>
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                <input
+                  type="text"
+                  value={ricercaDrillBank}
+                  onChange={(e) => setRicercaDrillBank(e.target.value)}
+                  placeholder="Cerca per codice, nome, sezione..."
+                  className="w-full rounded-xl border border-zinc-800 bg-zinc-950 py-2 pl-9 pr-3 text-sm text-white placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {(() => {
+              const query = ricercaDrillBank.trim().toLowerCase();
+              const drillFiltrati = drillBank.filter((drill) => {
+                if (!query) return true;
+                return [drill.codice, drill.nome, drill.sezione]
+                  .filter(Boolean)
+                  .some((campo) => campo!.toLowerCase().includes(query));
+              });
+
+              if (drillFiltrati.length === 0) {
+                return (
+                  <div className="flex min-h-[160px] flex-col items-center justify-center rounded-xl border border-dashed border-zinc-800 text-center">
+                    <p className="text-sm text-zinc-500">
+                      {drillBank.length === 0
+                        ? "Nessun drill salvato per questo club. Importa una seduta da Excel con la tab Drill bank, oppure salvane uno da una seduta."
+                        : "Nessun drill trovato per la ricerca."}
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="overflow-x-auto rounded-xl border border-zinc-800">
+                  <table className="w-full min-w-[1100px] border-collapse text-sm">
+                    <thead style={{ backgroundColor: themeColor }}>
+                      <tr className="text-left text-white">
+                        <th className="border border-black/10 px-3 py-2 font-semibold">
+                          Codice
+                        </th>
+                        <th className="border border-black/10 px-3 py-2 font-semibold">
+                          Sezione
+                        </th>
+                        <th className="border border-black/10 px-3 py-2 font-semibold">
+                          Nome
+                        </th>
+                        <th className="border border-black/10 px-3 py-2 text-right font-semibold">
+                          Durata
+                        </th>
+                        <th className="border border-black/10 px-3 py-2 font-semibold">
+                          Spazio
+                        </th>
+                        <th className="border border-black/10 px-3 py-2 font-semibold">
+                          Materiale
+                        </th>
+                        <th className="border border-black/10 px-3 py-2 font-semibold">
+                          Punti chiave
+                        </th>
+                        <th className="border border-black/10 px-3 py-2 font-semibold">
+                          Progressione
+                        </th>
+                        <th className="border border-black/10 px-3 py-2 font-semibold">
+                          Rif. GPS
+                        </th>
+                        <th className="border border-black/10 px-3 py-2 font-semibold">
+                          Perché serve
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {drillFiltrati.map((drill, index) => (
+                        <tr
+                          key={drill.id}
+                          className={
+                            index % 2 === 0
+                              ? "bg-zinc-950"
+                              : "bg-zinc-900/40"
+                          }
+                        >
+                          <td className="border border-zinc-800 bg-zinc-800/60 px-3 py-2 font-bold text-zinc-200">
+                            {drill.codice || "—"}
+                          </td>
+                          <td
+                            className="border border-zinc-800 px-3 py-2 font-semibold"
+                            style={{ color: themeColor }}
+                          >
+                            {drill.sezione || "—"}
+                          </td>
+                          <td className="border border-zinc-800 px-3 py-2 text-zinc-200">
+                            {drill.nome}
+                          </td>
+                          <td className="border border-zinc-800 px-3 py-2 text-right text-zinc-400">
+                            {drill.tempo_totale !== null
+                              ? `${drill.tempo_totale} min`
+                              : "—"}
+                          </td>
+                          <td className="border border-zinc-800 px-3 py-2 text-zinc-400">
+                            {drill.spazio || "—"}
+                          </td>
+                          <td className="border border-zinc-800 px-3 py-2 text-zinc-400">
+                            {drill.materiale || "—"}
+                          </td>
+                          <td className="border border-zinc-800 px-3 py-2 text-zinc-400">
+                            {drill.punti_chiave_coaching || "—"}
+                          </td>
+                          <td className="border border-zinc-800 px-3 py-2 text-zinc-400">
+                            {drill.progressione || "—"}
+                          </td>
+                          <td className="border border-zinc-800 px-3 py-2 text-zinc-400">
+                            {drill.riferimento_gps || "—"}
+                          </td>
+                          <td className="border border-zinc-800 px-3 py-2 text-zinc-400">
+                            {drill.perche_serve || "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+          </AppCard>
+        )}
+
+        {!loading &&
+          vista !== "resoconto" &&
+          vista !== "odierno" &&
+          vista !== "drillbank" && (
           <div className="space-y-4">
             {allenamentiDaMostrare.map((allenamento) => {
               const aperto = openId === allenamento.id;
@@ -1578,6 +1695,9 @@ export default function Page() {
                                     <th className="border border-black/10 px-3 py-2 text-right font-semibold">
                                       Totale
                                     </th>
+                                    <th className="border border-black/10 px-3 py-2 text-center font-semibold">
+                                      Drill
+                                    </th>
                                   </tr>
                                 </thead>
 
@@ -1586,6 +1706,17 @@ export default function Page() {
                                     const h2oRiga =
                                       lavoro.sezione.trim().toUpperCase() ===
                                       "H2O";
+                                    const haDettagli =
+                                      !h2oRiga &&
+                                      Boolean(
+                                        lavoro.codice ||
+                                          lavoro.spazio ||
+                                          lavoro.materiale ||
+                                          lavoro.punti_chiave_coaching ||
+                                          lavoro.progressione ||
+                                          lavoro.riferimento_gps ||
+                                          lavoro.perche_serve,
+                                      );
 
                                     return (
                                       <tr
@@ -1640,6 +1771,23 @@ export default function Page() {
                                         <td className="border border-zinc-800 bg-sky-900/30 px-3 py-2 text-right font-bold text-sky-200">
                                           {lavoro.tempo_totale ?? 0} min
                                         </td>
+
+                                        <td className="border border-zinc-800 px-3 py-2 text-center">
+                                          {haDettagli && (
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setLavoroDrillBankAperto(
+                                                  lavoro,
+                                                )
+                                              }
+                                              className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                                              title="Dettagli drill bank"
+                                            >
+                                              <Info className="h-4 w-4" />
+                                            </button>
+                                          )}
+                                        </td>
                                       </tr>
                                     );
                                   })}
@@ -1654,17 +1802,41 @@ export default function Page() {
                           const cardLavoro = (
                             lavoro: Lavoro,
                             dentroGruppo: boolean,
-                          ) => (
+                          ) => {
+                            const haDettagli = Boolean(
+                              lavoro.codice ||
+                                lavoro.spazio ||
+                                lavoro.materiale ||
+                                lavoro.punti_chiave_coaching ||
+                                lavoro.progressione ||
+                                lavoro.riferimento_gps ||
+                                lavoro.perche_serve,
+                            );
+
+                            return (
                             <div
                               key={lavoro.id}
                               className={
                                 dentroGruppo
-                                  ? "rounded-xl border border-zinc-800 bg-zinc-900 p-4"
-                                  : "rounded-xl border border-zinc-800 bg-zinc-950 p-4"
+                                  ? "relative rounded-xl border border-zinc-800 bg-zinc-900 p-4"
+                                  : "relative rounded-xl border border-zinc-800 bg-zinc-950 p-4"
                               }
                             >
+                              {haDettagli && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setLavoroDrillBankAperto(lavoro)
+                                  }
+                                  className="absolute right-3 top-3 rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+                                  title="Dettagli drill bank"
+                                >
+                                  <Info className="h-4 w-4" />
+                                </button>
+                              )}
+
                               <p
-                                className="text-sm font-semibold"
+                                className="pr-8 text-sm font-semibold"
                                 style={{ color: themeColor }}
                               >
                                 {lavoro.sezione}
@@ -1700,7 +1872,8 @@ export default function Page() {
                                 )}
                               </div>
                             </div>
-                          );
+                            );
+                          };
 
                           return listaLavori.map((lavoro) => {
                             if (lavoro.gruppo_contemporaneo) {
@@ -1872,6 +2045,14 @@ export default function Page() {
             />
           </div>
         </div>
+      )}
+
+      {lavoroDrillBankAperto && (
+        <DettaglioLavoroModal
+          lavoro={lavoroDrillBankAperto}
+          themeColor={themeColor}
+          onClose={() => setLavoroDrillBankAperto(null)}
+        />
       )}
     </>
   );
