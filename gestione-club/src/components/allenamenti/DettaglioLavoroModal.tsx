@@ -19,11 +19,19 @@ type LavoroDettaglio = {
   perche_serve?: string | null;
 };
 
-function Campo({ label, value }: { label: string; value: string | null | undefined }) {
+function Campo({
+  label,
+  value,
+  largo,
+}: {
+  label: string;
+  value: string | null | undefined;
+  largo?: boolean;
+}) {
   if (!value) return null;
 
   return (
-    <div>
+    <div className={largo ? "sm:col-span-2" : undefined}>
       <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">
         {label}
       </p>
@@ -47,7 +55,7 @@ export default function DettaglioLavoroModal({
       onClick={onClose}
     >
       <div
-        className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-950 p-5 shadow-2xl"
+        className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-950 p-5 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between gap-3">
@@ -92,14 +100,18 @@ export default function DettaglioLavoroModal({
           )}
         </div>
 
-        <div className="space-y-3 border-t border-zinc-800 pt-4">
-          <Campo label="Obiettivo" value={lavoro.obbiettivo} />
+        <div className="grid gap-4 border-t border-zinc-800 pt-4 sm:grid-cols-2">
+          <Campo label="Obiettivo" value={lavoro.obbiettivo} largo />
           <Campo label="Spazio" value={lavoro.spazio} />
           <Campo label="Materiale" value={lavoro.materiale} />
-          <Campo label="Punti chiave / coaching" value={lavoro.punti_chiave_coaching} />
-          <Campo label="Progressione" value={lavoro.progressione} />
           <Campo label="Riferimento GPS" value={lavoro.riferimento_gps} />
-          <Campo label="Perché serve" value={lavoro.perche_serve} />
+          <Campo
+            label="Punti chiave / coaching"
+            value={lavoro.punti_chiave_coaching}
+            largo
+          />
+          <Campo label="Progressione" value={lavoro.progressione} largo />
+          <Campo label="Perché serve" value={lavoro.perche_serve} largo />
 
           {!lavoro.spazio &&
             !lavoro.materiale &&

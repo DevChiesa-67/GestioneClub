@@ -649,3 +649,193 @@ export async function creaMisurazioneAntropometricaAction(
     };
   }
 }
+
+/*
+ * Aggiorna una singola misurazione antropometrica già esistente.
+ * Riservata all'admin, scoperta al club attivo (non è possibile
+ * modificare misurazioni di un altro club tramite id).
+ */
+export async function aggiornaMisurazioneAntropometricaAction(
+  formData: FormData,
+): Promise<MisurazioniActionResult> {
+  try {
+    const { supabase, profilo } = await getCurrentContext();
+
+    const tipoProfilo = String(
+      profilo.tipo_profilo || "",
+    ).toLowerCase();
+
+    if (tipoProfilo !== "admin") {
+      return {
+        success: false,
+        message:
+          "Non hai i permessi per modificare misurazioni antropometriche.",
+      };
+    }
+
+    const id = getString(formData.get("id"));
+
+    if (!id) {
+      return {
+        success: false,
+        message: "Misurazione non valida.",
+      };
+    }
+
+    const dataMisurazione =
+      getString(formData.get("data_misurazione")) ||
+      new Date().toISOString().slice(0, 10);
+
+    const pesoKg = getNullableNumber(formData.get("peso_kg"));
+    const altezzaCm = getNullableNumber(formData.get("altezza_cm"));
+    const massaGrassaPercentuale = getNullableNumber(
+      formData.get("massa_grassa_percentuale"),
+    );
+    const circonferenzaVitaCm = getNullableNumber(
+      formData.get("circonferenza_vita_cm"),
+    );
+    const note = getNullableString(formData.get("note"));
+
+    const haAlmenoUnValore =
+      pesoKg !== null ||
+      altezzaCm !== null ||
+      massaGrassaPercentuale !== null ||
+      circonferenzaVitaCm !== null;
+
+    if (!haAlmenoUnValore) {
+      return {
+        success: false,
+        message: "Inserisci almeno un valore.",
+      };
+    }
+
+    const { data: aggiornata, error: updateError } = await supabase
+      .from("misurazioni_antropometriche")
+      .update({
+        data_misurazione: dataMisurazione,
+        peso_kg: pesoKg,
+        altezza_cm: altezzaCm,
+        massa_grassa_percentuale: massaGrassaPercentuale,
+        circonferenza_vita_cm: circonferenzaVitaCm,
+        note,
+      })
+      .eq("id", id)
+      .eq("club_id", profilo.last_club_id)
+      .select("id")
+      .maybeSingle();
+
+    if (updateError) {
+      console.error("Errore aggiornamento misurazione:", updateError);
+
+      return {
+        success: false,
+        message: updateError.message,
+      };
+    }
+
+    if (!aggiornata) {
+      return {
+        success: false,
+        message:
+          "Misurazione non trovata, oppure non hai i permessi per modificarla.",
+      };
+    }
+
+    revalidatePath("/misurazioni");
+
+    return {
+      success: true,
+      message: "Misurazione aggiornata correttamente.",
+    };
+  } catch (error) {
+    console.error(
+      "Errore aggiornaMisurazioneAntropometricaAction:",
+      error,
+    );
+
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Errore imprevisto.",
+    };
+  }
+}
+
+/*
+ * Elimina una singola misurazione antropometrica. Riservata all'admin,
+ * scoperta al club attivo. Verifichiamo che la riga sia stata
+ * effettivamente eliminata (una RLS troppo restrittiva potrebbe far
+ * "riuscire" la query senza cancellare nulla).
+ */
+export async function eliminaMisurazioneAntropometricaAction(
+  id: string,
+): Promise<MisurazioniActionResult> {
+  try {
+    const { supabase, profilo } = await getCurrentContext();
+
+    const tipoProfilo = String(
+      profilo.tipo_profilo || "",
+    ).toLowerCase();
+
+    if (tipoProfilo !== "admin") {
+      return {
+        success: false,
+        message:
+          "Non hai i permessi per eliminare misurazioni antropometriche.",
+      };
+    }
+
+    if (!id) {
+      return {
+        success: false,
+        message: "Misurazione non valida.",
+      };
+    }
+
+    const { data: eliminata, error: deleteError } = await supabase
+      .from("misurazioni_antropometriche")
+      .delete()
+      .eq("id", id)
+      .eq("club_id", profilo.last_club_id)
+      .select("id");
+
+    if (deleteError) {
+      console.error("Errore eliminazione misurazione:", deleteError);
+
+      return {
+        success: false,
+        message: deleteError.message,
+      };
+    }
+
+    if (!eliminata || eliminata.length === 0) {
+      return {
+        success: false,
+        message:
+          "Misurazione non trovata, già eliminata, oppure non hai i permessi per eliminarla.",
+      };
+    }
+
+    revalidatePath("/misurazioni");
+
+    return {
+      success: true,
+      message: "Misurazione eliminata correttamente.",
+    };
+  } catch (error) {
+    console.error(
+      "Errore eliminaMisurazioneAntropometricaAction:",
+      error,
+    );
+
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Errore imprevisto.",
+    };
+  }
+}

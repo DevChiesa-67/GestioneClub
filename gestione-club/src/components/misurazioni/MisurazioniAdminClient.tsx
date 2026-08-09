@@ -2,21 +2,26 @@
 
 "use client";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { FormEvent, useMemo, useState ,useEffect,useRef} from "react";
 import {
   Activity,
   CalendarDays,
   ChevronDown,
+  Loader2,
+  Pencil,
   Plus,
   Ruler,
   Search,Check,
-  Scale,UsersRound,
+  Scale,Trash2,UsersRound,
   UserRound,
   X,
 } from "lucide-react";
 
 import {
   creaMisurazioneAntropometricaAction,
+  aggiornaMisurazioneAntropometricaAction,
+  eliminaMisurazioneAntropometricaAction,
 } from "@/app/(dashboard)/misurazioni/actions";
 import { DateInput } from "@/components/ui/DateInput";
 
@@ -77,6 +82,18 @@ export default function MisurazioniAdminClient({
   const [giocatoriSelezionatiIds, setGiocatoriSelezionatiIds] =
   useState<string[]>([]);
 
+  const router = useRouter();
+  const [misurazioneInModifica, setMisurazioneInModifica] =
+    useState<MisurazioneAntropometrica | null>(null);
+  const [salvataggioModifica, setSalvataggioModifica] = useState(false);
+  const [messaggioModifica, setMessaggioModifica] = useState<{
+    tipo: "success" | "error";
+    testo: string;
+  } | null>(null);
+  const [eliminazioneInCorsoId, setEliminazioneInCorsoId] = useState<
+    string | null
+  >(null);
+
 const giocatoriSelezionati = useMemo(() => {
   const ids = new Set(giocatoriSelezionatiIds);
 
@@ -109,6 +126,75 @@ function chiudiModal() {
   setModalAperta(false);
   setMessaggio(null);
   setGiocatoriSelezionatiIds([]);
+}
+
+function apriModifica(misurazione: MisurazioneAntropometrica) {
+  setMessaggioModifica(null);
+  setMisurazioneInModifica(misurazione);
+}
+
+function chiudiModifica() {
+  setMisurazioneInModifica(null);
+  setMessaggioModifica(null);
+}
+
+async function handleSubmitModifica(
+  event: FormEvent<HTMLFormElement>,
+) {
+  event.preventDefault();
+
+  if (!misurazioneInModifica) return;
+
+  setSalvataggioModifica(true);
+  setMessaggioModifica(null);
+
+  const formData = new FormData(event.currentTarget);
+
+  const result = await aggiornaMisurazioneAntropometricaAction(formData);
+
+  setSalvataggioModifica(false);
+
+  if (!result.success) {
+    setMessaggioModifica({ tipo: "error", testo: result.message });
+    return;
+  }
+
+  setMessaggioModifica({ tipo: "success", testo: result.message });
+  router.refresh();
+
+  window.setTimeout(() => {
+    setMisurazioneInModifica(null);
+    setMessaggioModifica(null);
+  }, 800);
+}
+
+async function handleElimina(misurazione: MisurazioneAntropometrica) {
+  const nomeAtleta = misurazione.giocatore
+    ? `${misurazione.giocatore.nome} ${misurazione.giocatore.cognome}`
+    : "questo atleta";
+
+  const confermato = window.confirm(
+    `Eliminare la misurazione del ${formatDate(
+      misurazione.data_misurazione,
+    )} per ${nomeAtleta}? L'operazione non è reversibile.`,
+  );
+
+  if (!confermato) return;
+
+  setEliminazioneInCorsoId(misurazione.id);
+
+  const result = await eliminaMisurazioneAntropometricaAction(
+    misurazione.id,
+  );
+
+  setEliminazioneInCorsoId(null);
+
+  if (!result.success) {
+    window.alert(result.message);
+    return;
+  }
+
+  router.refresh();
 }
   const misurazioniFiltrate = useMemo(() => {
     const termine = ricerca.trim().toLowerCase();
@@ -357,6 +443,7 @@ function chiudiModal() {
                 <th className="px-4 py-4">Massa magra</th>
                 <th className="px-4 py-4">Vita</th>
                 <th className="px-4 py-4">Note</th>
+                <th className="px-4 py-4 text-right">Azioni</th>
               </tr>
             </thead>
 
@@ -424,6 +511,35 @@ function chiudiModal() {
 
                   <td className="max-w-64 truncate px-4 py-4 text-zinc-400">
                     {misurazione.note || "—"}
+                  </td>
+
+                  <td className="px-4 py-4">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => apriModifica(misurazione)}
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 transition hover:border-zinc-600 hover:text-white"
+                        aria-label="Modifica misurazione"
+                        title="Modifica"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleElimina(misurazione)}
+                        disabled={eliminazioneInCorsoId === misurazione.id}
+                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 transition hover:border-red-500/40 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label="Elimina misurazione"
+                        title="Elimina"
+                      >
+                        {eliminazioneInCorsoId === misurazione.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -528,6 +644,31 @@ function chiudiModal() {
                   </p>
                 </div>
               )}
+
+              <div className="mt-4 flex gap-2 border-t border-zinc-900 pt-3">
+                <button
+                  type="button"
+                  onClick={() => apriModifica(misurazione)}
+                  className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 text-sm font-medium text-zinc-300 transition hover:border-zinc-600 hover:text-white"
+                >
+                  <Pencil className="h-4 w-4" />
+                  Modifica
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleElimina(misurazione)}
+                  disabled={eliminazioneInCorsoId === misurazione.id}
+                  className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 text-sm font-medium text-zinc-300 transition hover:border-red-500/40 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {eliminazioneInCorsoId === misurazione.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                  Elimina
+                </button>
+              </div>
             </div>
           </article>
         ))}
@@ -817,6 +958,192 @@ function chiudiModal() {
     </button>
   </div>
 </form>
+          </div>
+        </div>
+      )}
+
+      {misurazioneInModifica && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+          <div className="max-h-[92vh] w-full overflow-y-auto rounded-t-3xl border border-zinc-800 bg-zinc-950 sm:max-w-lg sm:rounded-3xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-800 bg-zinc-950/95 p-4 backdrop-blur sm:p-5">
+              <div className="flex min-w-0 items-center gap-3">
+                <GiocatoreAvatar
+                  giocatore={{
+                    nome:
+                      misurazioneInModifica.giocatore?.nome || "?",
+                    cognome:
+                      misurazioneInModifica.giocatore?.cognome || "",
+                    foto_url:
+                      misurazioneInModifica.giocatore?.foto_url || null,
+                  }}
+                  size="medium"
+                />
+
+                <div className="min-w-0">
+                  <h2 className="truncate text-lg font-bold text-white">
+                    {misurazioneInModifica.giocatore
+                      ? `${misurazioneInModifica.giocatore.nome} ${misurazioneInModifica.giocatore.cognome}`
+                      : "Modifica misurazione"}
+                  </h2>
+                  <p className="truncate text-sm text-zinc-500">
+                    Misurazione del{" "}
+                    {formatDate(misurazioneInModifica.data_misurazione)}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={chiudiModifica}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-zinc-400 transition hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={handleSubmitModifica}
+              className="space-y-5 p-4 sm:p-5"
+            >
+              <input
+                type="hidden"
+                name="id"
+                value={misurazioneInModifica.id}
+                readOnly
+              />
+
+              <Field label="Data misurazione" required>
+                <DateInput
+                  name="data_misurazione"
+                  required
+                  defaultValue={misurazioneInModifica.data_misurazione}
+                  wrapperClassName={inputClass}
+                />
+              </Field>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Peso">
+                  <div className="relative">
+                    <input
+                      name="peso_kg"
+                      type="number"
+                      min="20"
+                      max="300"
+                      step="0.01"
+                      placeholder="es. 82.50"
+                      defaultValue={
+                        misurazioneInModifica.peso_kg ?? undefined
+                      }
+                      className={`${inputClass} pr-12`}
+                      autoFocus
+                    />
+                    <span className={suffixClass}>kg</span>
+                  </div>
+                </Field>
+
+                <Field label="Altezza">
+                  <div className="relative">
+                    <input
+                      name="altezza_cm"
+                      type="number"
+                      min="80"
+                      max="250"
+                      step="0.01"
+                      placeholder="es. 182"
+                      defaultValue={
+                        misurazioneInModifica.altezza_cm ?? undefined
+                      }
+                      className={`${inputClass} pr-12`}
+                    />
+                    <span className={suffixClass}>cm</span>
+                  </div>
+                </Field>
+
+                <Field label="Massa grassa">
+                  <div className="relative">
+                    <input
+                      name="massa_grassa_percentuale"
+                      type="number"
+                      min="0"
+                      max="70"
+                      step="0.01"
+                      placeholder="es. 14.5"
+                      defaultValue={
+                        misurazioneInModifica.massa_grassa_percentuale ??
+                        undefined
+                      }
+                      className={`${inputClass} pr-12`}
+                    />
+                    <span className={suffixClass}>%</span>
+                  </div>
+                </Field>
+
+                <Field label="Circonferenza vita">
+                  <div className="relative">
+                    <input
+                      name="circonferenza_vita_cm"
+                      type="number"
+                      min="20"
+                      max="250"
+                      step="0.01"
+                      placeholder="es. 88"
+                      defaultValue={
+                        misurazioneInModifica.circonferenza_vita_cm ??
+                        undefined
+                      }
+                      className={`${inputClass} pr-12`}
+                    />
+                    <span className={suffixClass}>cm</span>
+                  </div>
+                </Field>
+              </div>
+
+              <Field label="Note">
+                <textarea
+                  name="note"
+                  rows={3}
+                  placeholder="Note..."
+                  defaultValue={misurazioneInModifica.note ?? ""}
+                  className={`${inputClass} resize-none py-3`}
+                />
+              </Field>
+
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 text-xs leading-5 text-zinc-400">
+                BMI e massa magra vengono ricalcolati automaticamente
+                dal database in base ai nuovi valori.
+              </div>
+
+              {messaggioModifica && (
+                <div
+                  className={`rounded-xl border p-3 text-sm ${
+                    messaggioModifica.tipo === "success"
+                      ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                      : "border-red-500/20 bg-red-500/10 text-red-300"
+                  }`}
+                >
+                  {messaggioModifica.testo}
+                </div>
+              )}
+
+              <div className="flex flex-col-reverse gap-2 border-t border-zinc-800 pt-4 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={chiudiModifica}
+                  className="min-h-11 rounded-xl border border-zinc-800 px-4 text-sm font-semibold text-zinc-300 transition hover:bg-zinc-900"
+                >
+                  Annulla
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={salvataggioModifica}
+                  className="min-h-11 rounded-xl px-5 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ backgroundColor: coloreClub }}
+                >
+                  {salvataggioModifica ? "Salvataggio..." : "Salva modifiche"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1156,7 +1483,7 @@ function GiocatoreAvatar({
   giocatore,
   size,
 }: {
-  giocatore: GiocatoreMisurazioni;
+  giocatore: Pick<GiocatoreMisurazioni, "nome" | "cognome" | "foto_url">;
   size: "small" | "medium" | "large";
 }) {
   const sizeClass = {
