@@ -58,15 +58,17 @@ function parseCambi(raw: string): CambioDaSalvare[] {
       (item): item is Record<string, unknown> =>
         typeof item === "object" && item !== null,
     )
-    .map((item) => ({
-      nomeTesto: String(item.nomeTesto ?? "").trim(),
-      minuto: Number(item.minuto),
-      tipo: item.tipo === "esce" ? "esce" : "entra",
-      giocatoreId:
-        typeof item.giocatoreId === "string" && item.giocatoreId
-          ? item.giocatoreId
-          : null,
-    }))
+    .map(
+      (item): CambioDaSalvare => ({
+        nomeTesto: String(item.nomeTesto ?? "").trim(),
+        minuto: Number(item.minuto),
+        tipo: item.tipo === "esce" ? "esce" : "entra",
+        giocatoreId:
+          typeof item.giocatoreId === "string" && item.giocatoreId
+            ? item.giocatoreId
+            : null,
+      }),
+    )
     .filter((item) => item.nomeTesto && Number.isFinite(item.minuto));
 }
 
