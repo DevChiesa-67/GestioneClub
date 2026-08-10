@@ -1297,9 +1297,10 @@ export default function Page() {
             )}
 
             <div className="overflow-x-auto rounded-2xl border border-zinc-800">
-              <table className="min-w-[820px] w-full border-collapse text-sm">
+              <table className="min-w-[960px] w-full border-collapse text-sm">
                 <thead style={{ backgroundColor: themeColor }}>
                   <tr className="text-left text-white">
+                    <th className="px-3 py-3">Orario</th>
                     <th className="px-3 py-3">Sezione</th>
                     <th className="px-3 py-3">Descrizione</th>
                     <th className="px-3 py-3">Obiettivo</th>
@@ -1311,36 +1312,51 @@ export default function Page() {
                 </thead>
 
                 <tbody>
-                  {lavoriPerAllenamento(allenamentoOdiernoOProssimo.id)
-                    .sort((a, b) => (a.ordine ?? 0) - (b.ordine ?? 0))
-                    .map((lavoro) => (
-                      <tr
-                        key={lavoro.id}
-                        className="border-t border-zinc-800 bg-zinc-950/70 text-zinc-200"
-                      >
-                        <td className="px-3 py-3 font-semibold text-white">
-                          {lavoro.sezione}
-                        </td>
-                        <td className="px-3 py-3">
-                          {lavoro.titolo || lavoro.descrizione || "—"}
-                        </td>
-                        <td className="px-3 py-3">
-                          {lavoro.obbiettivo ?? "—"}
-                        </td>
-                        <td className="px-3 py-3 text-right">
-                          {lavoro.tempo_lavoro ?? "—"}
-                        </td>
-                        <td className="px-3 py-3 text-right">
-                          {lavoro.ripetizione ?? "—"}
-                        </td>
-                        <td className="px-3 py-3 text-right">
-                          {lavoro.tempo_recupero ?? "—"}
-                        </td>
-                        <td className="px-3 py-3 text-right font-bold">
-                          {lavoro.tempo_totale ?? "—"}
-                        </td>
-                      </tr>
-                    ))}
+                  {(() => {
+                    const lavoriOdierno = lavoriPerAllenamento(
+                      allenamentoOdiernoOProssimo.id,
+                    ).sort((a, b) => (a.ordine ?? 0) - (b.ordine ?? 0));
+                    const orariOdierno = orariLavori(
+                      allenamentoOdiernoOProssimo.ora_inizio,
+                      lavoriOdierno,
+                    );
+
+                    return lavoriOdierno.map((lavoro) => {
+                      const range = orariOdierno.get(lavoro.id);
+
+                      return (
+                        <tr
+                          key={lavoro.id}
+                          className="border-t border-zinc-800 bg-zinc-950/70 text-zinc-200"
+                        >
+                          <td className="whitespace-nowrap px-3 py-3 text-zinc-400">
+                            {range ? `${range.inizio}–${range.fine}` : "—"}
+                          </td>
+                          <td className="px-3 py-3 font-semibold text-white">
+                            {lavoro.sezione}
+                          </td>
+                          <td className="px-3 py-3">
+                            {lavoro.titolo || lavoro.descrizione || "—"}
+                          </td>
+                          <td className="px-3 py-3">
+                            {lavoro.obbiettivo ?? "—"}
+                          </td>
+                          <td className="px-3 py-3 text-right">
+                            {lavoro.tempo_lavoro ?? "—"}
+                          </td>
+                          <td className="px-3 py-3 text-right">
+                            {lavoro.ripetizione ?? "—"}
+                          </td>
+                          <td className="px-3 py-3 text-right">
+                            {lavoro.tempo_recupero ?? "—"}
+                          </td>
+                          <td className="px-3 py-3 text-right font-bold">
+                            {lavoro.tempo_totale ?? "—"}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -1747,11 +1763,20 @@ export default function Page() {
                         )}
 
                         {listaLavori.length > 0 &&
-                          vistaElencoLavori === "tabella" && (
+                          vistaElencoLavori === "tabella" && (() => {
+                            const orariElenco = orariLavori(
+                              allenamento.ora_inizio,
+                              listaLavori,
+                            );
+
+                            return (
                             <div className="overflow-x-auto rounded-xl border border-zinc-700">
-                              <table className="w-full min-w-[820px] border-collapse text-sm">
+                              <table className="w-full min-w-[920px] border-collapse text-sm">
                                 <thead style={{ backgroundColor: themeColor }}>
                                   <tr className="text-left text-white">
+                                    <th className="border border-black/10 px-3 py-2 font-semibold">
+                                      Orario
+                                    </th>
                                     <th className="border border-black/10 px-3 py-2 font-semibold">
                                       Sezione
                                     </th>
@@ -1792,6 +1817,7 @@ export default function Page() {
                                           lavoro.riferimento_gps ||
                                           lavoro.perche_serve,
                                       );
+                                    const rangeElenco = orariElenco.get(lavoro.id);
 
                                     return (
                                       <tr
@@ -1802,6 +1828,12 @@ export default function Page() {
                                             : "bg-zinc-900/40"
                                         }
                                       >
+                                        <td className="whitespace-nowrap border border-zinc-800 px-3 py-2 text-zinc-400">
+                                          {rangeElenco
+                                            ? `${rangeElenco.inizio}–${rangeElenco.fine}`
+                                            : "—"}
+                                        </td>
+
                                         <td
                                           className="border border-zinc-800 bg-zinc-800/60 px-3 py-2 font-bold"
                                           style={{
@@ -1869,10 +1901,15 @@ export default function Page() {
                                 </tbody>
                               </table>
                             </div>
-                          )}
+                            );
+                          })()}
 
                         {vistaElencoLavori === "card" && (() => {
                           const gruppiRenderizzati = new Set<string>();
+                          const orariCard = orariLavori(
+                            allenamento.ora_inizio,
+                            listaLavori,
+                          );
 
                           const cardLavoro = (
                             lavoro: Lavoro,
@@ -1887,6 +1924,7 @@ export default function Page() {
                                 lavoro.riferimento_gps ||
                                 lavoro.perche_serve,
                             );
+                            const rangeCard = orariCard.get(lavoro.id);
 
                             return (
                             <div
@@ -1910,12 +1948,20 @@ export default function Page() {
                                 </button>
                               )}
 
-                              <p
-                                className="pr-8 text-sm font-semibold"
-                                style={{ color: themeColor }}
-                              >
-                                {lavoro.sezione}
-                              </p>
+                              <div className="flex flex-wrap items-center gap-2 pr-8">
+                                <p
+                                  className="text-sm font-semibold"
+                                  style={{ color: themeColor }}
+                                >
+                                  {lavoro.sezione}
+                                </p>
+
+                                {rangeCard && (
+                                  <span className="rounded-full border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-xs font-medium text-zinc-400">
+                                    {rangeCard.inizio}–{rangeCard.fine}
+                                  </span>
+                                )}
+                              </div>
 
                               <p className="mt-2 text-white">
                                 {lavoro.descrizione || "Senza descrizione"}
