@@ -227,6 +227,34 @@ function formatDataITBreve(data: string) {
   }).format(new Date(`${data}T00:00:00`));
 }
 
+// Palette fissa: ogni sezione (MEETING, PALESTRA, SKILLS, ecc.) viene
+// sempre associata allo stesso colore in ogni allenamento, calcolando un
+// indice deterministico dal nome invece che dalla sua posizione nella
+// lista (che cambia seduta per seduta a seconda di quali sezioni ci sono).
+const COLORI_SEZIONI = [
+  "#ef4444",
+  "#f97316",
+  "#eab308",
+  "#22c55e",
+  "#06b6d4",
+  "#6366f1",
+  "#a855f7",
+  "#ec4899",
+  "#14b8a6",
+  "#84cc16",
+];
+
+function coloreSezionePalette(nome: string): string {
+  const normalizzato = nome.trim().toUpperCase();
+
+  let hash = 0;
+  for (let i = 0; i < normalizzato.length; i += 1) {
+    hash = (hash * 31 + normalizzato.charCodeAt(i)) % 997;
+  }
+
+  return COLORI_SEZIONI[hash % COLORI_SEZIONI.length];
+}
+
 function PieChart({ items }: { items: { label: string; value: number }[] }) {
   const totale = items.reduce((sum, item) => sum + item.value, 0);
 
@@ -238,17 +266,6 @@ function PieChart({ items }: { items: { label: string; value: number }[] }) {
     );
   }
 
-  const colori = [
-    "#ef4444",
-    "#f97316",
-    "#eab308",
-    "#22c55e",
-    "#06b6d4",
-    "#6366f1",
-    "#a855f7",
-    "#ec4899",
-  ];
-
   const gradient = items
     .map((item, index) => {
       const start = items
@@ -257,7 +274,7 @@ function PieChart({ items }: { items: { label: string; value: number }[] }) {
 
       const end = start + (item.value / totale) * 100;
 
-      return `${colori[index % colori.length]} ${start}% ${end}%`;
+      return `${coloreSezionePalette(item.label)} ${start}% ${end}%`;
     })
     .join(", ");
 
@@ -274,8 +291,16 @@ function PieChart({ items }: { items: { label: string; value: number }[] }) {
             key={item.label}
             className="flex items-center justify-between gap-3 text-sm"
           >
-            <span className="truncate text-zinc-400">{item.label}</span>
-            <span className="font-medium text-white">{item.value} min</span>
+            <span className="flex min-w-0 items-center gap-2 truncate text-zinc-400">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: coloreSezionePalette(item.label) }}
+              />
+              <span className="truncate">{item.label}</span>
+            </span>
+            <span className="shrink-0 font-medium text-white">
+              {item.value} min
+            </span>
           </div>
         ))}
       </div>
