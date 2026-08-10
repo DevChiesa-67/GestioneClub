@@ -19,6 +19,7 @@ import {
   eliminaVideoFile,
   aggiornaVideoFile,
 } from "@/app/(dashboard)/file/actions";
+import { creaTipoEvento } from "@/app/(dashboard)/eventi/actions";
 
 type Partita = {
   id: string;
@@ -30,6 +31,20 @@ type Allenamento = {
   id: string;
   titolo: string | null;
   data_allenamento: string | null;
+};
+
+type TipoEvento = {
+  id: string;
+  nome: string;
+  colore: string | null;
+};
+
+type Evento = {
+  id: string;
+  titolo: string;
+  data_inizio: string;
+  tipo_evento_id: string;
+  tipo_evento: { id: string; nome: string; colore: string | null } | null;
 };
 
 type Persona = {
@@ -51,12 +66,13 @@ type Video = {
   titolo: string;
   video_path: string;
   signedUrl: string | null;
-  tipo_evento: "partita" | "allenamento";
+  tipo_evento: "partita" | "allenamento" | "evento";
   note: string | null;
   visibilita: string;
   created_at: string;
   partita_id: string | null;
   allenamento_id: string | null;
+  evento_id: string | null;
   partite?: {
     avversario: string | null;
     data_partita: string | null;
@@ -64,6 +80,12 @@ type Video = {
   allenamenti?: {
     titolo: string | null;
     data_allenamento: string | null;
+  } | null;
+  eventi?: {
+    titolo: string | null;
+    data_inizio: string | null;
+    tipo_evento_id?: string | null;
+    tipo_evento: { nome: string | null } | null;
   } | null;
   file_video_destinatari?: {
     profilo_id: string | null;
@@ -76,6 +98,8 @@ type Props = {
   video: Video[];
   partite: Partita[];
   allenamenti: Allenamento[];
+  eventi: Evento[];
+  tipiEventi: TipoEvento[];
   persone: Persona[];
   giocatori: Giocatore[];
 };
@@ -84,6 +108,13 @@ function eventoLabel(item: Video) {
   if (item.tipo_evento === "partita") {
     return `Partita: ${item.partite?.data_partita ?? ""} ${
       item.partite?.avversario ?? "Evento partita"
+    }`;
+  }
+
+  if (item.tipo_evento === "evento") {
+    const nomeTipo = item.eventi?.tipo_evento?.nome ?? "Evento";
+    return `${nomeTipo}: ${item.eventi?.data_inizio ?? ""} ${
+      item.eventi?.titolo ?? nomeTipo
     }`;
   }
 
@@ -150,42 +181,189 @@ function GiocatoriMultiSelect({
   );
 }
 
+// Valore composito del menu "Tipo evento": "partita" | "allenamento" oppure
+// "evento:<tipo_evento_id>" per collegare il video a un torneo/raduno/team
+// building di una tipologia specifica.
+type TipoEventoValore = "partita" | "allenamento" | "evento";
+
+function componiValoreTipo(tipo: TipoEventoValore, tipoEventoId: string) {
+  return tipo === "evento" ? `evento:${tipoEventoId}` : tipo;
+}
+
+function scomponiValoreTipo(
+  valore: string
+): { tipo: TipoEventoValore; tipoEventoId: string } {
+  if (valore === "partita" || valore === "allenamento") {
+    return { tipo: valore, tipoEventoId: "" };
+  }
+
+  return { tipo: "evento", tipoEventoId: valore.replace(/^evento:/, "") };
+}
+
+function SelettoreTipoEvento({
+  valore,
+  onChange,
+  tipiEventi,
+  onTipiEventiChange,
+}: {
+  valore: string;
+  onChange: (valore: string) => void;
+  tipiEventi: TipoEvento[];
+  onTipiEventiChange: (tipi: TipoEvento[]) => void;
+}) {
+  const [mostraForm, setMostraForm] = useState(false);
+  const [nome, setNome] = useState("");
+  const [colore, setColore] = useState("#f59e0b");
+  const [salvando, setSalvando] = useState(false);
+  const [errore, setErrore] = useState<string | null>(null);
+
+  async function handleCrea() {
+    if (!nome.trim()) return;
+
+    setSalvando(true);
+    setErrore(null);
+
+    const formData = new FormData();
+    formData.set("nome", nome.trim());
+    formData.set("colore", colore);
+
+    const risultato = await creaTipoEvento(formData);
+
+    setSalvando(false);
+
+    if (!risultato.success || !risultato.id) {
+      setErrore(risultato.message);
+      return;
+    }
+
+    const nuovaTipologia: TipoEvento = {
+      id: risultato.id,
+      nome: nome.trim(),
+      colore,
+    };
+
+    onTipiEventiChange(
+      [...tipiEventi, nuovaTipologia].sort((a, b) =>
+        a.nome.localeCompare(b.nome)
+      )
+    );
+    onChange(componiValoreTipo("evento", risultato.id));
+    setNome("");
+    setMostraForm(false);
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-bold uppercase text-zinc-500">
+          Tipo evento
+        </label>
+
+        <button
+          type="button"
+          onClick={() => setMostraForm((prev) => !prev)}
+          className="text-xs font-bold text-zinc-400 hover:text-white"
+        >
+          {mostraForm ? "Annulla" : "+ Nuova tipologia"}
+        </button>
+      </div>
+
+      <select
+        name="tipo_evento_composito"
+        value={valore}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-white outline-none focus:border-zinc-600"
+      >
+        <option value="partita">Partita</option>
+        <option value="allenamento">Allenamento</option>
+        {tipiEventi.length > 0 && (
+          <optgroup label="Eventi">
+            {tipiEventi.map((tipo) => (
+              <option key={tipo.id} value={componiValoreTipo("evento", tipo.id)}>
+                {tipo.nome}
+              </option>
+            ))}
+          </optgroup>
+        )}
+      </select>
+
+      {mostraForm && (
+        <div className="mt-2 flex items-center gap-2 rounded-2xl border border-zinc-800 bg-zinc-950 p-3">
+          <input
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            placeholder="Es. Torneo, Raduno..."
+            className="flex-1 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-white outline-none focus:border-zinc-600"
+          />
+          <input
+            type="color"
+            value={colore}
+            onChange={(e) => setColore(e.target.value)}
+            className="h-9 w-9 shrink-0 cursor-pointer rounded-lg border border-zinc-800 bg-zinc-900"
+          />
+          <button
+            type="button"
+            onClick={handleCrea}
+            disabled={salvando || !nome.trim()}
+            className="shrink-0 rounded-xl bg-white px-3 py-2 text-xs font-black text-zinc-950 disabled:opacity-50"
+          >
+            {salvando ? "..." : "Crea"}
+          </button>
+        </div>
+      )}
+
+      {errore && <p className="mt-1 text-xs text-red-400">{errore}</p>}
+    </div>
+  );
+}
+
 export default function FileVideoClient({
   isAdmin,
   video,
   partite,
   allenamenti,
+  eventi,
+  tipiEventi,
   persone,
   giocatori,
 }: Props) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
-  const [tipoEvento, setTipoEvento] = useState<"partita" | "allenamento">(
-    "partita"
+  const [tipiEventiLista, setTipiEventiLista] = useState<TipoEvento[]>(
+    tipiEventi
   );
+
+  const [tipoValore, setTipoValore] = useState<string>("partita");
   const [visibilita, setVisibilita] = useState("tutti");
 
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editTipoEvento, setEditTipoEvento] = useState<
-    "partita" | "allenamento"
-  >("partita");
+  const [editTipoValore, setEditTipoValore] = useState<string>("partita");
   const [editVisibilita, setEditVisibilita] = useState("tutti");
 
   const [isPending, startTransition] = useTransition();
 
-  const eventi = useMemo(() => {
-    return tipoEvento === "partita" ? partite : allenamenti;
-  }, [tipoEvento, partite, allenamenti]);
+  const { tipo: tipoEvento, tipoEventoId: tipoEventoIdSel } =
+    scomponiValoreTipo(tipoValore);
+  const { tipo: editTipoEvento, tipoEventoId: editTipoEventoIdSel } =
+    scomponiValoreTipo(editTipoValore);
 
-  const eventiEdit = useMemo(() => {
-    return editTipoEvento === "partita" ? partite : allenamenti;
-  }, [editTipoEvento, partite, allenamenti]);
+  const eventiAssociabili = useMemo(() => {
+    if (tipoEvento === "partita") return partite;
+    if (tipoEvento === "allenamento") return allenamenti;
+    return eventi.filter((e) => e.tipo_evento_id === tipoEventoIdSel);
+  }, [tipoEvento, tipoEventoIdSel, partite, allenamenti, eventi]);
+
+  const eventiAssociabiliEdit = useMemo(() => {
+    if (editTipoEvento === "partita") return partite;
+    if (editTipoEvento === "allenamento") return allenamenti;
+    return eventi.filter((e) => e.tipo_evento_id === editTipoEventoIdSel);
+  }, [editTipoEvento, editTipoEventoIdSel, partite, allenamenti, eventi]);
 
   const videoRaggruppati = useMemo(() => {
     return video.reduce<Record<string, Video[]>>((acc, item) => {
       const key = `${item.tipo_evento}-${
-        item.partita_id ?? item.allenamento_id ?? item.id
+        item.partita_id ?? item.allenamento_id ?? item.evento_id ?? item.id
       }`;
 
       if (!acc[key]) acc[key] = [];
@@ -219,7 +397,11 @@ export default function FileVideoClient({
 
   function startEditing(item: Video) {
     setEditingId(item.id);
-    setEditTipoEvento(item.tipo_evento);
+    setEditTipoValore(
+      item.tipo_evento === "evento" && item.eventi?.tipo_evento_id
+        ? componiValoreTipo("evento", item.eventi.tipo_evento_id)
+        : item.tipo_evento
+    );
     setEditVisibilita(item.visibilita);
   }
 
@@ -271,18 +453,13 @@ export default function FileVideoClient({
               </div>
 
               <div>
-                <label className="text-xs font-bold uppercase text-zinc-500">Tipo evento</label>
-                <select
-                  name="tipo_evento"
-                  value={tipoEvento}
-                  onChange={(e) =>
-                    setTipoEvento(e.target.value as "partita" | "allenamento")
-                  }
-                  className="mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-white outline-none focus:border-zinc-600"
-                >
-                  <option value="partita">Partita</option>
-                  <option value="allenamento">Allenamento</option>
-                </select>
+                <input type="hidden" name="tipo_evento" value={tipoEvento} />
+                <SelettoreTipoEvento
+                  valore={tipoValore}
+                  onChange={setTipoValore}
+                  tipiEventi={tipiEventiLista}
+                  onTipiEventiChange={setTipiEventiLista}
+                />
               </div>
 
               <div>
@@ -293,15 +470,19 @@ export default function FileVideoClient({
                   className="mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-white outline-none focus:border-zinc-600"
                 >
                   <option value="">Seleziona evento</option>
-                  {eventi.map((evento) => (
+                  {eventiAssociabili.map((evento) => (
                     <option key={evento.id} value={evento.id}>
                       {tipoEvento === "partita"
                         ? `${(evento as Partita).data_partita ?? ""} - ${
                             (evento as Partita).avversario ?? "Partita"
                           }`
-                        : `${(evento as Allenamento).data_allenamento ?? ""} - ${
-                            (evento as Allenamento).titolo ?? "Allenamento"
-                          }`}
+                        : tipoEvento === "allenamento"
+                          ? `${(evento as Allenamento).data_allenamento ?? ""} - ${
+                              (evento as Allenamento).titolo ?? "Allenamento"
+                            }`
+                          : `${(evento as Evento).data_inizio ?? ""} - ${
+                              (evento as Evento).titolo ?? "Evento"
+                            }`}
                     </option>
                   ))}
                 </select>
@@ -470,22 +651,17 @@ export default function FileVideoClient({
                                 </div>
 
                                 <div>
-                                  <label className="text-xs font-bold uppercase text-zinc-500">
-                                    Tipo evento
-                                  </label>
-                                  <select
+                                  <input
+                                    type="hidden"
                                     name="tipo_evento"
                                     value={editTipoEvento}
-                                    onChange={(e) =>
-                                      setEditTipoEvento(
-                                        e.target.value as "partita" | "allenamento"
-                                      )
-                                    }
-                                    className="mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-white outline-none focus:border-zinc-600"
-                                  >
-                                    <option value="partita">Partita</option>
-                                    <option value="allenamento">Allenamento</option>
-                                  </select>
+                                  />
+                                  <SelettoreTipoEvento
+                                    valore={editTipoValore}
+                                    onChange={setEditTipoValore}
+                                    tipiEventi={tipiEventiLista}
+                                    onTipiEventiChange={setTipiEventiLista}
+                                  />
                                 </div>
 
                                 <div>
@@ -494,20 +670,29 @@ export default function FileVideoClient({
                                   </label>
                                   <select
                                     name="evento_id"
-                                    defaultValue={item.partita_id ?? item.allenamento_id ?? ""}
+                                    defaultValue={
+                                      item.partita_id ??
+                                      item.allenamento_id ??
+                                      item.evento_id ??
+                                      ""
+                                    }
                                     required
                                     className="mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-white outline-none focus:border-zinc-600"
                                   >
                                     <option value="">Seleziona evento</option>
-                                    {eventiEdit.map((evento) => (
+                                    {eventiAssociabiliEdit.map((evento) => (
                                       <option key={evento.id} value={evento.id}>
                                         {editTipoEvento === "partita"
                                           ? `${(evento as Partita).data_partita ?? ""} - ${
                                               (evento as Partita).avversario ?? "Partita"
                                             }`
-                                          : `${(evento as Allenamento).data_allenamento ?? ""} - ${
-                                              (evento as Allenamento).titolo ?? "Allenamento"
-                                            }`}
+                                          : editTipoEvento === "allenamento"
+                                            ? `${(evento as Allenamento).data_allenamento ?? ""} - ${
+                                                (evento as Allenamento).titolo ?? "Allenamento"
+                                              }`
+                                            : `${(evento as Evento).data_inizio ?? ""} - ${
+                                                (evento as Evento).titolo ?? "Evento"
+                                              }`}
                                       </option>
                                     ))}
                                   </select>

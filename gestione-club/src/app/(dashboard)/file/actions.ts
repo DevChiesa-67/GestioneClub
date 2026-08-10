@@ -46,6 +46,17 @@ export async function creaVideoFile(formData: FormData) {
 
   if (uploadError) throw uploadError;
 
+  if (tipoEvento === "evento" && eventoId) {
+    const { data: eventoValido } = await supabase
+      .from("eventi")
+      .select("id")
+      .eq("id", eventoId)
+      .eq("club_id", profilo.last_club_id)
+      .maybeSingle();
+
+    if (!eventoValido) throw new Error("Evento non valido");
+  }
+
   const { data: video, error: insertError } = await supabase
     .from("file_video")
     .insert({
@@ -58,6 +69,7 @@ export async function creaVideoFile(formData: FormData) {
       tipo_evento: tipoEvento,
       partita_id: tipoEvento === "partita" ? eventoId : null,
       allenamento_id: tipoEvento === "allenamento" ? eventoId : null,
+      evento_id: tipoEvento === "evento" ? eventoId : null,
       note,
       visibilita,
       created_by: user.id,
@@ -153,6 +165,17 @@ export async function aggiornaVideoFile(formData: FormData) {
 
   if (!videoId) throw new Error("Video mancante");
 
+  if (tipoEvento === "evento" && eventoId) {
+    const { data: eventoValido } = await supabase
+      .from("eventi")
+      .select("id")
+      .eq("id", eventoId)
+      .eq("club_id", profilo.last_club_id)
+      .maybeSingle();
+
+    if (!eventoValido) throw new Error("Evento non valido");
+  }
+
   const { error } = await supabase
     .from("file_video")
     .update({
@@ -160,6 +183,7 @@ export async function aggiornaVideoFile(formData: FormData) {
       tipo_evento: tipoEvento,
       partita_id: tipoEvento === "partita" ? eventoId : null,
       allenamento_id: tipoEvento === "allenamento" ? eventoId : null,
+      evento_id: tipoEvento === "evento" ? eventoId : null,
       note,
       visibilita,
       updated_at: new Date().toISOString(),

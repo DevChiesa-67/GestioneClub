@@ -63,6 +63,54 @@ export default async function Page() {
 
   const { data: allenamenti } = await allenamentiQuery;
 
+  let tipiEventiQuery = supabase
+    .from("tipi_eventi")
+    .select("id, nome, colore")
+    .eq("club_id", profilo.last_club_id)
+    .eq("attivo", true)
+    .order("nome", { ascending: true });
+
+  let eventiQuery = supabase
+    .from("eventi")
+    .select(
+      `
+      id,
+      titolo,
+      data_inizio,
+      tipo_evento_id,
+      tipo_evento:tipo_evento_id (
+        id,
+        nome,
+        colore
+      )
+    `
+    )
+    .eq("club_id", profilo.last_club_id)
+    .order("data_inizio", { ascending: false });
+
+  if (profilo.last_squadra_id) {
+    eventiQuery = eventiQuery.eq("squadra_id", profilo.last_squadra_id);
+  }
+
+  const [{ data: tipiEventi }, { data: eventiRaw }] = await Promise.all([
+    tipiEventiQuery,
+    eventiQuery,
+  ]);
+
+  type TipoEventoJoin = { id: string; nome: string; colore: string | null };
+
+  function normalizeTipoEvento(
+    valore: TipoEventoJoin | TipoEventoJoin[] | null
+  ): TipoEventoJoin | null {
+    if (Array.isArray(valore)) return valore[0] ?? null;
+    return valore;
+  }
+
+  const eventi = (eventiRaw ?? []).map((evento) => ({
+    ...evento,
+    tipo_evento: normalizeTipoEvento(evento.tipo_evento),
+  }));
+
   const { data: persone } = await supabase
     .from("profili")
     .select("id,nome_completo,email,tipo_profilo")
@@ -78,6 +126,7 @@ export default async function Page() {
     tipo_evento,
     partita_id,
     allenamento_id,
+    evento_id,
     note,
     visibilita,
     created_at,
@@ -90,6 +139,15 @@ export default async function Page() {
       id,
       titolo,
       data_allenamento
+    ),
+    eventi (
+      id,
+      titolo,
+      data_inizio,
+      tipo_evento_id,
+      tipo_evento:tipo_evento_id (
+        nome
+      )
     ),
     file_video_destinatari (
       profilo_id,
@@ -125,12 +183,22 @@ const videoConUrl = await Promise.all(
       .from("file-video")
       .createSignedUrl(v.video_path, 60 * 60);
 
+   const eventoRel = Array.isArray(v.eventi) ? v.eventi[0] ?? null : v.eventi;
+
    return {
   ...v,
   partite: Array.isArray(v.partite) ? v.partite[0] ?? null : v.partite,
   allenamenti: Array.isArray(v.allenamenti)
     ? v.allenamenti[0] ?? null
     : v.allenamenti,
+  eventi: eventoRel
+    ? {
+        ...eventoRel,
+        tipo_evento: Array.isArray(eventoRel.tipo_evento)
+          ? eventoRel.tipo_evento[0] ?? null
+          : eventoRel.tipo_evento,
+      }
+    : null,
   signedUrl: data?.signedUrl ?? null,
 };
   })
@@ -151,6 +219,8 @@ const videoConUrl = await Promise.all(
         video={videoConUrl}
         partite={partite ?? []}
         allenamenti={allenamenti ?? []}
+        eventi={eventi}
+        tipiEventi={tipiEventi ?? []}
         persone={persone ?? []}
         giocatori={giocatori ?? []}
       />
