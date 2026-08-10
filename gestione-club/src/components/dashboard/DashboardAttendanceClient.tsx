@@ -156,6 +156,37 @@ async function fetchAcwrGrezzo(
     .sort((a, b) => a.data.localeCompare(b.data));
 }
 
+/*
+ * Date delle sedute (allenamenti) registrate per il club/squadra: usate
+ * per restringere l'ACWR (che ha un valore per ogni giorno del calendario)
+ * ai soli giorni in cui c'è stata effettivamente una seduta, così le medie
+ * settimanali/mensili si basano sulle sedute e non su tutti i giorni.
+ */
+async function fetchDateSedute(
+  clubId: string,
+  squadraId: string | null
+): Promise<Set<string>> {
+  let query = supabase
+    .from("allenamenti")
+    .select("data_allenamento")
+    .eq("club_id", clubId);
+
+  if (squadraId) {
+    query = query.eq("squadra_id", squadraId);
+  }
+
+  const { data, error } = await query;
+
+  if (error || !data) {
+    console.error("Errore caricamento date sedute dashboard:", error);
+    return new Set();
+  }
+
+  return new Set(
+    (data as { data_allenamento: string }[]).map((r) => r.data_allenamento)
+  );
+}
+
 function formatGiorno(data: string) {
   return new Date(`${data}T12:00:00`).toLocaleDateString("it-IT", {
     day: "2-digit",
@@ -208,7 +239,11 @@ function aggregaPerChiave(
     }));
 }
 
-function costruisciPunti(grezzi: PuntoGrezzo[], vista: Vista): PuntoGrafico[] {
+function costruisciPunti(
+  grezzi: PuntoGrezzo[],
+  vista: Vista,
+  dateSedute: Set<string>
+): PuntoGrafico[] {
   if (vista === "mese_attuale") {
     const oggi = new Date();
     const primoGiorno = `${oggi.getFullYear()}-${String(
@@ -240,13 +275,20 @@ function costruisciPunti(grezzi: PuntoGrezzo[], vista: Vista): PuntoGrafico[] {
     }));
   }
 
+  // Per le viste aggregate la media va calcolata solo sui giorni in cui
+  // c'è stata effettivamente una seduta (utile soprattutto per l'ACWR,
+  // che ha un valore per ogni giorno del calendario, non solo per i
+  // giorni di allenamento).
+  const grezziSedute =
+    dateSedute.size > 0 ? grezzi.filter((p) => dateSedute.has(p.data)) : grezzi;
+
   if (vista === "per_settimana") {
-    return aggregaPerChiave(grezzi, chiaveSettimana, formatGiorno);
+    return aggregaPerChiave(grezziSedute, chiaveSettimana, formatGiorno);
   }
 
   // per_mese e stagione: entrambe aggregano per mese (la stagione mostra
   // in più un riepilogo sopra al grafico).
-  return aggregaPerChiave(grezzi, chiaveMese, etichettaMese);
+  return aggregaPerChiave(grezziSedute, chiaveMese, etichettaMese);
 }
 
 function GraficoLineare({
@@ -403,6 +445,7 @@ export default function DashboardAttendanceClient({
   const [vista, setVista] = useState<Vista>("per_seduta");
   const [grezziPresenze, setGrezziPresenze] = useState<PuntoGrezzo[]>([]);
   const [grezziAcwr, setGrezziAcwr] = useState<PuntoGrezzo[]>([]);
+  const [dateSedute, setDateSedute] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -411,15 +454,17 @@ export default function DashboardAttendanceClient({
     async function carica() {
       setLoading(true);
 
-      const [presenze, acwr] = await Promise.all([
+      const [presenze, acwr, sedute] = await Promise.all([
         fetchPresenzeGrezze(clubId, squadraId),
         fetchAcwrGrezzo(clubId, squadraId),
+        fetchDateSedute(clubId, squadraId),
       ]);
 
       if (cancelled) return;
 
       setGrezziPresenze(presenze);
       setGrezziAcwr(acwr);
+      setDateSedute(sedute);
       setLoading(false);
     }
 
@@ -433,8 +478,8 @@ export default function DashboardAttendanceClient({
   const grezzi = metrica === "presenze" ? grezziPresenze : grezziAcwr;
 
   const punti = useMemo(
-    () => costruisciPunti(grezzi, vista),
-    [grezzi, vista]
+    () => costruisciPunti(grezzi, vista, dateSedute),
+    [grezzi, vista, dateSedute]
   );
 
   const mediaStagionale = useMemo(() => {
