@@ -104,7 +104,7 @@ async function fetchPresenzeGrezze(
   return Array.from(grouped.entries())
     .map(([data, v]) => ({
       data,
-      valore: v.totale > 0 ? Math.round((v.presenti / v.totale) * 100) : 0,
+      valore: v.presenti,
       presenti: v.presenti,
       totale: v.totale,
     }))
@@ -460,7 +460,7 @@ export default function DashboardAttendanceClient({
             style={{ color: coloreFlag }}
           >
             {metrica === "presenze"
-              ? "━ % presenza per seduta"
+              ? "━ giocatori presenti per seduta"
               : "━ ACWR medio squadra"}
           </span>
         </div>
@@ -499,8 +499,7 @@ export default function DashboardAttendanceClient({
               <div className="rounded-xl bg-black/30 p-3">
                 <p className="text-xs text-zinc-500">Media stagionale</p>
                 <p className="text-xl font-black text-white">
-                  {mediaStagionale.toFixed(metrica === "presenze" ? 0 : 2)}
-                  {metrica === "presenze" ? "%" : ""}
+                  {mediaStagionale.toFixed(metrica === "acwr" ? 2 : 1)}
                 </p>
               </div>
 
@@ -518,9 +517,14 @@ export default function DashboardAttendanceClient({
           <GraficoLineare
             punti={punti}
             coloreFlag={coloreFlag}
-            unita={metrica === "presenze" ? "%" : ""}
-            decimali={metrica === "presenze" ? 0 : 2}
-            dominioFisso={metrica === "presenze" ? [0, 100] : undefined}
+            unita=""
+            decimali={
+              metrica === "acwr"
+                ? 2
+                : vista === "mese_attuale" || vista === "per_seduta"
+                  ? 0
+                  : 1
+            }
           />
 
           {metrica === "presenze" &&
@@ -530,10 +534,10 @@ export default function DashboardAttendanceClient({
                 {punti.slice(-4).map((p) => (
                   <div key={p.key} className="rounded-lg bg-black/30 p-2">
                     <p className="text-zinc-500">{p.label}</p>
-                    <p className="font-bold text-white">{p.value}%</p>
+                    <p className="font-bold text-white">{p.value} presenti</p>
                     {p.sottotitolo && (
                       <p className="text-[10px] text-zinc-500">
-                        {p.sottotitolo} presenti
+                        su {p.sottotitolo.split("/")[1]} convocati
                       </p>
                     )}
                   </div>
