@@ -1,9 +1,9 @@
 import Image from "next/image";
-import { Activity, Dumbbell } from "lucide-react";
+import { Activity, Dumbbell, Sparkles } from "lucide-react";
 
 type Evento = {
   id: string;
-  type: "Allenamento" | "Partita";
+  type: "Allenamento" | "Partita" | "Evento";
   title: string | null;
   date: string;
   time: string;
@@ -137,6 +137,8 @@ export default function DashboardEventCard({
         />
       ) : event.type === "Allenamento" ? (
         <Dumbbell size={21} />
+      ) : event.type === "Evento" ? (
+        <Sparkles size={21} />
       ) : (
         <Activity size={21} />
       )}

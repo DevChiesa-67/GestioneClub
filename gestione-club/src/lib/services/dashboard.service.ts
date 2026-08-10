@@ -334,6 +334,63 @@ export async function getUpcomingPartite(limit = 4) {
   );
 }
 
+export async function getUpcomingEventiClub(limit = 4) {
+  const { supabase, clubId, squadraId } = await getSelectedContext();
+
+  if (!clubId) {
+    return [];
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  let eventiQuery = supabase
+    .from("eventi")
+    .select(`
+      id,
+      titolo,
+      data_inizio,
+      ora_inizio,
+      luogo,
+      tipo_evento:tipo_evento_id (
+        nome
+      )
+    `)
+    .eq("club_id", clubId)
+    .gte("data_inizio", today)
+    .order("data_inizio", { ascending: true })
+    .order("ora_inizio", { ascending: true })
+    .limit(limit);
+
+  if (squadraId) {
+    eventiQuery = eventiQuery.eq("squadra_id", squadraId);
+  }
+
+  const { data: eventi, error } = await eventiQuery;
+
+  if (error) {
+    console.error("Errore caricamento eventi dashboard:", error);
+  }
+
+  type TipoEventoJoin = { nome: string | null };
+
+  return (eventi ?? []).map((evento) => {
+    const tipo = firstJoin(
+      evento.tipo_evento as TipoEventoJoin | TipoEventoJoin[] | null
+    );
+
+    return {
+      id: evento.id,
+      type: "Evento" as const,
+      title: tipo?.nome ? `${tipo.nome} · ${evento.titolo}` : evento.titolo,
+      date: evento.data_inizio,
+      time: evento.ora_inizio?.slice(0, 5) ?? "",
+      place: evento.luogo ?? null,
+      logoCasa: null as string | null,
+      logoFuori: null as string | null,
+    };
+  });
+}
+
 export async function getUpcomingEvents() {
   const [allenamenti, partite] = await Promise.all([
     getUpcomingAllenamenti(4),

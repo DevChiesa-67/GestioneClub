@@ -1,6 +1,7 @@
 import { AppCard } from "@/components/ui/AppCard";
 import { createClient } from "@/lib/supabase-server";
 import { CreaPartitaPopup } from "@/components/partite/CreaPartitaPopup";
+import { CreaEventoPopup } from "@/components/partite/CreaEventoPopup";
 import { PartiteTabs } from "@/components/partite/PartiteTabs";
 
 type ClubAttivo = {
@@ -70,6 +71,30 @@ type MinutaggioImportRaw = {
 export type MinutaggioImport = MinutaggioImportRaw & {
   file_url: string | null;
   partita: Partita | null;
+};
+
+export type TipoEvento = {
+  id: string;
+  nome: string;
+  colore: string | null;
+};
+
+type TipoEventoRel = TipoEvento | TipoEvento[] | null;
+
+type EventoRaw = {
+  id: string;
+  titolo: string;
+  data_inizio: string;
+  data_fine: string | null;
+  ora_inizio: string | null;
+  luogo: string | null;
+  note: string | null;
+  tipo_evento_id: string;
+  tipo_evento: TipoEventoRel;
+};
+
+export type Evento = Omit<EventoRaw, "tipo_evento"> & {
+  tipo_evento: TipoEvento | null;
 };
 
 function normalizeSquadraPartita(
@@ -233,28 +258,81 @@ export default async function Page() {
     );
   }
 
-  const [{ data: giocatoriMinutaggio }, { data: minutaggiRaw }] =
-    await Promise.all([
-      giocatoriMinutaggioQuery,
-      supabase
-        .from("partite_minutaggi_import")
-        .select(
-          `
-          id,
-          nome_file,
-          file_path,
-          avversario_rilevato,
-          data_rilevata,
-          luogo_rilevato,
-          durata_minuti,
-          stato,
-          partita_id,
-          created_at
+  let tipiEventiQuery = supabase
+    .from("tipi_eventi")
+    .select("id, nome, colore")
+    .eq("club_id", clubId)
+    .eq("attivo", true)
+    .order("nome", { ascending: true });
+
+  let eventiQuery = supabase
+    .from("eventi")
+    .select(
+      `
+      id,
+      titolo,
+      data_inizio,
+      data_fine,
+      ora_inizio,
+      luogo,
+      note,
+      tipo_evento_id,
+      tipo_evento:tipo_evento_id (
+        id,
+        nome,
+        colore
+      )
+    `
+    )
+    .eq("club_id", clubId)
+    .order("data_inizio", { ascending: false });
+
+  if (squadraId) {
+    eventiQuery = eventiQuery.eq("squadra_id", squadraId);
+  }
+
+  const [
+    { data: giocatoriMinutaggio },
+    { data: minutaggiRaw },
+    { data: tipiEventiRaw },
+    { data: eventiRaw },
+  ] = await Promise.all([
+    giocatoriMinutaggioQuery,
+    supabase
+      .from("partite_minutaggi_import")
+      .select(
         `
-        )
-        .eq("club_id", clubId)
-        .order("created_at", { ascending: false }),
-    ]);
+        id,
+        nome_file,
+        file_path,
+        avversario_rilevato,
+        data_rilevata,
+        luogo_rilevato,
+        durata_minuti,
+        stato,
+        partita_id,
+        created_at
+      `
+      )
+      .eq("club_id", clubId)
+      .order("created_at", { ascending: false }),
+    tipiEventiQuery,
+    eventiQuery,
+  ]);
+
+  const tipiEventi: TipoEvento[] = (tipiEventiRaw ?? []) as TipoEvento[];
+
+  function normalizeTipoEvento(valore: TipoEventoRel): TipoEvento | null {
+    if (Array.isArray(valore)) return valore[0] ?? null;
+    return valore;
+  }
+
+  const eventi: Evento[] = ((eventiRaw ?? []) as EventoRaw[]).map(
+    (evento) => ({
+      ...evento,
+      tipo_evento: normalizeTipoEvento(evento.tipo_evento),
+    })
+  );
 
   const partiteById = new Map(tutteLePartite.map((p) => [p.id, p]));
 
@@ -282,7 +360,8 @@ export default async function Page() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end gap-3">
+        <CreaEventoPopup tipiEventi={tipiEventi} coloreClub={coloreClub} />
         <CreaPartitaPopup squadre={squadrePartite} coloreClub={coloreClub} />
       </div>
 
@@ -293,6 +372,8 @@ export default async function Page() {
       ) : (
         <PartiteTabs
           partite={tutteLePartite}
+          eventi={eventi}
+          tipiEventi={tipiEventi}
           coloreClub={coloreClub}
           giocatori={(giocatoriMinutaggio ?? []) as GiocatoreMinutaggio[]}
           minutaggi={minutaggiImport}

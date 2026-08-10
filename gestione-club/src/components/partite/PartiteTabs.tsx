@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
   Clock,
   Download,
   History,
@@ -15,6 +16,7 @@ import {
   Loader2,
   MapPin,
   Shield,
+  Sparkles,
   Timer,
   Trash2,
   Trophy,
@@ -26,9 +28,11 @@ import {
 import { AppCard } from "@/components/ui/AppCard";
 import { useToast } from "@/components/ui/Toast";
 import type {
+  Evento,
   GiocatoreMinutaggio,
   MinutaggioImport,
   Partita,
+  TipoEvento,
 } from "@/app/(dashboard)/partite/page";
 import AggiungiMinutaggioModal from "@/components/partite/AggiungiMinutaggioModal";
 import SelettorePartita, {
@@ -43,10 +47,16 @@ type TabKey = "prossime" | "tutte" | "classifica" | "minutaggi";
 
 type Props = {
   partite: Partita[];
+  eventi: Evento[];
+  tipiEventi: TipoEvento[];
   coloreClub: string;
   giocatori: GiocatoreMinutaggio[];
   minutaggi: MinutaggioImport[];
 };
+
+type VoceAgenda =
+  | { kind: "partita"; data: string; ora: string | null; partita: Partita }
+  | { kind: "evento"; data: string; ora: string | null; evento: Evento };
 
 function formatData(data: string) {
   return new Intl.DateTimeFormat("it-IT", {
@@ -487,6 +497,89 @@ function PartitaCard({
   );
 }
 
+function formatRangeDate(evento: Evento) {
+  if (!evento.data_fine || evento.data_fine === evento.data_inizio) {
+    return formatData(evento.data_inizio);
+  }
+
+  return `${formatDataMobile(evento.data_inizio)} — ${formatDataMobile(
+    evento.data_fine
+  )}`;
+}
+
+function EventoCard({
+  evento,
+  coloreClub,
+}: {
+  evento: Evento;
+  coloreClub: string;
+}) {
+  const coloreTipo = evento.tipo_evento?.colore || coloreClub;
+
+  return (
+    <div
+      className="min-w-0 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-xl transition duration-300 sm:rounded-3xl sm:hover:-translate-y-0.5 sm:hover:bg-zinc-900/80"
+      style={{ boxShadow: `0 0 28px ${coloreTipo}12` }}
+    >
+      <div className="flex flex-col gap-3 border-b border-zinc-800 bg-zinc-900 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wider"
+            style={{
+              borderColor: `${coloreTipo}55`,
+              backgroundColor: `${coloreTipo}18`,
+              color: coloreTipo,
+            }}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            {evento.tipo_evento?.nome || "Evento"}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 text-sm font-medium text-zinc-300">
+          <CalendarDays className="h-4 w-4" style={{ color: coloreTipo }} />
+          <span>{formatRangeDate(evento)}</span>
+
+          {evento.ora_inizio && (
+            <span className="flex items-center gap-1 rounded-full border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs">
+              <Clock className="h-3.5 w-3.5" style={{ color: coloreTipo }} />
+              {formatOra(evento.ora_inizio)}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="px-4 py-5 sm:px-5">
+        <h2 className="text-xl font-black text-white sm:text-2xl">
+          {evento.titolo}
+        </h2>
+
+        {evento.note && (
+          <p className="mt-2 line-clamp-3 text-sm leading-6 text-zinc-400">
+            {evento.note}
+          </p>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-3 border-t border-zinc-800 bg-zinc-950/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
+        <div className="flex items-center gap-2 text-sm text-zinc-300">
+          <MapPin className="h-4 w-4 shrink-0" style={{ color: coloreTipo }} />
+          <span>{evento.luogo || "Luogo da definire"}</span>
+        </div>
+
+        <Link
+          href={`/eventi/${evento.id}`}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-zinc-950 transition hover:opacity-90 sm:w-auto sm:py-2"
+          style={{ backgroundColor: coloreTipo }}
+        >
+          <Settings className="h-4 w-4" />
+          Gestisci evento
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 function formatDataCaricamento(data: string) {
   return new Intl.DateTimeFormat("it-IT", {
     day: "2-digit",
@@ -659,6 +752,8 @@ function MinutaggioCard({
 
 export function PartiteTabs({
   partite,
+  eventi,
+  tipiEventi,
   coloreClub,
   giocatori,
   minutaggi,
@@ -666,60 +761,77 @@ export function PartiteTabs({
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>("prossime");
   const [modalMinutaggioAperto, setModalMinutaggioAperto] = useState(false);
+  const [filtroTipoEvento, setFiltroTipoEvento] = useState("tutti");
 
   const oggi = new Date();
   oggi.setHours(0, 0, 0, 0);
 
-  const prossimePartite = useMemo(() => {
-    return partite
-      .filter((partita) => {
-        const dataPartita = new Date(
-          `${partita.data_partita}T00:00:00`
-        );
+  const agendaCompleta = useMemo<VoceAgenda[]>(() => {
+    const vociPartite: VoceAgenda[] = partite.map((partita) => ({
+      kind: "partita" as const,
+      data: partita.data_partita,
+      ora: partita.ora_partita,
+      partita,
+    }));
 
-        return dataPartita >= oggi;
-      })
+    const vociEventi: VoceAgenda[] = eventi.map((evento) => ({
+      kind: "evento" as const,
+      data: evento.data_inizio,
+      ora: evento.ora_inizio,
+      evento,
+    }));
+
+    return [...vociPartite, ...vociEventi];
+  }, [partite, eventi]);
+
+  const agendaFiltrata = useMemo(() => {
+    if (filtroTipoEvento === "tutti") return agendaCompleta;
+
+    if (filtroTipoEvento === "solo_partite") {
+      return agendaCompleta.filter((voce) => voce.kind === "partita");
+    }
+
+    return agendaCompleta.filter(
+      (voce) =>
+        voce.kind === "evento" &&
+        voce.evento.tipo_evento_id === filtroTipoEvento
+    );
+  }, [agendaCompleta, filtroTipoEvento]);
+
+  const prossimeVoci = useMemo(() => {
+    return agendaFiltrata
+      .filter((voce) => new Date(`${voce.data}T00:00:00`) >= oggi)
       .sort((a, b) => {
-        const dataA = new Date(
-          `${a.data_partita}T${a.ora_partita || "00:00:00"}`
-        ).getTime();
-
-        const dataB = new Date(
-          `${b.data_partita}T${b.ora_partita || "00:00:00"}`
-        ).getTime();
+        const dataA = new Date(`${a.data}T${a.ora || "00:00:00"}`).getTime();
+        const dataB = new Date(`${b.data}T${b.ora || "00:00:00"}`).getTime();
 
         return dataA - dataB;
       });
-  }, [partite]);
+  }, [agendaFiltrata]);
 
-  const tutteLePartite = useMemo(() => {
-    return [...partite].sort((a, b) => {
-      const dataA = new Date(
-        `${a.data_partita}T${a.ora_partita || "00:00:00"}`
-      ).getTime();
-
-      const dataB = new Date(
-        `${b.data_partita}T${b.ora_partita || "00:00:00"}`
-      ).getTime();
+  const tutteLeVoci = useMemo(() => {
+    return [...agendaFiltrata].sort((a, b) => {
+      const dataA = new Date(`${a.data}T${a.ora || "00:00:00"}`).getTime();
+      const dataB = new Date(`${b.data}T${b.ora || "00:00:00"}`).getTime();
 
       return dataB - dataA;
     });
-  }, [partite]);
+  }, [agendaFiltrata]);
 
   const tabs = [
     {
       key: "prossime" as const,
-      label: "Prossime Partite",
-      mobileLabel: "Prossime",
+      label: "Prossimi",
+      mobileLabel: "Prossimi",
       icon: CalendarDays,
-      count: prossimePartite.length,
+      count: prossimeVoci.length,
     },
     {
       key: "tutte" as const,
-      label: "Tutte le Partite",
-      mobileLabel: "Tutte",
+      label: "Tutti",
+      mobileLabel: "Tutti",
       icon: History,
-      count: tutteLePartite.length,
+      count: tutteLeVoci.length,
     },
     {
       key: "classifica" as const,
@@ -808,48 +920,89 @@ export function PartiteTabs({
               </button>
             );
           })}
-
-      
         </div>
       </div>
 
+      {/* FILTRO TIPO EVENTO */}
+      {(activeTab === "prossime" || activeTab === "tutte") &&
+        tipiEventi.length > 0 && (
+          <div className="flex justify-end">
+            <div className="relative">
+              <select
+                value={filtroTipoEvento}
+                onChange={(event) =>
+                  setFiltroTipoEvento(event.target.value)
+                }
+                className="min-h-11 w-full appearance-none rounded-xl border border-zinc-800 bg-zinc-950 py-2.5 pl-3 pr-9 text-sm font-semibold text-white outline-none focus:border-zinc-600 sm:w-auto"
+              >
+                <option value="tutti">Partite ed eventi</option>
+                <option value="solo_partite">Solo partite</option>
+
+                {tipiEventi.map((tipo) => (
+                  <option key={tipo.id} value={tipo.id}>
+                    Solo {tipo.nome}
+                  </option>
+                ))}
+              </select>
+
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+            </div>
+          </div>
+        )}
+
       {/* PROSSIME */}
       {activeTab === "prossime" &&
-        (prossimePartite.length === 0 ? (
+        (prossimeVoci.length === 0 ? (
           <EmptyState
-            title="Nessuna partita in programma"
-            description="Non risultano partite future per il club e la squadra selezionati."
+            title="Nessun impegno in programma"
+            description="Non risultano partite o eventi futuri per il club e la squadra selezionati."
             coloreClub={coloreClub}
           />
         ) : (
           <div className="grid min-w-0 gap-4 sm:gap-5">
-            {prossimePartite.map((partita) => (
-              <PartitaCard
-                key={partita.id}
-                partita={partita}
-                coloreClub={coloreClub}
-              />
-            ))}
+            {prossimeVoci.map((voce) =>
+              voce.kind === "partita" ? (
+                <PartitaCard
+                  key={`partita-${voce.partita.id}`}
+                  partita={voce.partita}
+                  coloreClub={coloreClub}
+                />
+              ) : (
+                <EventoCard
+                  key={`evento-${voce.evento.id}`}
+                  evento={voce.evento}
+                  coloreClub={coloreClub}
+                />
+              )
+            )}
           </div>
         ))}
 
       {/* TUTTE */}
       {activeTab === "tutte" &&
-        (tutteLePartite.length === 0 ? (
+        (tutteLeVoci.length === 0 ? (
           <EmptyState
-            title="Nessuna partita disponibile"
-            description="Non risultano partite registrate per il club e la squadra selezionati."
+            title="Nessuna partita o evento disponibile"
+            description="Non risultano partite o eventi registrati per il club e la squadra selezionati."
             coloreClub={coloreClub}
           />
         ) : (
           <div className="grid min-w-0 gap-4 sm:gap-5">
-            {tutteLePartite.map((partita) => (
-              <PartitaCard
-                key={partita.id}
-                partita={partita}
-                coloreClub={coloreClub}
-              />
-            ))}
+            {tutteLeVoci.map((voce) =>
+              voce.kind === "partita" ? (
+                <PartitaCard
+                  key={`partita-${voce.partita.id}`}
+                  partita={voce.partita}
+                  coloreClub={coloreClub}
+                />
+              ) : (
+                <EventoCard
+                  key={`evento-${voce.evento.id}`}
+                  evento={voce.evento}
+                  coloreClub={coloreClub}
+                />
+              )
+            )}
           </div>
         ))}
 

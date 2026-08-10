@@ -1,5 +1,8 @@
 import { createClient } from "@/lib/supabase-server";
-import { getUpcomingPartite } from "@/lib/services/dashboard.service";
+import {
+  getUpcomingEventiClub,
+  getUpcomingPartite,
+} from "@/lib/services/dashboard.service";
 import DashboardEventCard from "./DashboardEventCard";
 
 async function getThemeColor() {
@@ -29,17 +32,30 @@ async function getThemeColor() {
 }
 
 export default async function DashboardProssimePartite() {
-  const [eventi, themeColor] = await Promise.all([
+  const [partite, eventiClub, themeColor] = await Promise.all([
     getUpcomingPartite(4),
+    getUpcomingEventiClub(4),
     getThemeColor(),
   ]);
 
+  const agenda = [...partite, ...eventiClub]
+    .sort((a, b) => {
+      const dateComparison = a.date.localeCompare(b.date);
+
+      if (dateComparison !== 0) {
+        return dateComparison;
+      }
+
+      return a.time.localeCompare(b.time);
+    })
+    .slice(0, 4);
+
   return (
     <DashboardEventCard
-      titolo="Prossime partite"
-      eventi={eventi}
+      titolo="Prossimi appuntamenti"
+      eventi={agenda}
       themeColor={themeColor}
-      messaggioVuoto="Nessuna partita in programma."
+      messaggioVuoto="Nessuna partita o evento in programma."
     />
   );
 }
