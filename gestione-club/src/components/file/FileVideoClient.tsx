@@ -254,27 +254,26 @@ function SelettoreTipoEvento({
 
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <label className="text-xs font-bold uppercase text-zinc-500">
-          Tipo evento
-        </label>
-
-        <button
-          type="button"
-          onClick={() => setMostraForm((prev) => !prev)}
-          className="text-xs font-bold text-zinc-400 hover:text-white"
-        >
-          {mostraForm ? "Annulla" : "+ Nuova tipologia"}
-        </button>
-      </div>
+      <label className="text-xs font-bold uppercase text-zinc-500">
+        Tipo evento
+      </label>
 
       <select
         name="tipo_evento_composito"
         value={valore}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => {
+          if (e.target.value === "__nuovo__") {
+            setMostraForm(true);
+            return;
+          }
+
+          setMostraForm(false);
+          onChange(e.target.value);
+        }}
         className="mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-white outline-none focus:border-zinc-600"
       >
         <option value="partita">Partita</option>
+        <option value="__nuovo__">+ Nuova tipologia...</option>
         <option value="allenamento">Allenamento</option>
         {tipiEventi.length > 0 && (
           <optgroup label="Eventi">
@@ -308,6 +307,17 @@ function SelettoreTipoEvento({
             className="shrink-0 rounded-xl bg-white px-3 py-2 text-xs font-black text-zinc-950 disabled:opacity-50"
           >
             {salvando ? "..." : "Crea"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMostraForm(false);
+              setNome("");
+              setErrore(null);
+            }}
+            className="shrink-0 rounded-xl border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-400 hover:text-white"
+          >
+            Annulla
           </button>
         </div>
       )}
