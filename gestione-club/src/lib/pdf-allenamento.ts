@@ -24,6 +24,7 @@ export type LavoroPdf = {
 
 export type AllenamentoPdf = {
   titolo: string | null;
+  tipo_allenamento?: string | null;
   data_allenamento: string;
   ora_inizio: string | null;
   ora_fine: string | null;
@@ -53,6 +54,16 @@ function formatOra(ora: string | null) {
 
 function isSezioneH2O(sezione: string) {
   return sezione.trim().toUpperCase() === "H2O";
+}
+
+/** Trasforma un nome libero in uno slug adatto al nome del file scaricato. */
+function slugifica(testo: string) {
+  return testo
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-+|-+$)/g, "");
 }
 
 type LogoCaricato = {
@@ -286,6 +297,11 @@ export async function generaPdfAllenamento(
 
   const logo = await caricaLogo(club?.logo_url);
 
+  // Nome della seduta: preferisce il titolo assegnato manualmente, poi il
+  // tipo (es. "Seduta Mattutina"), altrimenti resta senza (solo "ALLENAMENTO").
+  const nomeSeduta =
+    allenamento.titolo?.trim() || allenamento.tipo_allenamento?.trim() || null;
+
   // Il titolo lascia spazio al box logo (sempre presente, con placeholder
   // "LOGO" quando il club non ne ha uno caricato) sulla destra.
   const larghezzaLogoBox = 26;
@@ -294,10 +310,14 @@ export async function generaPdfAllenamento(
     larghezzaPagina - margine * 2 - larghezzaLogoBox - scartoLogoBox;
   const xLogoBox = margine + larghezzaTitolo + scartoLogoBox;
 
-  // Barra titolo rosso scuro, testo bianco allineato a sinistra.
+  // Barra titolo rosso scuro, testo bianco allineato a sinistra. Con il
+  // nome della seduta la barra è più alta per ospitare due righe: nome
+  // sopra, data/orario sotto (più leggibile di tutto su una riga sola).
+  const altezzaBarra = nomeSeduta ? 13 : 9;
+
   doc.setFillColor(...COLORE_TITOLO);
   doc.setDrawColor(0, 0, 0);
-  doc.rect(margine, 12, larghezzaTitolo, 9, "FD");
+  doc.rect(margine, 12, larghezzaTitolo, altezzaBarra, "FD");
 
   const orarioSeduta =
     allenamento.ora_inizio || allenamento.ora_fine
@@ -306,21 +326,37 @@ export async function generaPdfAllenamento(
         }`
       : "";
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
   doc.setTextColor(255, 255, 255);
-  doc.text(
-    `ALLENAMENTO ${formatDataIT(allenamento.data_allenamento)}${orarioSeduta}`,
-    margine + 3,
-    18.5,
-    { align: "left" }
-  );
+
+  if (nomeSeduta) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text(nomeSeduta.toUpperCase(), margine + 3, 18, { align: "left" });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.text(
+      `ALLENAMENTO ${formatDataIT(allenamento.data_allenamento)}${orarioSeduta}`,
+      margine + 3,
+      23,
+      { align: "left" }
+    );
+  } else {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.text(
+      `ALLENAMENTO ${formatDataIT(allenamento.data_allenamento)}${orarioSeduta}`,
+      margine + 3,
+      18.5,
+      { align: "left" }
+    );
+  }
 
   // Box logo: sempre disegnato, con l'immagine del club se disponibile,
   // altrimenti un placeholder testuale "LOGO".
   doc.setFillColor(255, 255, 255);
   doc.setDrawColor(0, 0, 0);
-  doc.rect(xLogoBox, 12, larghezzaLogoBox, 9, "FD");
+  doc.rect(xLogoBox, 12, larghezzaLogoBox, altezzaBarra, "FD");
 
   if (logo) {
     const altezzaMax = 7;
@@ -336,7 +372,7 @@ export async function generaPdfAllenamento(
     }
 
     const xLogo = xLogoBox + (larghezzaLogoBox - larghezzaLogo) / 2;
-    const yLogo = 12 + (9 - altezzaLogo) / 2;
+    const yLogo = 12 + (altezzaBarra - altezzaLogo) / 2;
 
     try {
       doc.addImage(
@@ -354,7 +390,7 @@ export async function generaPdfAllenamento(
     doc.setFont("helvetica", "bold");
     doc.setFontSize(9);
     doc.setTextColor(0, 0, 0);
-    doc.text("LOGO", xLogoBox + larghezzaLogoBox / 2, 17.2, {
+    doc.text("LOGO", xLogoBox + larghezzaLogoBox / 2, 12 + altezzaBarra / 2 + 0.7, {
       align: "center",
     });
   }
@@ -533,7 +569,7 @@ export async function generaPdfAllenamento(
   mediaRiga.push(null);
 
   autoTable(doc, {
-    startY: 25,
+    startY: 12 + altezzaBarra + 4,
     head: [colonne],
     // jspdf-autotable accetta stringhe oppure oggetti { content, colSpan, rowSpan }.
     body: corpo as never,
@@ -569,6 +605,25 @@ export async function generaPdfAllenamento(
 
       if (data.column.index === 0) {
         data.cell.styles.fillColor = COLORE_GRIGIO_SEZIONE;
+
+        // L'etichetta di sezione viene disegnata ruotata di 90° in
+        // didDrawCell: la sua larghezza orizzontale (misurata col font
+        // usato per disegnarla) diventa l'altezza verticale che occupa una
+        // volta ruotata. Senza riservare questo spazio, le sezioni con un
+        // solo lavoro breve (es. un meeting da 15 min) generano righe più
+        // basse del testo ruotato, che quindi trabocca e si sovrappone
+        // all'etichetta della sezione successiva.
+        const testoSezione = sezioneEtichetta[data.row.index];
+        if (testoSezione) {
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(7.5);
+          const larghezzaTesto = doc.getTextWidth(testoSezione);
+
+          data.cell.styles.minCellHeight = Math.max(
+            data.cell.styles.minCellHeight ?? 0,
+            larghezzaTesto + PADDING_CELLA_MM * 2
+          );
+        }
       }
 
       if (tipo === "info" || tipo === "totale") {
@@ -680,7 +735,9 @@ export async function generaPdfAllenamento(
     },
   });
 
-  const nomeFile = `allenamento-${allenamento.data_allenamento}.pdf`;
+  const nomeFile = nomeSeduta
+    ? `allenamento-${allenamento.data_allenamento}-${slugifica(nomeSeduta)}.pdf`
+    : `allenamento-${allenamento.data_allenamento}.pdf`;
   return { doc, nomeFile };
 }
 
