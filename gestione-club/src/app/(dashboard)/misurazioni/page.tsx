@@ -51,6 +51,17 @@ export type MisurazioneBenessere = {
   created_at: string;
 };
 
+export type MisurazioneBenessereAdmin = MisurazioneBenessere & {
+  giocatore_id: string;
+  giocatore: {
+    id: string;
+    id_atleta: string | null;
+    nome: string;
+    cognome: string;
+    foto_url: string | null;
+  } | null;
+};
+
 export default async function MisurazioniPage() {
   const supabase = await createClient();
 
@@ -136,6 +147,34 @@ export default async function MisurazioniPage() {
       .order("data_misurazione", { ascending: false })
       .order("created_at", { ascending: false });
 
+    let benessereQuery = supabase
+      .from("misurazioni_benessere")
+      .select(`
+        id,
+        giocatore_id,
+        data_compilazione,
+        tipo_compilazione,
+        seduta,
+        rpe,
+        fastidio,
+        fastidio_dettaglio,
+        sonno,
+        stanchezza,
+        indolenzimento,
+        stress,
+        created_at,
+        giocatore:giocatori (
+          id,
+          id_atleta,
+          nome,
+          cognome,
+          foto_url
+        )
+      `)
+      .eq("club_id", profilo.last_club_id)
+      .order("data_compilazione", { ascending: false })
+      .order("created_at", { ascending: false });
+
     if (profilo.last_squadra_id) {
       giocatoriQuery = giocatoriQuery.eq(
         "squadra_id",
@@ -146,17 +185,24 @@ export default async function MisurazioniPage() {
         "squadra_id",
         profilo.last_squadra_id,
       );
+
+      benessereQuery = benessereQuery.eq(
+        "squadra_id",
+        profilo.last_squadra_id,
+      );
     }
 
     const [
       { data: giocatori, error: giocatoriError },
       { data: misurazioni, error: misurazioniError },
-    ] = await Promise.all([giocatoriQuery, misurazioniQuery]);
+      { data: benessere, error: benessereError },
+    ] = await Promise.all([giocatoriQuery, misurazioniQuery, benessereQuery]);
 
-    if (giocatoriError || misurazioniError) {
+    if (giocatoriError || misurazioniError || benessereError) {
       console.error("Errore caricamento misurazioni admin", {
         giocatoriError,
         misurazioniError,
+        benessereError,
       });
     }
 
@@ -167,6 +213,9 @@ export default async function MisurazioniPage() {
         giocatori={(giocatori || []) as GiocatoreMisurazioni[]}
         misurazioni={
           (misurazioni || []) as unknown as MisurazioneAntropometrica[]
+        }
+        benessere={
+          (benessere || []) as unknown as MisurazioneBenessereAdmin[]
         }
       />
     );

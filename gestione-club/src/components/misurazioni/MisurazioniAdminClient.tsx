@@ -8,6 +8,8 @@ import {
   Activity,
   CalendarDays,
   ChevronDown,
+  Gauge,
+  HeartPulse,
   Loader2,
   Pencil,
   Plus,
@@ -28,6 +30,7 @@ import { DateInput } from "@/components/ui/DateInput";
 import type {
   GiocatoreMisurazioni,
   MisurazioneAntropometrica,
+  MisurazioneBenessereAdmin,
 } from "@/app/(dashboard)/misurazioni/page";
 
 type Props = {
@@ -35,7 +38,46 @@ type Props = {
   nomeClub: string;
   giocatori: GiocatoreMisurazioni[];
   misurazioni: MisurazioneAntropometrica[];
+  benessere: MisurazioneBenessereAdmin[];
 };
+
+type TabPrincipale = "antropometria" | "benessere";
+
+type Fastidio = "no" | "leggero" | "preoccupante";
+
+// RPE 1-10: più è alto più il carico percepito è duro.
+function getRpeColore(valore: number) {
+  if (valore <= 4) return "#34d399";
+  if (valore <= 7) return "#f59e0b";
+  return "#f87171";
+}
+
+// Hooper 1-7: 1 = buono, 7 = cattivo, stessa direzione per tutte le domande.
+function getHooperColore(valore: number) {
+  if (valore <= 2) return "#34d399";
+  if (valore <= 4) return "#f59e0b";
+  return "#f87171";
+}
+
+function getFastidioBadge(fastidio: Fastidio | null) {
+  if (fastidio === "preoccupante") {
+    return { label: "Da monitorare", color: "#f87171" };
+  }
+
+  if (fastidio === "leggero") {
+    return { label: "Fastidio leggero", color: "#f59e0b" };
+  }
+
+  return { label: "Tutto bene", color: "#34d399" };
+}
+
+function tipoCompilazioneLabel(
+  tipo: MisurazioneBenessereAdmin["tipo_compilazione"],
+) {
+  if (tipo === "campo") return "Allenamento in campo";
+  if (tipo === "palestra") return "Allenamento in palestra";
+  return "Questionario del mattino";
+}
 
 function formatNumber(
   value: number | null,
@@ -67,7 +109,10 @@ export default function MisurazioniAdminClient({
   nomeClub,
   giocatori,
   misurazioni,
+  benessere,
 }: Props) {
+  const [tabPrincipale, setTabPrincipale] =
+    useState<TabPrincipale>("antropometria");
   const [modalAperta, setModalAperta] = useState(false);
   const [ricerca, setRicerca] = useState("");
   const [giocatoreFiltro, setGiocatoreFiltro] =
@@ -243,12 +288,64 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
     dataA,
   ]);
 
+  const benessereFiltrato = useMemo(() => {
+    const termine = ricerca.trim().toLowerCase();
+
+    return benessere.filter((compilazione) => {
+      const giocatore = compilazione.giocatore;
+
+      const nomeCompleto =
+        `${giocatore?.nome || ""} ${
+          giocatore?.cognome || ""
+        }`.toLowerCase();
+
+      const idAtleta = (giocatore?.id_atleta || "").toLowerCase();
+
+      const matchRicerca =
+        !termine ||
+        nomeCompleto.includes(termine) ||
+        idAtleta.includes(termine);
+
+      const matchGiocatore =
+        giocatoreFiltro === "tutti" ||
+        compilazione.giocatore_id === giocatoreFiltro;
+
+      const matchDataDa =
+        !dataDa || compilazione.data_compilazione >= dataDa;
+
+      const matchDataA =
+        !dataA || compilazione.data_compilazione <= dataA;
+
+      return matchRicerca && matchGiocatore && matchDataDa && matchDataA;
+    });
+  }, [benessere, ricerca, giocatoreFiltro, dataDa, dataA]);
+
   const ultimaMisurazione =
     misurazioni.length > 0 ? misurazioni[0] : null;
 
   const atletiMisurati = new Set(
     misurazioni.map((misurazione) => misurazione.giocatore_id),
   ).size;
+
+  const ultimaCompilazioneBenessere =
+    benessere.length > 0 ? benessere[0] : null;
+
+  const rpeMedioSquadra7gg = useMemo(() => {
+    const settePriodni = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+    const valori = benessere
+      .filter(
+        (m) =>
+          m.rpe !== null &&
+          new Date(`${m.data_compilazione}T12:00:00`).getTime() >=
+            settePriodni,
+      )
+      .map((m) => m.rpe as number);
+
+    if (valori.length === 0) return null;
+
+    return valori.reduce((somma, v) => somma + v, 0) / valori.length;
+  }, [benessere]);
 
   async function handleSubmit(
   event: FormEvent<HTMLFormElement>,
@@ -317,61 +414,132 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
             </div>
 
             <h1 className="text-2xl font-bold text-white sm:text-3xl">
-              Misurazioni antropometriche
+              {tabPrincipale === "antropometria"
+                ? "Misurazioni antropometriche"
+                : "Benessere · RPE"}
             </h1>
 
             <p className="mt-1 text-sm text-zinc-400">
-              Controlla peso, altezza e composizione corporea
-              degli atleti della squadra attiva.
+              {tabPrincipale === "antropometria"
+                ? "Controlla peso, altezza e composizione corporea degli atleti della squadra attiva."
+                : "Le compilazioni “Come va” inviate dagli atleti: RPE seduta e questionario del mattino."}
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              setMessaggio(null);
-              setModalAperta(true);
-            }}
-            className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 sm:w-auto"
-            style={{ backgroundColor: coloreClub }}
-          >
-            <Plus className="h-5 w-5" />
-            Nuova misurazione
-          </button>
+          {tabPrincipale === "antropometria" && (
+            <button
+              type="button"
+              onClick={() => {
+                setMessaggio(null);
+                setModalAperta(true);
+              }}
+              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 sm:w-auto"
+              style={{ backgroundColor: coloreClub }}
+            >
+              <Plus className="h-5 w-5" />
+              Nuova misurazione
+            </button>
+          )}
         </div>
       </section>
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard
-          icon={<Scale className="h-5 w-5" />}
-          label="Misurazioni"
-          value={String(misurazioni.length)}
-        />
-
-        <StatCard
-          icon={<UserRound className="h-5 w-5" />}
-          label="Atleti misurati"
-          value={String(atletiMisurati)}
-        />
-
-        <StatCard
-          icon={<Ruler className="h-5 w-5" />}
-          label="Atleti attivi"
-          value={String(giocatori.length)}
-        />
-
-        <StatCard
-          icon={<CalendarDays className="h-5 w-5" />}
-          label="Ultimo controllo"
-          value={
-            ultimaMisurazione
-              ? formatDate(
-                  ultimaMisurazione.data_misurazione,
-                )
-              : "—"
+      <section className="flex rounded-2xl border border-zinc-800 bg-zinc-950 p-1.5">
+        <button
+          type="button"
+          onClick={() => setTabPrincipale("antropometria")}
+          className="min-h-11 flex-1 rounded-xl px-3 text-sm font-semibold transition"
+          style={
+            tabPrincipale === "antropometria"
+              ? { backgroundColor: coloreClub, color: "#ffffff" }
+              : { color: "#a1a1aa" }
           }
-        />
+        >
+          Antropometria
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTabPrincipale("benessere")}
+          className="min-h-11 flex-1 rounded-xl px-3 text-sm font-semibold transition"
+          style={
+            tabPrincipale === "benessere"
+              ? { backgroundColor: coloreClub, color: "#ffffff" }
+              : { color: "#a1a1aa" }
+          }
+        >
+          Benessere · RPE
+        </button>
       </section>
+
+      {tabPrincipale === "antropometria" ? (
+        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard
+            icon={<Scale className="h-5 w-5" />}
+            label="Misurazioni"
+            value={String(misurazioni.length)}
+          />
+
+          <StatCard
+            icon={<UserRound className="h-5 w-5" />}
+            label="Atleti misurati"
+            value={String(atletiMisurati)}
+          />
+
+          <StatCard
+            icon={<Ruler className="h-5 w-5" />}
+            label="Atleti attivi"
+            value={String(giocatori.length)}
+          />
+
+          <StatCard
+            icon={<CalendarDays className="h-5 w-5" />}
+            label="Ultimo controllo"
+            value={
+              ultimaMisurazione
+                ? formatDate(
+                    ultimaMisurazione.data_misurazione,
+                  )
+                : "—"
+            }
+          />
+        </section>
+      ) : (
+        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard
+            icon={<HeartPulse className="h-5 w-5" />}
+            label="Compilazioni"
+            value={String(benessere.length)}
+          />
+
+          <StatCard
+            icon={<Gauge className="h-5 w-5" />}
+            label="RPE medio squadra (7gg)"
+            value={
+              rpeMedioSquadra7gg !== null
+                ? `${rpeMedioSquadra7gg.toFixed(1)}/10`
+                : "—"
+            }
+          />
+
+          <StatCard
+            icon={<UserRound className="h-5 w-5" />}
+            label="Atleti attivi"
+            value={String(giocatori.length)}
+          />
+
+          <StatCard
+            icon={<CalendarDays className="h-5 w-5" />}
+            label="Ultima compilazione"
+            value={
+              ultimaCompilazioneBenessere
+                ? formatDate(
+                    ultimaCompilazioneBenessere.data_compilazione,
+                  )
+                : "—"
+            }
+          />
+        </section>
+      )}
 
       <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -427,6 +595,8 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
         </div>
       </section>
 
+      {tabPrincipale === "antropometria" && (
+        <>
       {/* Desktop */}
       <section className="hidden overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950 lg:block">
         <div className="overflow-x-auto">
@@ -679,6 +849,312 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
           </div>
         )}
       </section>
+        </>
+      )}
+
+      {tabPrincipale === "benessere" && (
+        <>
+          {/* Desktop */}
+          <section className="hidden overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950 lg:block">
+            <div className="overflow-x-auto">
+              <table className="min-w-[1150px] w-full">
+                <thead className="border-b border-zinc-800 bg-zinc-900/70">
+                  <tr className="text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                    <th className="px-4 py-4">Data</th>
+                    <th className="px-4 py-4">Atleta</th>
+                    <th className="px-4 py-4">Tipo</th>
+                    <th className="px-4 py-4">Seduta</th>
+                    <th className="px-4 py-4">RPE</th>
+                    <th className="px-4 py-4">Sonno</th>
+                    <th className="px-4 py-4">Stanchezza</th>
+                    <th className="px-4 py-4">Indolenzimento</th>
+                    <th className="px-4 py-4">Stress</th>
+                    <th className="px-4 py-4">Fastidio</th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-zinc-900">
+                  {benessereFiltrato.map((compilazione) => {
+                    const fastidioBadge = getFastidioBadge(
+                      compilazione.fastidio,
+                    );
+
+                    return (
+                      <tr
+                        key={compilazione.id}
+                        className="text-sm text-zinc-300 transition hover:bg-zinc-900/60"
+                      >
+                        <td className="whitespace-nowrap px-4 py-4">
+                          {formatDate(compilazione.data_compilazione)}
+                        </td>
+
+                        <td className="px-4 py-4 font-medium text-white">
+                          {compilazione.giocatore
+                            ? `${compilazione.giocatore.nome} ${compilazione.giocatore.cognome}`
+                            : "Atleta non disponibile"}
+                        </td>
+
+                        <td className="px-4 py-4">
+                          {tipoCompilazioneLabel(
+                            compilazione.tipo_compilazione,
+                          )}
+                        </td>
+
+                        <td className="px-4 py-4">
+                          {compilazione.seduta || "—"}
+                        </td>
+
+                        <td
+                          className="px-4 py-4 font-semibold"
+                          style={{
+                            color:
+                              compilazione.rpe !== null
+                                ? getRpeColore(compilazione.rpe)
+                                : undefined,
+                          }}
+                        >
+                          {compilazione.rpe !== null
+                            ? `${compilazione.rpe}/10`
+                            : "—"}
+                        </td>
+
+                        <td
+                          className="px-4 py-4"
+                          style={{
+                            color:
+                              compilazione.sonno !== null
+                                ? getHooperColore(compilazione.sonno)
+                                : undefined,
+                          }}
+                        >
+                          {compilazione.sonno !== null
+                            ? `${compilazione.sonno}/7`
+                            : "—"}
+                        </td>
+
+                        <td
+                          className="px-4 py-4"
+                          style={{
+                            color:
+                              compilazione.stanchezza !== null
+                                ? getHooperColore(compilazione.stanchezza)
+                                : undefined,
+                          }}
+                        >
+                          {compilazione.stanchezza !== null
+                            ? `${compilazione.stanchezza}/7`
+                            : "—"}
+                        </td>
+
+                        <td
+                          className="px-4 py-4"
+                          style={{
+                            color:
+                              compilazione.indolenzimento !== null
+                                ? getHooperColore(compilazione.indolenzimento)
+                                : undefined,
+                          }}
+                        >
+                          {compilazione.indolenzimento !== null
+                            ? `${compilazione.indolenzimento}/7`
+                            : "—"}
+                        </td>
+
+                        <td
+                          className="px-4 py-4"
+                          style={{
+                            color:
+                              compilazione.stress !== null
+                                ? getHooperColore(compilazione.stress)
+                                : undefined,
+                          }}
+                        >
+                          {compilazione.stress !== null
+                            ? `${compilazione.stress}/7`
+                            : "—"}
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <span
+                            className="font-semibold"
+                            style={{ color: fastidioBadge.color }}
+                          >
+                            {fastidioBadge.label}
+                          </span>
+
+                          {compilazione.fastidio &&
+                            compilazione.fastidio !== "no" &&
+                            compilazione.fastidio_dettaglio && (
+                              <p className="mt-0.5 max-w-56 truncate text-xs text-zinc-500">
+                                {compilazione.fastidio_dettaglio}
+                              </p>
+                            )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {benessereFiltrato.length === 0 && (
+              <EmptyStateBenessere />
+            )}
+          </section>
+
+          {/* Mobile */}
+          <section className="space-y-3 lg:hidden">
+            {benessereFiltrato.map((compilazione) => {
+              const fastidioBadge = getFastidioBadge(compilazione.fastidio);
+
+              return (
+                <article
+                  key={compilazione.id}
+                  className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950"
+                >
+                  <div
+                    className="h-1 w-full"
+                    style={{ backgroundColor: coloreClub }}
+                  />
+
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h2 className="font-semibold text-white">
+                          {compilazione.giocatore
+                            ? `${compilazione.giocatore.nome} ${compilazione.giocatore.cognome}`
+                            : "Atleta"}
+                        </h2>
+
+                        <p className="mt-1 text-xs text-zinc-500">
+                          {tipoCompilazioneLabel(
+                            compilazione.tipo_compilazione,
+                          )}
+                          {compilazione.seduta
+                            ? ` · ${compilazione.seduta}`
+                            : ""}
+                        </p>
+                      </div>
+
+                      <span className="shrink-0 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300">
+                        {formatDate(compilazione.data_compilazione)}
+                      </span>
+                    </div>
+
+                    {compilazione.tipo_compilazione === "mattino" ? (
+                      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <MobileValueColorata
+                          label="Sonno"
+                          value={
+                            compilazione.sonno !== null
+                              ? `${compilazione.sonno}/7`
+                              : "—"
+                          }
+                          color={
+                            compilazione.sonno !== null
+                              ? getHooperColore(compilazione.sonno)
+                              : undefined
+                          }
+                        />
+
+                        <MobileValueColorata
+                          label="Stanchezza"
+                          value={
+                            compilazione.stanchezza !== null
+                              ? `${compilazione.stanchezza}/7`
+                              : "—"
+                          }
+                          color={
+                            compilazione.stanchezza !== null
+                              ? getHooperColore(compilazione.stanchezza)
+                              : undefined
+                          }
+                        />
+
+                        <MobileValueColorata
+                          label="Indolenzimento"
+                          value={
+                            compilazione.indolenzimento !== null
+                              ? `${compilazione.indolenzimento}/7`
+                              : "—"
+                          }
+                          color={
+                            compilazione.indolenzimento !== null
+                              ? getHooperColore(compilazione.indolenzimento)
+                              : undefined
+                          }
+                        />
+
+                        <MobileValueColorata
+                          label="Stress"
+                          value={
+                            compilazione.stress !== null
+                              ? `${compilazione.stress}/7`
+                              : "—"
+                          }
+                          color={
+                            compilazione.stress !== null
+                              ? getHooperColore(compilazione.stress)
+                              : undefined
+                          }
+                        />
+                      </div>
+                    ) : (
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        <MobileValueColorata
+                          label="RPE"
+                          value={
+                            compilazione.rpe !== null
+                              ? `${compilazione.rpe}/10`
+                              : "—"
+                          }
+                          color={
+                            compilazione.rpe !== null
+                              ? getRpeColore(compilazione.rpe)
+                              : undefined
+                          }
+                        />
+
+                        <div className="rounded-xl bg-zinc-900 p-3">
+                          <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+                            Fastidio
+                          </p>
+                          <p
+                            className="mt-1 text-sm font-semibold"
+                            style={{ color: fastidioBadge.color }}
+                          >
+                            {fastidioBadge.label}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {compilazione.fastidio &&
+                      compilazione.fastidio !== "no" &&
+                      compilazione.fastidio_dettaglio && (
+                        <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-amber-300">
+                            Fastidio segnalato
+                          </p>
+
+                          <p className="mt-1 text-sm text-amber-100">
+                            {compilazione.fastidio_dettaglio}
+                          </p>
+                        </div>
+                      )}
+                  </div>
+                </article>
+              );
+            })}
+
+            {benessereFiltrato.length === 0 && (
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950">
+                <EmptyStateBenessere />
+              </div>
+            )}
+          </section>
+        </>
+      )}
 
       {modalAperta && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-4">
@@ -1224,6 +1700,31 @@ function MobileValue({
     </div>
   );
 }
+
+function MobileValueColorata({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: string;
+  color?: string;
+}) {
+  return (
+    <div className="rounded-xl bg-zinc-900 p-3">
+      <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+        {label}
+      </p>
+      <p
+        className={`mt-1 text-sm font-semibold ${color ? "" : "text-white"}`}
+        style={color ? { color } : undefined}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
 type GiocatoriMultiSelectProps = {
   giocatori: GiocatoreMisurazioni[];
   selectedIds: string[];
@@ -1539,6 +2040,23 @@ function EmptyState() {
       <p className="mt-1 max-w-sm text-sm text-zinc-500">
         Modifica i filtri oppure inserisci una nuova
         misurazione.
+      </p>
+    </div>
+  );
+}
+
+function EmptyStateBenessere() {
+  return (
+    <div className="flex flex-col items-center justify-center px-4 py-14 text-center">
+      <HeartPulse className="mb-3 h-10 w-10 text-zinc-700" />
+
+      <h3 className="font-semibold text-white">
+        Nessuna compilazione trovata
+      </h3>
+
+      <p className="mt-1 max-w-sm text-sm text-zinc-500">
+        Modifica i filtri, oppure aspetta che gli atleti
+        compilino il modulo “Come va” dalla loro pagina Misurazioni.
       </p>
     </div>
   );
