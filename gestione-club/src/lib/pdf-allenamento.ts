@@ -52,6 +52,23 @@ function formatOra(ora: string | null) {
   return ora ? ora.slice(0, 5) : "";
 }
 
+// Orario di inizio/fine di ogni riga (lavoro o gruppo in contemporanea),
+// calcolato accumulando i tempo_totale a partire dall'ora di inizio della
+// seduta — stessa logica usata nelle viste della pagina Allenamenti.
+function orarioAMinuti(orario: string) {
+  const [ore, minuti] = orario.split(":").map((parte) => Number(parte) || 0);
+  return ore * 60 + minuti;
+}
+
+function minutiAOrario(minuti: number) {
+  const oreEffettive = Math.floor(minuti / 60) % 24;
+  const minutiEffettivi = ((minuti % 60) + 60) % 60;
+
+  return `${String(oreEffettive).padStart(2, "0")}:${String(
+    minutiEffettivi
+  ).padStart(2, "0")}`;
+}
+
 function isSezioneH2O(sezione: string) {
   return sezione.trim().toUpperCase() === "H2O";
 }
@@ -291,7 +308,7 @@ export async function generaPdfAllenamento(
   lavori: LavoroPdf[],
   club?: ClubPdf | null
 ): Promise<PdfAllenamentoGenerato> {
-  const doc = new jsPDF();
+  const doc = new jsPDF({ orientation: "landscape", format: "a4" });
   const larghezzaPagina = doc.internal.pageSize.getWidth();
   const margine = 14;
 
@@ -310,15 +327,6 @@ export async function generaPdfAllenamento(
     larghezzaPagina - margine * 2 - larghezzaLogoBox - scartoLogoBox;
   const xLogoBox = margine + larghezzaTitolo + scartoLogoBox;
 
-  // Barra titolo rosso scuro, testo bianco allineato a sinistra. Con il
-  // nome della seduta la barra è più alta per ospitare due righe: nome
-  // sopra, data/orario sotto (più leggibile di tutto su una riga sola).
-  const altezzaBarra = nomeSeduta ? 13 : 9;
-
-  doc.setFillColor(...COLORE_TITOLO);
-  doc.setDrawColor(0, 0, 0);
-  doc.rect(margine, 12, larghezzaTitolo, altezzaBarra, "FD");
-
   const orarioSeduta =
     allenamento.ora_inizio || allenamento.ora_fine
       ? ` · ${formatOra(allenamento.ora_inizio)}${
@@ -326,19 +334,43 @@ export async function generaPdfAllenamento(
         }`
       : "";
 
+  // Il nome della seduta può essere lungo: viene spezzato su più righe
+  // (max 3, con "…" sull'ultima se troppo lungo anche così) invece di
+  // traboccare fuori dalla barra rossa. La barra cresce in altezza in
+  // base al numero di righe effettivamente necessarie.
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  const larghezzaDisponibileTitolo = larghezzaTitolo - 6;
+  let righeTitolo: string[] = nomeSeduta
+    ? doc.splitTextToSize(nomeSeduta.toUpperCase(), larghezzaDisponibileTitolo)
+    : [];
+
+  if (righeTitolo.length > 3) {
+    righeTitolo = righeTitolo.slice(0, 3);
+    righeTitolo[2] = `${righeTitolo[2].replace(/[.…]+$/, "")}…`;
+  }
+
+  const altezzaBarra = nomeSeduta ? 8 + righeTitolo.length * 5 : 9;
+
+  doc.setFillColor(...COLORE_TITOLO);
+  doc.setDrawColor(0, 0, 0);
+  doc.rect(margine, 12, larghezzaTitolo, altezzaBarra, "FD");
+
   doc.setTextColor(255, 255, 255);
 
   if (nomeSeduta) {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
-    doc.text(nomeSeduta.toUpperCase(), margine + 3, 18, { align: "left" });
+    righeTitolo.forEach((riga, indice) => {
+      doc.text(riga, margine + 3, 18 + indice * 5, { align: "left" });
+    });
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8.5);
     doc.text(
       `ALLENAMENTO ${formatDataIT(allenamento.data_allenamento)}${orarioSeduta}`,
       margine + 3,
-      23,
+      18 + righeTitolo.length * 5,
       { align: "left" }
     );
   } else {
@@ -396,9 +428,11 @@ export async function generaPdfAllenamento(
   }
 
   // La prima colonna ("") ospita l'etichetta di sezione ruotata in
-  // verticale, disegnata a mano in didDrawCell.
+  // verticale (con intestazione "Sezione" anch'essa ruotata), disegnata a
+  // mano in didDrawCell.
   const colonne = [
     "",
+    "Orario",
     "Descrizione",
     "Obbiettivo",
     "Tempo di Lavoro",
@@ -429,6 +463,9 @@ export async function generaPdfAllenamento(
 
   let ultimaSezioneReale: string | null = null;
   let totaleMinuti = 0;
+  let cursoreMinuti = allenamento.ora_inizio
+    ? orarioAMinuti(allenamento.ora_inizio)
+    : null;
 
   const run = raggruppaInRun(lavoriOrdinati);
 
@@ -446,6 +483,16 @@ export async function generaPdfAllenamento(
 
     totaleMinuti += capofila.tempo_totale ?? 0;
 
+    // Orario di inizio/fine del run: l'intero gruppo (contemporaneo o
+    // singolo) occupa un unico slot di tempo, non uno per membro.
+    let orarioTesto = "";
+    if (cursoreMinuti !== null) {
+      const inizioMinuti = cursoreMinuti;
+      const fineMinuti = inizioMinuti + (capofila.tempo_totale ?? 0);
+      orarioTesto = `${minutiAOrario(inizioMinuti)}–${minutiAOrario(fineMinuti)}`;
+      cursoreMinuti = fineMinuti;
+    }
+
     if (membri.length === 1) {
       righe.push({
         sezioneEffettiva,
@@ -453,6 +500,7 @@ export async function generaPdfAllenamento(
         h2o,
         media: h2o ? null : mediaPerLavoro.get(capofila) ?? null,
         celle: [
+          orarioTesto,
           h2o ? "h2o" : capofila.descrizione || "",
           h2o ? "" : capofila.obbiettivo || "",
           h2o ? "" : capofila.tempo_lavoro !== null ? String(capofila.tempo_lavoro) : "",
@@ -468,14 +516,15 @@ export async function generaPdfAllenamento(
       return;
     }
 
-    // Lavori in contemporanea: le celle dei tempi vengono unite verticalmente
-    // sulla prima riga del gruppo; le righe successive mostrano solo la
-    // loro descrizione/obbiettivo.
+    // Lavori in contemporanea: le celle dei tempi (e l'orario) vengono
+    // unite verticalmente sulla prima riga del gruppo; le righe successive
+    // mostrano solo la loro descrizione/obbiettivo.
     righe.push({
       sezioneEffettiva,
       tipo: "dato",
       media: mediaPerLavoro.get(capofila) ?? null,
       celle: [
+        { content: orarioTesto, rowSpan: membri.length },
         capofila.descrizione || "",
         capofila.obbiettivo || "",
         {
@@ -518,7 +567,7 @@ export async function generaPdfAllenamento(
   const h2oRiga: boolean[] = [];
   const mediaRiga: (MediaLavoro | null)[] = [];
 
-  corpo.push([{ content: "ora inizio", colSpan: 2 }, formatOra(allenamento.ora_inizio), "", "", "", ""]);
+  corpo.push([{ content: "ora inizio", colSpan: 3 }, formatOra(allenamento.ora_inizio), "", "", "", ""]);
   tipiRiga.push("info");
   sezioneEtichetta.push(null);
   h2oRiga.push(false);
@@ -556,7 +605,7 @@ export async function generaPdfAllenamento(
   }
 
   corpo.push([
-    { content: "ora fine lavori", colSpan: 2 },
+    { content: "ora fine lavori", colSpan: 3 },
     formatOra(allenamento.ora_fine),
     "",
     "",
@@ -584,13 +633,14 @@ export async function generaPdfAllenamento(
     },
     columnStyles: {
       0: { cellWidth: 7 },
+      1: { cellWidth: 18, halign: "center", fontSize: 8 },
       // valign "top" sulla colonna Descrizione: quando c'è un'immagine o
       // un link video da disegnare sotto il testo (didDrawCell), serve
       // che il testo parta sempre dall'alto della cella, altrimenti con
       // l'allineamento verticale centrato di default la posizione in cui
       // disegnare la miniatura diventerebbe imprevedibile.
-      1: { halign: "left", valign: "top" },
-      2: { halign: "left" },
+      2: { halign: "left", valign: "top" },
+      3: { halign: "left" },
     },
     headStyles: {
       fillColor: COLORE_HEADER,
@@ -599,6 +649,14 @@ export async function generaPdfAllenamento(
       halign: "center",
     },
     didParseCell: (data) => {
+      // Intestazione della colonna sezione: il testo di default ("Sezione")
+      // viene tolto qui e ridisegnato ruotato in didDrawCell, in coerenza
+      // con le etichette di sezione del corpo tabella.
+      if (data.section === "head" && data.column.index === 0) {
+        data.cell.text = [];
+        return;
+      }
+
       if (data.section !== "body") return;
 
       const tipo = tipiRiga[data.row.index];
@@ -636,7 +694,7 @@ export async function generaPdfAllenamento(
         data.cell.styles.fillColor = COLORE_AZZURRO_TOTALE;
         data.cell.styles.fontStyle = "bold";
       } else if (
-        data.column.index === 6 &&
+        data.column.index === 7 &&
         (tipo === "dato" || tipo === "totale")
       ) {
         data.cell.styles.fillColor = COLORE_AZZURRO_TOTALE;
@@ -647,7 +705,7 @@ export async function generaPdfAllenamento(
       // altrimenti autoTable dimensiona la riga solo in base al testo e
       // in didDrawCell l'immagine finirebbe per traboccare nella riga
       // successiva.
-      if (data.column.index === 1) {
+      if (data.column.index === 2) {
         const media = mediaRiga[data.row.index];
         if (media) {
           const numRighe = Array.isArray(data.cell.text)
@@ -665,6 +723,21 @@ export async function generaPdfAllenamento(
       }
     },
     didDrawCell: (data) => {
+      if (data.section === "head" && data.column.index === 0) {
+        const { x, y, width, height } = data.cell;
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7.5);
+        doc.setTextColor(255, 255, 255);
+        doc.text("Sezione", x + width / 2, y + height / 2, {
+          angle: 90,
+          align: "center",
+          baseline: "middle",
+        });
+
+        return;
+      }
+
       if (data.section !== "body") return;
 
       if (data.column.index === 0) {
@@ -685,7 +758,7 @@ export async function generaPdfAllenamento(
         return;
       }
 
-      if (data.column.index === 1) {
+      if (data.column.index === 2) {
         const media = mediaRiga[data.row.index];
         if (!media) return;
 
