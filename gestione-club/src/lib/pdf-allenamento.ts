@@ -44,7 +44,7 @@ const COLORE_AZZURRO_TOTALE: [number, number, number] = [184, 204, 228];
 // un unico punto perché devono coincidere fra il calcolo dell'altezza
 // riga (didParseCell) e il disegno effettivo (didDrawCell).
 const ALTEZZA_RIGA_TESTO_MM = 9 * 0.3528 * 1.15; // fontSize 9pt -> mm, con line-height ~1.15
-const PADDING_CELLA_MM = 2.2; // deve combaciare con styles.cellPadding
+const PADDING_CELLA_MM = 1.8; // deve combaciare con styles.cellPadding
 const ALTEZZA_MEDIA_MM = 20;
 const ALTEZZA_LINK_MM = 5;
 
@@ -427,12 +427,12 @@ export async function generaPdfAllenamento(
     });
   }
 
-  // La prima colonna ("") ospita l'etichetta di sezione ruotata in
-  // verticale (con intestazione "Sezione" anch'essa ruotata), disegnata a
-  // mano in didDrawCell.
+  // La prima colonna ospita il nome della sezione (testo orizzontale
+  // normale, non ruotato), unito verticalmente per tutte le righe dello
+  // stesso blocco di sezione.
   const colonne = [
-    "",
     "Orario",
+    "Sezione",
     "Descrizione",
     "Obbiettivo",
     "Tempo di Lavoro",
@@ -559,17 +559,16 @@ export async function generaPdfAllenamento(
 
   // Passo 2: assemblo il corpo finale aggiungendo, per ogni blocco di
   // righe consecutive con la stessa sezione effettiva, una cella colonna-0
-  // con rowSpan pari alla lunghezza del blocco (contenuto vuoto: il testo
-  // viene disegnato a mano, ruotato, in didDrawCell).
+  // con rowSpan pari alla lunghezza del blocco e il nome della sezione
+  // come testo normale (orizzontale, non ruotato: più leggibile e non
+  // costringe la riga a essere più alta del necessario).
   const tipiRiga: TipoRiga[] = [];
   const corpo: Cella[][] = [];
-  const sezioneEtichetta: (string | null)[] = [];
   const h2oRiga: boolean[] = [];
   const mediaRiga: (MediaLavoro | null)[] = [];
 
   corpo.push([{ content: "ora inizio", colSpan: 3 }, formatOra(allenamento.ora_inizio), "", "", "", ""]);
   tipiRiga.push("info");
-  sezioneEtichetta.push(null);
   h2oRiga.push(false);
   mediaRiga.push(null);
 
@@ -589,11 +588,16 @@ export async function generaPdfAllenamento(
       const riga = righe[i];
 
       if (i === indice) {
-        corpo.push([{ content: "", rowSpan: lunghezzaBlocco }, ...riga.celle]);
-        sezioneEtichetta.push(riga.sezioneEffettiva);
+        // Colonna Orario (indice 0) resta al suo posto, la cella Sezione
+        // (con rowSpan sull'intero blocco) va inserita subito dopo, in
+        // posizione 1 — non in testa — per avere l'ordine Orario|Sezione.
+        corpo.push([
+          riga.celle[0],
+          { content: riga.sezioneEffettiva, rowSpan: lunghezzaBlocco },
+          ...riga.celle.slice(1),
+        ]);
       } else {
         corpo.push(riga.celle);
-        sezioneEtichetta.push(null);
       }
 
       tipiRiga.push(riga.tipo);
@@ -613,7 +617,6 @@ export async function generaPdfAllenamento(
     String(totaleMinuti),
   ]);
   tipiRiga.push("totale");
-  sezioneEtichetta.push(null);
   h2oRiga.push(false);
   mediaRiga.push(null);
 
@@ -625,15 +628,16 @@ export async function generaPdfAllenamento(
     theme: "grid",
     styles: {
       fontSize: 9,
-      cellPadding: 2.2,
+      cellPadding: 1.8,
       lineColor: [0, 0, 0],
       lineWidth: 0.2,
       textColor: [0, 0, 0],
       halign: "center",
+      valign: "middle",
     },
     columnStyles: {
-      0: { cellWidth: 7 },
-      1: { cellWidth: 18, halign: "center", fontSize: 8 },
+      0: { cellWidth: 26, halign: "center", fontSize: 8.5 },
+      1: { cellWidth: 24, halign: "center", fontStyle: "bold", fontSize: 8.5 },
       // valign "top" sulla colonna Descrizione: quando c'è un'immagine o
       // un link video da disegnare sotto il testo (didDrawCell), serve
       // che il testo parta sempre dall'alto della cella, altrimenti con
@@ -649,39 +653,12 @@ export async function generaPdfAllenamento(
       halign: "center",
     },
     didParseCell: (data) => {
-      // Intestazione della colonna sezione: il testo di default ("Sezione")
-      // viene tolto qui e ridisegnato ruotato in didDrawCell, in coerenza
-      // con le etichette di sezione del corpo tabella.
-      if (data.section === "head" && data.column.index === 0) {
-        data.cell.text = [];
-        return;
-      }
-
       if (data.section !== "body") return;
 
       const tipo = tipiRiga[data.row.index];
 
-      if (data.column.index === 0) {
+      if (data.column.index === 1) {
         data.cell.styles.fillColor = COLORE_GRIGIO_SEZIONE;
-
-        // L'etichetta di sezione viene disegnata ruotata di 90° in
-        // didDrawCell: la sua larghezza orizzontale (misurata col font
-        // usato per disegnarla) diventa l'altezza verticale che occupa una
-        // volta ruotata. Senza riservare questo spazio, le sezioni con un
-        // solo lavoro breve (es. un meeting da 15 min) generano righe più
-        // basse del testo ruotato, che quindi trabocca e si sovrappone
-        // all'etichetta della sezione successiva.
-        const testoSezione = sezioneEtichetta[data.row.index];
-        if (testoSezione) {
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(7.5);
-          const larghezzaTesto = doc.getTextWidth(testoSezione);
-
-          data.cell.styles.minCellHeight = Math.max(
-            data.cell.styles.minCellHeight ?? 0,
-            larghezzaTesto + PADDING_CELLA_MM * 2
-          );
-        }
       }
 
       if (tipo === "info" || tipo === "totale") {
@@ -689,8 +666,10 @@ export async function generaPdfAllenamento(
       }
 
       // La riga di pausa h2o viene evidenziata per intero (come nel modello
-      // cartaceo), non solo sulla colonna Tempo Totale.
-      if (h2oRiga[data.row.index] && data.column.index !== 0) {
+      // cartaceo), non solo sulla colonna Tempo Totale. La colonna Sezione
+      // (che di norma per l'h2o è comunque coperta dal rowSpan della
+      // sezione reale) resta invece grigia.
+      if (h2oRiga[data.row.index] && data.column.index !== 1) {
         data.cell.styles.fillColor = COLORE_AZZURRO_TOTALE;
         data.cell.styles.fontStyle = "bold";
       } else if (
@@ -723,40 +702,7 @@ export async function generaPdfAllenamento(
       }
     },
     didDrawCell: (data) => {
-      if (data.section === "head" && data.column.index === 0) {
-        const { x, y, width, height } = data.cell;
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(7.5);
-        doc.setTextColor(255, 255, 255);
-        doc.text("Sezione", x + width / 2, y + height / 2, {
-          angle: 90,
-          align: "center",
-          baseline: "middle",
-        });
-
-        return;
-      }
-
       if (data.section !== "body") return;
-
-      if (data.column.index === 0) {
-        const testo = sezioneEtichetta[data.row.index];
-        if (!testo) return;
-
-        const { x, y, width, height } = data.cell;
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(7.5);
-        doc.setTextColor(0, 0, 0);
-        doc.text(testo, x + width / 2, y + height / 2, {
-          angle: 90,
-          align: "center",
-          baseline: "middle",
-        });
-
-        return;
-      }
 
       if (data.column.index === 2) {
         const media = mediaRiga[data.row.index];
