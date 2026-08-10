@@ -255,6 +255,32 @@ function coloreSezionePalette(nome: string): string {
   return COLORI_SEZIONI[hash % COLORI_SEZIONI.length];
 }
 
+// Ritorna un punto (in percentuale) sulla circonferenza del grafico a
+// torta, partendo dalle ore 12 e proseguendo in senso orario, come fa
+// di default il conic-gradient usato per disegnarlo.
+function puntoSuCerchio(angoloGradi: number): string {
+  const rad = (angoloGradi * Math.PI) / 180;
+  const x = 50 + 50 * Math.sin(rad);
+  const y = 50 - 50 * Math.cos(rad);
+  return `${x}% ${y}%`;
+}
+
+// Costruisce la forma (clip-path) di un singolo spicchio, da usare come
+// area invisibile "hoverabile" per mostrare il tooltip con i minuti.
+function costruisciClipSpicchio(startPercent: number, endPercent: number): string {
+  const startDeg = (startPercent / 100) * 360;
+  const endDeg = (endPercent / 100) * 360;
+  const passo = 6;
+
+  const punti: string[] = ["50% 50%"];
+  for (let deg = startDeg; deg < endDeg; deg += passo) {
+    punti.push(puntoSuCerchio(deg));
+  }
+  punti.push(puntoSuCerchio(endDeg));
+
+  return `polygon(${punti.join(", ")})`;
+}
+
 function PieChart({ items }: { items: { label: string; value: number }[] }) {
   const totale = items.reduce((sum, item) => sum + item.value, 0);
 
@@ -266,40 +292,52 @@ function PieChart({ items }: { items: { label: string; value: number }[] }) {
     );
   }
 
-  const gradient = items
-    .map((item, index) => {
-      const start = items
-        .slice(0, index)
-        .reduce((sum, current) => sum + (current.value / totale) * 100, 0);
+  const segmenti = items.map((item, index) => {
+    const start = items
+      .slice(0, index)
+      .reduce((sum, current) => sum + (current.value / totale) * 100, 0);
 
-      const end = start + (item.value / totale) * 100;
+    const end = start + (item.value / totale) * 100;
 
-      return `${coloreSezionePalette(item.label)} ${start}% ${end}%`;
-    })
+    return { ...item, start, end, colore: coloreSezionePalette(item.label) };
+  });
+
+  const gradient = segmenti
+    .map((segmento) => `${segmento.colore} ${segmento.start}% ${segmento.end}%`)
     .join(", ");
 
   return (
     <div className="space-y-4">
       <div
-        className="mx-auto h-44 w-44 rounded-full"
+        className="relative mx-auto h-44 w-44 rounded-full"
         style={{ background: `conic-gradient(${gradient})` }}
-      />
+      >
+        {segmenti.map((segmento) => (
+          <div
+            key={segmento.label}
+            title={`${segmento.label}: ${segmento.value} min`}
+            className="absolute inset-0 rounded-full"
+            style={{ clipPath: costruisciClipSpicchio(segmento.start, segmento.end) }}
+          />
+        ))}
+      </div>
 
       <div className="space-y-2">
-        {items.map((item) => (
+        {segmenti.map((segmento) => (
           <div
-            key={item.label}
+            key={segmento.label}
+            title={`${segmento.label}: ${segmento.value} min`}
             className="flex items-center justify-between gap-3 text-sm"
           >
             <span className="flex min-w-0 items-center gap-2 truncate text-zinc-400">
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ backgroundColor: coloreSezionePalette(item.label) }}
+                style={{ backgroundColor: segmento.colore }}
               />
-              <span className="truncate">{item.label}</span>
+              <span className="truncate">{segmento.label}</span>
             </span>
             <span className="shrink-0 font-medium text-white">
-              {item.value} min
+              {segmento.value} min
             </span>
           </div>
         ))}
