@@ -804,7 +804,7 @@ export default function Page() {
           <p className="px-4 py-3 text-sm text-zinc-500">Nessun lavoro inserito.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-[1100px] w-full border-collapse text-sm">
+            <table className="min-w-[1350px] w-full border-collapse text-sm">
               <thead className="bg-zinc-900">
                 <tr className="text-left text-zinc-400">
                   <th className="px-3 py-2 font-semibold">Orario</th>
@@ -813,6 +813,9 @@ export default function Page() {
                   <th className="px-3 py-2 font-semibold">Drill</th>
                   <th className="px-3 py-2 font-semibold">Consegna e organizzazione</th>
                   <th className="px-3 py-2 font-semibold">Punti chiave di coaching</th>
+                  <th className="px-3 py-2 text-right font-semibold">Tempo lavoro</th>
+                  <th className="px-3 py-2 text-right font-semibold">Rip.</th>
+                  <th className="px-3 py-2 text-right font-semibold">Rec.</th>
                   <th className="px-3 py-2 text-right font-semibold">Totale</th>
                 </tr>
               </thead>
@@ -831,6 +834,15 @@ export default function Page() {
                       <td className="px-3 py-2">{lavoro.descrizione || "—"}</td>
                       <td className="px-3 py-2">{lavoro.obbiettivo || "—"}</td>
                       <td className="px-3 py-2">{lavoro.punti_chiave_coaching || "—"}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right text-zinc-400">
+                        {lavoro.tempo_lavoro ?? "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right text-zinc-400">
+                        {lavoro.ripetizione ?? "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right text-zinc-400">
+                        {lavoro.tempo_recupero ?? "—"}
+                      </td>
                       <td className="whitespace-nowrap px-3 py-2 text-right font-bold">
                         {lavoro.tempo_totale ?? "—"}
                       </td>
