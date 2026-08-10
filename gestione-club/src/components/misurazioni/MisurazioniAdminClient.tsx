@@ -8,6 +8,9 @@ import {
   Activity,
   CalendarDays,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Dumbbell,
   Gauge,
   HeartPulse,
   Loader2,
@@ -15,7 +18,7 @@ import {
   Plus,
   Ruler,
   Search,Check,
-  Scale,Trash2,UsersRound,
+  Scale,Sunrise,Trash2,UsersRound,
   UserRound,
   X,
 } from "lucide-react";
@@ -24,6 +27,7 @@ import {
   creaMisurazioneAntropometricaAction,
   aggiornaMisurazioneAntropometricaAction,
   eliminaMisurazioneAntropometricaAction,
+  creaMisurazioneBenessereAction,
 } from "@/app/(dashboard)/misurazioni/actions";
 import { DateInput } from "@/components/ui/DateInput";
 
@@ -78,6 +82,31 @@ function tipoCompilazioneLabel(
   if (tipo === "palestra") return "Allenamento in palestra";
   return "Questionario del mattino";
 }
+
+type StepBenessere = "tipo" | "campo" | "palestra" | "mattino";
+
+const SEDUTE_CAMPO = ["Mattino", "Sera"];
+const SEDUTE_PALESTRA = ["Forza (A)", "Potenza (B)", "Richiamo (C)"];
+
+const FASTIDIO_OPZIONI: { value: Fastidio; label: string }[] = [
+  { value: "no", label: "No, tutto bene" },
+  { value: "leggero", label: "Sì, un fastidio leggero" },
+  { value: "preoccupante", label: "Sì, qualcosa che preoccupa" },
+];
+
+const ANCORAGGI_RPE_CAMPO = [
+  { valore: 3, testo: "riscaldamento, respiri ma parli normalmente" },
+  { valore: 5, testo: "respiro pesante, parli a frasi corte" },
+  { valore: 7, testo: "molto duro, parli a parole singole" },
+  { valore: 9, testo: "come gli ultimi dieci minuti di una partita vera" },
+];
+
+const ANCORAGGI_RPE_PALESTRA = [
+  { valore: 3, testo: "riscaldamento e mobilità, nessuno sforzo" },
+  { valore: 5, testo: "carichi leggeri, potrebbe farne molte di più" },
+  { valore: 7, testo: "pesante, alla fine della serie ne avrebbe fatte altre tre" },
+  { valore: 9, testo: "quasi il massimo, alla fine ne avrebbe fatta forse una" },
+];
 
 function formatNumber(
   value: number | null,
@@ -138,6 +167,153 @@ export default function MisurazioniAdminClient({
   const [eliminazioneInCorsoId, setEliminazioneInCorsoId] = useState<
     string | null
   >(null);
+
+  // Modulo "Come va" compilato dallo staff per conto di un atleta.
+  const [modalBenessereAperta, setModalBenessereAperta] = useState(false);
+  const [stepBenessere, setStepBenessere] = useState<StepBenessere>("tipo");
+  const [giocatoreIdBenessere, setGiocatoreIdBenessere] = useState("");
+  const [sedutaBenessere, setSedutaBenessere] = useState("");
+  const [rpeBenessere, setRpeBenessere] = useState<number | null>(null);
+  const [fastidioBenessere, setFastidioBenessere] = useState<Fastidio | null>(
+    null,
+  );
+  const [fastidioDettaglioBenessere, setFastidioDettaglioBenessere] =
+    useState("");
+  const [sonnoBenessere, setSonnoBenessere] = useState<number | null>(null);
+  const [stanchezzaBenessere, setStanchezzaBenessere] = useState<
+    number | null
+  >(null);
+  const [indolenzimentoBenessere, setIndolenzimentoBenessere] = useState<
+    number | null
+  >(null);
+  const [stressBenessere, setStressBenessere] = useState<number | null>(
+    null,
+  );
+  const [salvataggioBenessere, setSalvataggioBenessere] = useState(false);
+  const [messaggioBenessere, setMessaggioBenessere] = useState<{
+    tipo: "success" | "error";
+    testo: string;
+  } | null>(null);
+
+  function resetFormBenessere() {
+    setStepBenessere("tipo");
+    setGiocatoreIdBenessere("");
+    setSedutaBenessere("");
+    setRpeBenessere(null);
+    setFastidioBenessere(null);
+    setFastidioDettaglioBenessere("");
+    setSonnoBenessere(null);
+    setStanchezzaBenessere(null);
+    setIndolenzimentoBenessere(null);
+    setStressBenessere(null);
+  }
+
+  function apriStepBenessere(nuovoStep: "campo" | "palestra" | "mattino") {
+    setSedutaBenessere("");
+    setRpeBenessere(null);
+    setFastidioBenessere(null);
+    setFastidioDettaglioBenessere("");
+    setSonnoBenessere(null);
+    setStanchezzaBenessere(null);
+    setIndolenzimentoBenessere(null);
+    setStressBenessere(null);
+    setStepBenessere(nuovoStep);
+  }
+
+  function chiudiModalBenessere() {
+    setModalBenessereAperta(false);
+    setMessaggioBenessere(null);
+    resetFormBenessere();
+  }
+
+  async function handleSubmitBenessere() {
+    setMessaggioBenessere(null);
+
+    if (!giocatoreIdBenessere) {
+      setMessaggioBenessere({
+        tipo: "error",
+        testo: "Seleziona per quale atleta stai compilando il modulo.",
+      });
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("giocatore_id", giocatoreIdBenessere);
+    formData.set("data_compilazione", getToday());
+    formData.set("tipo_compilazione", stepBenessere);
+
+    if (stepBenessere === "campo" || stepBenessere === "palestra") {
+      if (!sedutaBenessere) {
+        setMessaggioBenessere({
+          tipo: "error",
+          testo: "Indica quale seduta.",
+        });
+        return;
+      }
+
+      if (rpeBenessere === null) {
+        setMessaggioBenessere({
+          tipo: "error",
+          testo: "Indica quanto è stata dura questa seduta.",
+        });
+        return;
+      }
+
+      if (!fastidioBenessere) {
+        setMessaggioBenessere({
+          tipo: "error",
+          testo: "Indica se ha qualche fastidio o dolore.",
+        });
+        return;
+      }
+
+      formData.set("seduta", sedutaBenessere);
+      formData.set("rpe", String(rpeBenessere));
+      formData.set("fastidio", fastidioBenessere);
+
+      if (fastidioBenessere !== "no") {
+        formData.set("fastidio_dettaglio", fastidioDettaglioBenessere);
+      }
+    } else if (stepBenessere === "mattino") {
+      if (
+        sonnoBenessere === null ||
+        stanchezzaBenessere === null ||
+        indolenzimentoBenessere === null ||
+        stressBenessere === null
+      ) {
+        setMessaggioBenessere({
+          tipo: "error",
+          testo: "Rispondi a tutte e quattro le domande.",
+        });
+        return;
+      }
+
+      formData.set("sonno", String(sonnoBenessere));
+      formData.set("stanchezza", String(stanchezzaBenessere));
+      formData.set("indolenzimento", String(indolenzimentoBenessere));
+      formData.set("stress", String(stressBenessere));
+    } else {
+      return;
+    }
+
+    setSalvataggioBenessere(true);
+
+    const result = await creaMisurazioneBenessereAction(formData);
+
+    setSalvataggioBenessere(false);
+
+    if (!result.success) {
+      setMessaggioBenessere({ tipo: "error", testo: result.message });
+      return;
+    }
+
+    setMessaggioBenessere({ tipo: "success", testo: result.message });
+    router.refresh();
+
+    window.setTimeout(() => {
+      chiudiModalBenessere();
+    }, 800);
+  }
 
 const giocatoriSelezionati = useMemo(() => {
   const ids = new Set(giocatoriSelezionatiIds);
@@ -426,7 +602,7 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
             </p>
           </div>
 
-          {tabPrincipale === "antropometria" && (
+          {tabPrincipale === "antropometria" ? (
             <button
               type="button"
               onClick={() => {
@@ -438,6 +614,20 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
             >
               <Plus className="h-5 w-5" />
               Nuova misurazione
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setMessaggioBenessere(null);
+                resetFormBenessere();
+                setModalBenessereAperta(true);
+              }}
+              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white transition hover:brightness-110 sm:w-auto"
+              style={{ backgroundColor: coloreClub }}
+            >
+              <Plus className="h-5 w-5" />
+              Nuova compilazione
             </button>
           )}
         </div>
@@ -1623,6 +1813,294 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
           </div>
         </div>
       )}
+
+      {modalBenessereAperta && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-sm sm:items-center sm:p-4">
+          <div className="max-h-[94vh] w-full overflow-y-auto rounded-t-3xl border border-zinc-800 bg-zinc-950 sm:max-w-xl sm:rounded-3xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-800 bg-zinc-950/95 p-4 backdrop-blur">
+              <div className="flex items-center gap-2">
+                {stepBenessere !== "tipo" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMessaggioBenessere(null);
+                      setStepBenessere("tipo");
+                    }}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-zinc-400"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                )}
+
+                <div>
+                  <h2 className="text-lg font-bold text-white">
+                    Nuova compilazione
+                  </h2>
+
+                  <p className="text-sm text-zinc-500">
+                    Compila il modulo “Come va” per conto di un atleta.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={chiudiModalBenessere}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-zinc-400"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-6 p-4 sm:p-5">
+              <Field label="Atleta" required>
+                <select
+                  value={giocatoreIdBenessere}
+                  onChange={(event) =>
+                    setGiocatoreIdBenessere(event.target.value)
+                  }
+                  className={inputClass}
+                >
+                  <option value="">Seleziona un atleta</option>
+
+                  {giocatori.map((giocatore) => (
+                    <option key={giocatore.id} value={giocatore.id}>
+                      {giocatore.cognome} {giocatore.nome}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              {stepBenessere === "tipo" && (
+                <>
+                  <p className="text-sm leading-relaxed text-zinc-400">
+                    Scegli cosa sta compilando l&apos;atleta.
+                  </p>
+
+                  <div className="space-y-3">
+                    <TipoCompilazioneButton
+                      icon={<Activity className="h-5 w-5" />}
+                      titolo="Allenamento in campo"
+                      accentColor={coloreClub}
+                      onClick={() => apriStepBenessere("campo")}
+                    />
+
+                    <TipoCompilazioneButton
+                      icon={<Dumbbell className="h-5 w-5" />}
+                      titolo="Allenamento in palestra"
+                      accentColor={coloreClub}
+                      onClick={() => apriStepBenessere("palestra")}
+                    />
+
+                    <TipoCompilazioneButton
+                      icon={<Sunrise className="h-5 w-5" />}
+                      titolo="Questionario del mattino"
+                      accentColor={coloreClub}
+                      onClick={() => apriStepBenessere("mattino")}
+                    />
+                  </div>
+                </>
+              )}
+
+              {(stepBenessere === "campo" || stepBenessere === "palestra") && (
+                <>
+                  <div>
+                    <p className="mb-2 text-sm font-semibold text-white">
+                      Quale seduta
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {(stepBenessere === "palestra"
+                        ? SEDUTE_PALESTRA
+                        : SEDUTE_CAMPO
+                      ).map((opzione) => {
+                        const selezionata = sedutaBenessere === opzione;
+
+                        return (
+                          <button
+                            key={opzione}
+                            type="button"
+                            onClick={() => setSedutaBenessere(opzione)}
+                            className="min-h-11 rounded-xl px-3 text-sm font-semibold transition"
+                            style={
+                              selezionata
+                                ? { backgroundColor: coloreClub, color: "#fff" }
+                                : { backgroundColor: "#18181b", color: "#a1a1aa" }
+                            }
+                          >
+                            {opzione}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <ScalaField
+                    icon={<Gauge className="h-5 w-5" />}
+                    label="Quanto è stata dura questa seduta?"
+                    min={1}
+                    max={10}
+                    leftLabel="1 = molto leggero"
+                    rightLabel="10 = massimo assoluto"
+                    value={rpeBenessere}
+                    onChange={setRpeBenessere}
+                    accentColor={coloreClub}
+                  >
+                    <ul className="mt-2 space-y-0.5 text-[11px] text-zinc-500">
+                      {(stepBenessere === "palestra"
+                        ? ANCORAGGI_RPE_PALESTRA
+                        : ANCORAGGI_RPE_CAMPO
+                      ).map((ancora) => (
+                        <li key={ancora.valore}>
+                          <span className="font-semibold text-zinc-400">
+                            {ancora.valore} =
+                          </span>{" "}
+                          {ancora.testo}
+                        </li>
+                      ))}
+                    </ul>
+                  </ScalaField>
+
+                  <div>
+                    <p className="mb-2 text-sm font-semibold text-white">
+                      Ha qualche fastidio o dolore?
+                    </p>
+
+                    <div className="space-y-2">
+                      {FASTIDIO_OPZIONI.map((opzione) => {
+                        const selezionata = fastidioBenessere === opzione.value;
+
+                        return (
+                          <button
+                            key={opzione.value}
+                            type="button"
+                            onClick={() => setFastidioBenessere(opzione.value)}
+                            className="min-h-11 w-full rounded-xl px-4 text-left text-sm font-semibold transition"
+                            style={
+                              selezionata
+                                ? { backgroundColor: coloreClub, color: "#fff" }
+                                : { backgroundColor: "#18181b", color: "#a1a1aa" }
+                            }
+                          >
+                            {opzione.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {fastidioBenessere && fastidioBenessere !== "no" && (
+                    <input
+                      value={fastidioDettaglioBenessere}
+                      onChange={(event) =>
+                        setFastidioDettaglioBenessere(event.target.value)
+                      }
+                      placeholder="Dove e cosa? (facoltativo)"
+                      className={inputClass}
+                    />
+                  )}
+
+                  {messaggioBenessere && (
+                    <div
+                      className={`rounded-xl border p-3 text-sm ${
+                        messaggioBenessere.tipo === "success"
+                          ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                          : "border-red-500/20 bg-red-500/10 text-red-300"
+                      }`}
+                    >
+                      {messaggioBenessere.testo}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => void handleSubmitBenessere()}
+                    disabled={salvataggioBenessere}
+                    className="min-h-12 w-full rounded-2xl px-5 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-60"
+                    style={{ backgroundColor: coloreClub }}
+                  >
+                    {salvataggioBenessere ? "Invio in corso..." : "Invia il modulo"}
+                  </button>
+                </>
+              )}
+
+              {stepBenessere === "mattino" && (
+                <>
+                  <ScalaField
+                    icon={<Sunrise className="h-5 w-5" />}
+                    label="Come ha dormito?"
+                    min={1}
+                    max={7}
+                    leftLabel="1 = benissimo"
+                    rightLabel="7 = malissimo"
+                    value={sonnoBenessere}
+                    onChange={setSonnoBenessere}
+                    accentColor={coloreClub}
+                  />
+
+                  <ScalaField
+                    icon={<Gauge className="h-5 w-5" />}
+                    label="Quanto è stanco?"
+                    min={1}
+                    max={7}
+                    leftLabel="1 = pieno di energia"
+                    rightLabel="7 = distrutto"
+                    value={stanchezzaBenessere}
+                    onChange={setStanchezzaBenessere}
+                    accentColor={coloreClub}
+                  />
+
+                  <ScalaField
+                    icon={<HeartPulse className="h-5 w-5" />}
+                    label="Quanto ha i muscoli indolenziti?"
+                    min={1}
+                    max={7}
+                    leftLabel="1 = per niente"
+                    rightLabel="7 = molto dolenti"
+                    value={indolenzimentoBenessere}
+                    onChange={setIndolenzimentoBenessere}
+                    accentColor={coloreClub}
+                  />
+
+                  <ScalaField
+                    icon={<Activity className="h-5 w-5" />}
+                    label="Quanto è stressato o nervoso?"
+                    min={1}
+                    max={7}
+                    leftLabel="1 = tranquillo"
+                    rightLabel="7 = molto teso"
+                    value={stressBenessere}
+                    onChange={setStressBenessere}
+                    accentColor={coloreClub}
+                  />
+
+                  {messaggioBenessere && (
+                    <div
+                      className={`rounded-xl border p-3 text-sm ${
+                        messaggioBenessere.tipo === "success"
+                          ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                          : "border-red-500/20 bg-red-500/10 text-red-300"
+                      }`}
+                    >
+                      {messaggioBenessere.testo}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => void handleSubmitBenessere()}
+                    disabled={salvataggioBenessere}
+                    className="min-h-12 w-full rounded-2xl px-5 text-sm font-semibold text-white transition hover:brightness-110 disabled:opacity-60"
+                    style={{ backgroundColor: coloreClub }}
+                  >
+                    {salvataggioBenessere ? "Invio in corso..." : "Invia il modulo"}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1721,6 +2199,111 @@ function MobileValueColorata({
       >
         {value}
       </p>
+    </div>
+  );
+}
+
+function TipoCompilazioneButton({
+  icon,
+  titolo,
+  accentColor,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  titolo: string;
+  accentColor: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-h-14 w-full items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/40 px-4 text-left transition hover:border-zinc-600"
+    >
+      <div
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+        style={{ backgroundColor: `${accentColor}20`, color: accentColor }}
+      >
+        {icon}
+      </div>
+
+      <p className="flex-1 text-sm font-bold text-white">{titolo}</p>
+
+      <ChevronRight className="h-5 w-5 shrink-0 text-zinc-600" />
+    </button>
+  );
+}
+
+function ScalaField({
+  icon,
+  label,
+  min,
+  max,
+  leftLabel,
+  rightLabel,
+  value,
+  onChange,
+  accentColor,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  min: number;
+  max: number;
+  leftLabel: string;
+  rightLabel: string;
+  value: number | null;
+  onChange: (value: number) => void;
+  accentColor: string;
+  children?: React.ReactNode;
+}) {
+  const opzioni = Array.from({ length: max - min + 1 }, (_, i) => min + i);
+
+  return (
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-zinc-900 text-zinc-400">
+          {icon}
+        </div>
+
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-white">{label}</p>
+
+          <div
+            className="mt-3 grid gap-1.5 sm:gap-2"
+            style={{
+              gridTemplateColumns: `repeat(${opzioni.length}, minmax(0, 1fr))`,
+            }}
+          >
+            {opzioni.map((valore) => {
+              const selezionato = value === valore;
+
+              return (
+                <button
+                  key={valore}
+                  type="button"
+                  onClick={() => onChange(valore)}
+                  className="flex h-10 items-center justify-center rounded-lg text-xs font-bold transition sm:h-11 sm:text-sm"
+                  style={
+                    selezionato
+                      ? { backgroundColor: accentColor, color: "#fff" }
+                      : { backgroundColor: "#18181b", color: "#a1a1aa" }
+                  }
+                >
+                  {valore}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-1.5 flex justify-between text-[11px] text-zinc-600">
+            <span>{leftLabel}</span>
+            <span>{rightLabel}</span>
+          </div>
+
+          {children}
+        </div>
+      </div>
     </div>
   );
 }

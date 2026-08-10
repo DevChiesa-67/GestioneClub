@@ -254,27 +254,73 @@ export async function creaMisurazioneBenessereAction(
       profilo.tipo_profilo || "",
     ).toLowerCase();
 
-    if (tipoProfilo !== "giocatore") {
+    let giocatore: { id: string; squadra_id: string | null } | null = null;
+
+    if (tipoProfilo === "giocatore") {
+      const { data: giocatoreProprio, error: giocatoreError } =
+        await supabase
+          .from("giocatori")
+          .select("id, squadra_id")
+          .eq("id_atleta", profilo.id)
+          .eq("club_id", profilo.last_club_id)
+          .maybeSingle();
+
+      if (giocatoreError || !giocatoreProprio) {
+        return {
+          success: false,
+          message:
+            "Il tuo profilo non è collegato a un giocatore della squadra attiva.",
+        };
+      }
+
+      giocatore = giocatoreProprio;
+    } else if (tipoProfilo === "admin") {
+      // Lo staff può compilare il modulo per conto di un atleta (es.
+      // seduta in campo, dispositivo condiviso): il giocatore va scelto
+      // esplicitamente e deve appartenere al club/squadra attivi.
+      const giocatoreId = getString(formData.get("giocatore_id"));
+
+      if (!giocatoreId) {
+        return {
+          success: false,
+          message: "Seleziona per quale atleta stai compilando il modulo.",
+        };
+      }
+
+      let giocatoreQuery = supabase
+        .from("giocatori")
+        .select("id, squadra_id")
+        .eq("id", giocatoreId)
+        .eq("club_id", profilo.last_club_id);
+
+      if (profilo.last_squadra_id) {
+        giocatoreQuery = giocatoreQuery.eq(
+          "squadra_id",
+          profilo.last_squadra_id,
+        );
+      }
+
+      const { data: giocatoreScelto, error: giocatoreError } =
+        await giocatoreQuery.maybeSingle();
+
+      if (giocatoreError || !giocatoreScelto) {
+        return {
+          success: false,
+          message: "L'atleta selezionato non è valido.",
+        };
+      }
+
+      giocatore = giocatoreScelto;
+    } else {
       return {
         success: false,
         message:
-          "Solo un giocatore può registrare il proprio stato.",
+          "Non hai i permessi per registrare questo tipo di stato.",
       };
     }
 
-    const { data: giocatore, error: giocatoreError } = await supabase
-      .from("giocatori")
-      .select("id, squadra_id")
-      .eq("id_atleta", profilo.id)
-      .eq("club_id", profilo.last_club_id)
-      .maybeSingle();
-
-    if (giocatoreError || !giocatore) {
-      return {
-        success: false,
-        message:
-          "Il tuo profilo non è collegato a un giocatore della squadra attiva.",
-      };
+    if (!giocatore) {
+      return { success: false, message: "Atleta non valido." };
     }
 
     const dataCompilazione =
