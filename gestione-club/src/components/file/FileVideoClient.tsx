@@ -273,17 +273,13 @@ function SelettoreTipoEvento({
         className="mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-white outline-none focus:border-zinc-600"
       >
         <option value="partita">Partita</option>
-        <option value="__nuovo__">+ Nuova tipologia...</option>
         <option value="allenamento">Allenamento</option>
-        {tipiEventi.length > 0 && (
-          <optgroup label="Eventi">
-            {tipiEventi.map((tipo) => (
-              <option key={tipo.id} value={componiValoreTipo("evento", tipo.id)}>
-                {tipo.nome}
-              </option>
-            ))}
-          </optgroup>
-        )}
+        {tipiEventi.map((tipo) => (
+          <option key={tipo.id} value={componiValoreTipo("evento", tipo.id)}>
+            {tipo.nome}
+          </option>
+        ))}
+        <option value="__nuovo__">+ Nuova tipologia...</option>
       </select>
 
       {mostraForm && (
