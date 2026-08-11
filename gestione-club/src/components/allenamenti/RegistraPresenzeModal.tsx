@@ -205,7 +205,7 @@ export default function RegistraPresenzeModal({
                                 stato.sigla,
                               );
                             }}
-                            className={`group flex h-10 w-full items-center justify-center overflow-hidden rounded-xl border px-2 text-sm font-bold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 sm:w-10 sm:hover:w-48 ${
+                            className={`flex h-10 w-full items-center justify-center rounded-xl border px-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-50 sm:w-10 ${
                               active
                                 ? coloreStato[stato.sigla]
                                 : "border-zinc-700 bg-zinc-950 text-zinc-300 hover:text-white"
@@ -218,9 +218,6 @@ export default function RegistraPresenzeModal({
                             title={stato.label}
                           >
                             <span className="shrink-0">{stato.sigla}</span>
-                            <span className="ml-2 hidden whitespace-nowrap text-xs font-medium sm:group-hover:inline">
-                              {stato.label}
-                            </span>
                           </button>
                         );
                       })}
