@@ -13,6 +13,7 @@ type ClubAttivo = {
 type ProfiloCorrente = {
   last_club_id: string | null;
   last_squadra_id: string | null;
+  tipo_profilo: string | null;
 };
 
 type SquadraPartitaRel = {
@@ -128,7 +129,7 @@ export default async function Page() {
 
   const { data: profilo, error: profiloError } = await supabase
     .from("profili")
-    .select("last_club_id, last_squadra_id")
+    .select("last_club_id, last_squadra_id, tipo_profilo")
     .eq("auth_user_id", user.id)
     .single<ProfiloCorrente>();
 
@@ -142,6 +143,7 @@ export default async function Page() {
 
   const clubId = profilo.last_club_id;
   const squadraId = profilo.last_squadra_id;
+  const isAdmin = String(profilo.tipo_profilo || "").toLowerCase() === "admin";
 
   const { data: clubAttivo } = await supabase
     .from("club")
@@ -364,10 +366,12 @@ export default async function Page() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap justify-end gap-3">
-        <CreaEventoPopup tipiEventi={tipiEventi} coloreClub={coloreClub} />
-        <CreaPartitaPopup squadre={squadrePartite} coloreClub={coloreClub} />
-      </div>
+      {isAdmin && (
+        <div className="flex flex-wrap justify-end gap-3">
+          <CreaEventoPopup tipiEventi={tipiEventi} coloreClub={coloreClub} />
+          <CreaPartitaPopup squadre={squadrePartite} coloreClub={coloreClub} />
+        </div>
+      )}
 
       {partiteError ? (
         <AppCard>
