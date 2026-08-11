@@ -995,6 +995,38 @@ if (settimanaProgrammata?.fase_id) {
         }
 
         allenamentoId = nuovoAllenamento.id;
+
+        // Per una seduta appena creata, ogni giocatore della squadra parte
+        // come "assenza ingiustificata": lo staff corregge poi solo chi ha
+        // effettivamente partecipato, invece di dover segnare da zero tutti
+        // i presenti.
+        const { data: giocatoriSquadra, error: giocatoriError } =
+          await supabase
+            .from("giocatori")
+            .select("id")
+            .eq("club_id", profilo.last_club_id)
+            .eq("squadra_id", profilo.last_squadra_id)
+            .eq("attivo", true);
+
+        if (giocatoriError) throw giocatoriError;
+
+        if (giocatoriSquadra && giocatoriSquadra.length > 0) {
+          const { error: presenzeDefaultError } = await supabase
+            .from("presenze_allenamenti")
+            .upsert(
+              giocatoriSquadra.map((giocatore) => ({
+                allenamento_id: allenamentoId,
+                giocatore_id: giocatore.id,
+                club_id: profilo.last_club_id,
+                squadra_id: profilo.last_squadra_id,
+                stato: "assenza_ingiustificata",
+                registrato_da: user.id,
+              })),
+              { onConflict: "allenamento_id,giocatore_id", ignoreDuplicates: true }
+            );
+
+          if (presenzeDefaultError) throw presenzeDefaultError;
+        }
       } else {
         allenamentoId = allenamentoEsistente.id;
 

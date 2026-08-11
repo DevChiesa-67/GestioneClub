@@ -179,6 +179,18 @@ export default function ImportaAllenamentiModal({
         throw new Error("Nessuna squadra selezionata.");
       }
 
+      // Giocatori della squadra: usati per segnare in automatico "assenza
+      // ingiustificata" su ogni seduta appena creata (non su quelle già
+      // esistenti che vengono solo aggiornate).
+      const { data: giocatoriSquadra, error: giocatoriError } = await supabase
+        .from("giocatori")
+        .select("id")
+        .eq("club_id", profilo.last_club_id)
+        .eq("squadra_id", profilo.last_squadra_id)
+        .eq("attivo", true);
+
+      if (giocatoriError) throw giocatoriError;
+
       let drillBankSalvate = 0;
       let erroreDrillBank: string | null = null;
 
@@ -332,6 +344,27 @@ export default function ImportaAllenamentiModal({
             }
 
             allenamentoId = nuovoAllenamento.id;
+
+            if (giocatoriSquadra && giocatoriSquadra.length > 0) {
+              const { error: presenzeDefaultError } = await supabase
+                .from("presenze_allenamenti")
+                .upsert(
+                  giocatoriSquadra.map((giocatore) => ({
+                    allenamento_id: allenamentoId,
+                    giocatore_id: giocatore.id,
+                    club_id: profilo.last_club_id,
+                    squadra_id: profilo.last_squadra_id,
+                    stato: "assenza_ingiustificata",
+                    registrato_da: user.id,
+                  })),
+                  {
+                    onConflict: "allenamento_id,giocatore_id",
+                    ignoreDuplicates: true,
+                  }
+                );
+
+              if (presenzeDefaultError) throw presenzeDefaultError;
+            }
           } else {
             // Seduta già presente: aggiorniamo i campi con i valori freschi
             // del file (non sommiamo) e sostituiamo per intero i lavori,
