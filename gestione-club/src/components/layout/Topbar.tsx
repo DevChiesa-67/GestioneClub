@@ -5,7 +5,16 @@ import Image from "next/image";
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, ChevronDown, Megaphone, Menu, User, Users, X } from "lucide-react";
+import {
+  Bell,
+  ChevronDown,
+  Download,
+  Megaphone,
+  Menu,
+  User,
+  Users,
+  X,
+} from "lucide-react";
 
 import { supabase } from "@/lib/supabase-client";
 import { usePagePermissions } from "@/hooks/use-page-permissions";
@@ -52,6 +61,29 @@ const SCOPE_COLOR: Record<Exclude<ComunicazioneScope, "tutti">, string> = {
   gruppo: "#f59e0b",
   personale: "#a855f7",
 };
+
+/*
+ * L'evento "beforeinstallprompt" non fa parte del DOM standard di
+ * TypeScript: viene tipizzato manualmente con la sola forma che serve
+ * qui (mostrare il prompt nativo del browser e leggerne l'esito).
+ */
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+};
+
+function isAppGiaInstallata() {
+  if (typeof window === "undefined") return false;
+
+  const standalone =
+    window.matchMedia?.("(display-mode: standalone)").matches ?? false;
+
+  const iosStandalone =
+    (window.navigator as Navigator & { standalone?: boolean }).standalone ===
+    true;
+
+  return standalone || iosStandalone;
+}
 
 const PAGE_INFO: Record<
   string,
@@ -334,6 +366,68 @@ export function Topbar() {
   const [openMobileMenu, setOpenMobileMenu] = usePathBoundBoolean(pathname);
 
   const initials = getInitials(profilo?.nome, profilo?.cognome, profilo?.email);
+
+  /*
+   * Installazione PWA: Chrome/Edge/Android intercettano l'evento
+   * "beforeinstallprompt" e permettono di mostrarlo a comando (voce di
+   * menu "Scarica app"); Safari/iOS non lo emette mai, quindi in quel
+   * caso mostriamo delle istruzioni manuali invece del prompt nativo.
+   * Se l'app è già installata (avviata in standalone) la voce si nasconde.
+   */
+  const [installPrompt, setInstallPrompt] =
+    useState<BeforeInstallPromptEvent | null>(null);
+
+  const [appGiaInstallata, setAppGiaInstallata] = useState(false);
+
+  useEffect(() => {
+    setAppGiaInstallata(isAppGiaInstallata());
+
+    function handleBeforeInstallPrompt(event: Event) {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    }
+
+    function handleAppInstalled() {
+      setInstallPrompt(null);
+      setAppGiaInstallata(true);
+    }
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    return () => {
+      window.removeEventListener(
+        "beforeinstallprompt",
+        handleBeforeInstallPrompt,
+      );
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, []);
+
+  async function handleScaricaApp() {
+    if (!installPrompt) {
+      const isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+
+      showToast({
+        type: "info",
+        title: "Installa l'app",
+        message: isIos
+          ? 'Da Safari tocca l\'icona "Condividi" e scegli "Aggiungi a Home".'
+          : 'Apri il menu del browser (⋮) e scegli "Installa app" o "Aggiungi a schermata Home".',
+        durationMs: 8000,
+      });
+
+      return;
+    }
+
+    setOpenUserMenu(false);
+    setOpenMobileMenu(false);
+
+    await installPrompt.prompt();
+    await installPrompt.userChoice;
+
+    setInstallPrompt(null);
+  }
 
   /*
    * Blocca lo scroll della pagina quando
@@ -757,6 +851,17 @@ export function Topbar() {
                       );
                     })
                   )}
+
+                  {!appGiaInstallata && (
+                    <button
+                      type="button"
+                      onClick={() => void handleScaricaApp()}
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-zinc-300 transition hover:bg-white/5 hover:text-white"
+                    >
+                      <Download size={19} className="shrink-0" />
+                      <span className="truncate">Scarica app</span>
+                    </button>
+                  )}
                 </nav>
               </div>
             </aside>
@@ -1108,6 +1213,17 @@ export function Topbar() {
                           </Link>
                         );
                       })
+                    )}
+
+                    {!appGiaInstallata && (
+                      <button
+                        type="button"
+                        onClick={() => void handleScaricaApp()}
+                        className="flex w-full items-center gap-3 rounded-xl border-t border-white/10 px-3 py-3 text-left text-sm text-zinc-300 transition hover:bg-white/5 hover:text-white"
+                      >
+                        <Download size={18} className="shrink-0" />
+                        <span className="truncate">Scarica app</span>
+                      </button>
                     )}
                   </div>
                 </div>
