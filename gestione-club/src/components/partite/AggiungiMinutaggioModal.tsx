@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { useToast } from "@/components/ui/Toast";
+import { supabase } from "@/lib/supabase-client";
 import {
   parseMinutaggioDaExcel,
   type CambioRilevato,
@@ -154,13 +155,20 @@ export default function AggiungiMinutaggioModal({
 
   const [modalita, setModalita] = useState<"manuale" | "file">("manuale");
 
-  // --- Inserimento manuale (formazione + cambi) -------------------------
+  // --- Inserimento manuale (formazione ereditata + cambi) ----------------
   const [partitaManuale, setPartitaManuale] = useState<Partita | null>(null);
   const [durataManuale, setDurataManuale] = useState(80);
+
+  // Formazione (titolari 1-15 + panchina): NON modificabile da questo
+  // popup, viene sempre ereditata da partite_convocazioni (stessa tabella
+  // del tab "Convocazioni" della partita) quando si seleziona la partita.
   const [titolariManuali, setTitolariManuali] = useState<string[]>(
     () => Array(15).fill(""),
   );
   const [panchinaManuale, setPanchinaManuale] = useState<RigaPanchina[]>([]);
+  const [caricandoFormazione, setCaricandoFormazione] = useState(false);
+  const [formazioneTrovata, setFormazioneTrovata] = useState(false);
+
   const [cambiManuali, setCambiManuali] = useState<RigaCambioManuale[]>([]);
   const [salvandoManuale, setSalvandoManuale] = useState(false);
 
@@ -174,30 +182,66 @@ export default function AggiungiMinutaggioModal({
     return g ? `${g.cognome} ${g.nome}` : "";
   }
 
-  function aggiornaTitolare(indice: number, giocatoreId: string) {
-    setTitolariManuali((prev) => {
-      const nuovo = [...prev];
-      nuovo[indice] = giocatoreId;
-      return nuovo;
-    });
-  }
+  // Al cambio di partita, eredita la formazione già salvata nel tab
+  // "Convocazioni" di quella partita (titolare + numero_maglia -> slot
+  // 1-15, gli altri convocati -> panchina). Se non esiste ancora nessuna
+  // convocazione, la formazione resta vuota: va impostata prima nel tab
+  // Convocazioni della partita, non è modificabile da qui.
+  useEffect(() => {
+    if (!partitaManuale) {
+      setTitolariManuali(Array(15).fill(""));
+      setPanchinaManuale([]);
+      setFormazioneTrovata(false);
+      return;
+    }
 
-  function aggiungiRigaPanchina() {
-    setPanchinaManuale((prev) => [
-      ...prev,
-      { id: generaId(), giocatoreId: "" },
-    ]);
-  }
+    let annullato = false;
 
-  function aggiornaRigaPanchina(id: string, giocatoreId: string) {
-    setPanchinaManuale((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, giocatoreId } : r)),
-    );
-  }
+    async function caricaFormazione() {
+      setCaricandoFormazione(true);
 
-  function rimuoviRigaPanchina(id: string) {
-    setPanchinaManuale((prev) => prev.filter((r) => r.id !== id));
-  }
+      try {
+        const { data, error } = await supabase
+          .from("partite_convocazioni")
+          .select("giocatore_id, titolare, numero_maglia")
+          .eq("partita_id", partitaManuale!.id)
+          .eq("convocato", true);
+
+        if (annullato) return;
+
+        if (error || !data || data.length === 0) {
+          setTitolariManuali(Array(15).fill(""));
+          setPanchinaManuale([]);
+          setFormazioneTrovata(false);
+          return;
+        }
+
+        const nuoviTitolari = Array(15).fill("");
+        for (const riga of data) {
+          const numero = riga.numero_maglia;
+          if (riga.titolare && numero && numero >= 1 && numero <= 15) {
+            nuoviTitolari[numero - 1] = riga.giocatore_id;
+          }
+        }
+
+        const nuovaPanchina: RigaPanchina[] = data
+          .filter((riga) => !riga.titolare)
+          .map((riga) => ({ id: generaId(), giocatoreId: riga.giocatore_id }));
+
+        setTitolariManuali(nuoviTitolari);
+        setPanchinaManuale(nuovaPanchina);
+        setFormazioneTrovata(nuoviTitolari.some(Boolean));
+      } finally {
+        if (!annullato) setCaricandoFormazione(false);
+      }
+    }
+
+    void caricaFormazione();
+
+    return () => {
+      annullato = true;
+    };
+  }, [partitaManuale]);
 
   function aggiungiRigaCambio() {
     setCambiManuali((prev) => [
@@ -229,21 +273,6 @@ export default function AggiungiMinutaggioModal({
     [panchinaManuale],
   );
 
-  const idGiaUsatiManuale = useMemo(
-    () => new Set([...idTitolariManuali, ...idPanchinaManuale]),
-    [idTitolariManuali, idPanchinaManuale],
-  );
-
-  // Pool di scelta per ogni <select> di formazione: il roster del club,
-  // esclusi i giocatori già assegnati altrove (tranne, per lo slot
-  // corrente, il giocatore già selezionato lì, altrimenti sparirebbe
-  // dalla propria stessa tendina).
-  function opzioniPer(giocatoreCorrenteId: string) {
-    return giocatori.filter(
-      (g) => g.id === giocatoreCorrenteId || !idGiaUsatiManuale.has(g.id),
-    );
-  }
-
   // Chi è "entrato" (comparso come entra in un cambio) al minuto più
   // basso registrato: usato solo per il badge di stato nella panchina.
   const primoIngressoPerGiocatore = useMemo(() => {
@@ -261,8 +290,9 @@ export default function AggiungiMinutaggioModal({
 
   const erroreManuale = useMemo(() => {
     if (!partitaManuale) return "Seleziona la partita.";
-    if (idTitolariManuali.length === 0) {
-      return "Seleziona almeno un giocatore titolare.";
+    if (caricandoFormazione) return "Caricamento formazione in corso...";
+    if (!formazioneTrovata) {
+      return "Questa partita non ha ancora una formazione salvata: impostala prima nel tab Convocazioni della partita.";
     }
     for (const riga of cambiManuali) {
       if (!riga.minuto || !riga.entraId || !riga.esceId) {
@@ -276,7 +306,7 @@ export default function AggiungiMinutaggioModal({
       }
     }
     return null;
-  }, [partitaManuale, idTitolariManuali, cambiManuali]);
+  }, [partitaManuale, caricandoFormazione, formazioneTrovata, cambiManuali]);
 
   async function handleConfermaManuale() {
     if (erroreManuale || !partitaManuale) return;
@@ -287,13 +317,6 @@ export default function AggiungiMinutaggioModal({
       const result = await salvaMinutaggioManuale({
         partitaId: partitaManuale.id,
         durataMinuti: durataManuale,
-        titolari: titolariManuali
-          .map((giocatoreId, indice) => ({
-            giocatoreId,
-            numeroMaglia: indice + 1,
-          }))
-          .filter((t) => t.giocatoreId),
-        panchina: idPanchinaManuale,
         cambi: cambiManuali.map((r) => ({
           minuto: Number(r.minuto),
           giocatoreEntraId: r.entraId,
@@ -569,18 +592,44 @@ export default function AggiungiMinutaggioModal({
                 </div>
               </div>
 
-              {partitaManuale && (
+              {partitaManuale && caricandoFormazione && (
+                <div className="flex items-center justify-center gap-2 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-6 text-sm text-zinc-400">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Caricamento formazione...
+                </div>
+              )}
+
+              {partitaManuale && !caricandoFormazione && !formazioneTrovata && (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-300">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>
+                    Questa partita non ha ancora una formazione salvata. Vai
+                    al tab &quot;Convocazioni&quot; della partita per
+                    impostare titolari e panchina, poi torna qui per
+                    registrare le sostituzioni.
+                  </span>
+                </div>
+              )}
+
+              {partitaManuale && !caricandoFormazione && formazioneTrovata && (
                 <>
-                  {/* FORMAZIONE TITOLARE 1-15 */}
+                  {/* FORMAZIONE TITOLARE 1-15 (ereditata, sola lettura) */}
                   <div>
-                    <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-zinc-400">
+                    <h3 className="mb-1 text-sm font-bold uppercase tracking-wide text-zinc-400">
                       Formazione titolare (in campo dal minuto 0)
                     </h3>
 
+                    <p className="mb-3 text-xs text-zinc-500">
+                      Ereditata dal tab Convocazioni della partita: non
+                      modificabile da qui.
+                    </p>
+
                     <div className="grid gap-2 sm:grid-cols-2">
-                      {NUMERI_TITOLARI.map((numero) => {
-                        const indice = numero - 1;
-                        const giocatoreId = titolariManuali[indice];
+                      {NUMERI_TITOLARI.filter(
+                        (numero) => titolariManuali[numero - 1],
+                      ).map((numero) => {
+                        const giocatoreId = titolariManuali[numero - 1];
+                        const giocatore = giocatoriMap.get(giocatoreId);
 
                         return (
                           <div
@@ -594,50 +643,28 @@ export default function AggiungiMinutaggioModal({
                               {numero}
                             </span>
 
-                            <GiocatoreAvatarMini
-                              giocatore={giocatoriMap.get(giocatoreId) || null}
-                            />
+                            <GiocatoreAvatarMini giocatore={giocatore || null} />
 
-                            <select
-                              value={giocatoreId}
-                              onChange={(e) =>
-                                aggiornaTitolare(indice, e.target.value)
-                              }
-                              className="min-w-0 flex-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-sm text-white outline-none focus:border-zinc-600"
-                            >
-                              <option value="">Non assegnato</option>
-                              {opzioniPer(giocatoreId).map((g) => (
-                                <option key={g.id} value={g.id}>
-                                  {g.cognome} {g.nome}
-                                </option>
-                              ))}
-                            </select>
+                            <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">
+                              {giocatore
+                                ? `${giocatore.cognome} ${giocatore.nome}`
+                                : "—"}
+                            </span>
                           </div>
                         );
                       })}
                     </div>
                   </div>
 
-                  {/* PANCHINA */}
+                  {/* PANCHINA (ereditata, sola lettura) */}
                   <div>
-                    <div className="mb-3 flex items-center justify-between">
-                      <h3 className="text-sm font-bold uppercase tracking-wide text-zinc-400">
-                        Panchina (0&apos; finché non entrano)
-                      </h3>
-
-                      <button
-                        type="button"
-                        onClick={aggiungiRigaPanchina}
-                        className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1.5 text-xs font-bold text-zinc-300 transition hover:border-zinc-600 hover:text-white"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        Aggiungi riserva
-                      </button>
-                    </div>
+                    <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-zinc-400">
+                      Panchina (0&apos; finché non entrano)
+                    </h3>
 
                     {panchinaManuale.length === 0 ? (
                       <p className="text-sm text-zinc-500">
-                        Nessuna riserva aggiunta.
+                        Nessuna riserva convocata per questa partita.
                       </p>
                     ) : (
                       <div className="space-y-2">
@@ -645,6 +672,7 @@ export default function AggiungiMinutaggioModal({
                           const minutoIngresso = primoIngressoPerGiocatore.get(
                             riga.giocatoreId,
                           );
+                          const giocatore = giocatoriMap.get(riga.giocatoreId);
 
                           return (
                             <div
@@ -652,25 +680,14 @@ export default function AggiungiMinutaggioModal({
                               className="flex items-center gap-2.5 rounded-xl border border-zinc-800 bg-zinc-900/40 p-2"
                             >
                               <GiocatoreAvatarMini
-                                giocatore={
-                                  giocatoriMap.get(riga.giocatoreId) || null
-                                }
+                                giocatore={giocatore || null}
                               />
 
-                              <select
-                                value={riga.giocatoreId}
-                                onChange={(e) =>
-                                  aggiornaRigaPanchina(riga.id, e.target.value)
-                                }
-                                className="min-w-0 flex-1 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-sm text-white outline-none focus:border-zinc-600"
-                              >
-                                <option value="">Seleziona giocatore</option>
-                                {opzioniPer(riga.giocatoreId).map((g) => (
-                                  <option key={g.id} value={g.id}>
-                                    {g.cognome} {g.nome}
-                                  </option>
-                                ))}
-                              </select>
+                              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">
+                                {giocatore
+                                  ? `${giocatore.cognome} ${giocatore.nome}`
+                                  : "—"}
+                              </span>
 
                               <span
                                 className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-bold ${
@@ -683,15 +700,6 @@ export default function AggiungiMinutaggioModal({
                                   ? `Entra al ${minutoIngresso}'`
                                   : "0'"}
                               </span>
-
-                              <button
-                                type="button"
-                                onClick={() => rimuoviRigaPanchina(riga.id)}
-                                className="shrink-0 rounded-lg p-1.5 text-zinc-500 transition hover:text-red-400"
-                                aria-label="Rimuovi riserva"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
                             </div>
                           );
                         })}

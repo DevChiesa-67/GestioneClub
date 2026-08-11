@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, Search } from "lucide-react";
 
 import type { Partita } from "@/app/(dashboard)/partite/page";
@@ -37,20 +38,66 @@ export default function SelettorePartita({
   const [aperto, setAperto] = useState(false);
   const [ricerca, setRicerca] = useState("");
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const bottoneRef = useRef<HTMLButtonElement | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+
+  // Posizione del dropdown calcolata dal bottone e usata con
+  // position:fixed su un elemento portato in document.body: il popup
+  // vive spesso dentro contenitori con overflow-y-auto (es. le modali),
+  // che altrimenti taglierebbero il dropdown se questo venisse
+  // posizionato "absolute" dentro al proprio contenitore normale.
+  const [posizione, setPosizione] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
+
+  function aggiornaPosizione() {
+    const rect = bottoneRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    setPosizione({
+      top: rect.bottom + 8,
+      left: rect.left,
+      width: rect.width,
+    });
+  }
+
+  useLayoutEffect(() => {
+    if (!aperto) return;
+    aggiornaPosizione();
+  }, [aperto]);
 
   useEffect(() => {
+    if (!aperto) return;
+
     function chiudiSeFuori(event: MouseEvent) {
+      const target = event.target as Node;
+
       if (
         containerRef.current &&
-        !containerRef.current.contains(event.target as Node)
+        !containerRef.current.contains(target) &&
+        dropdownRef.current &&
+        !dropdownRef.current.contains(target)
       ) {
         setAperto(false);
       }
     }
 
+    function riposiziona() {
+      aggiornaPosizione();
+    }
+
     document.addEventListener("mousedown", chiudiSeFuori);
-    return () => document.removeEventListener("mousedown", chiudiSeFuori);
-  }, []);
+    window.addEventListener("resize", riposiziona);
+    window.addEventListener("scroll", riposiziona, true);
+
+    return () => {
+      document.removeEventListener("mousedown", chiudiSeFuori);
+      window.removeEventListener("resize", riposiziona);
+      window.removeEventListener("scroll", riposiziona, true);
+    };
+  }, [aperto]);
 
   const partiteFiltrate = useMemo(() => {
     const termine = normalizzaTesto(ricerca);
@@ -74,6 +121,7 @@ export default function SelettorePartita({
   return (
     <div ref={containerRef} className="relative">
       <button
+        ref={bottoneRef}
         type="button"
         onClick={() => setAperto((p) => !p)}
         className={`flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border px-3 text-left text-sm outline-none transition ${
@@ -97,51 +145,63 @@ export default function SelettorePartita({
         <ChevronDown className="h-4 w-4 shrink-0 text-zinc-500" />
       </button>
 
-      {aperto && (
-        <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-40 overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-2xl shadow-black/50">
-          <div className="border-b border-zinc-800 p-2.5">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-              <input
-                type="text"
-                value={ricerca}
-                onChange={(e) => setRicerca(e.target.value)}
-                placeholder="Cerca squadra o data..."
-                className="min-h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 pl-9 pr-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-zinc-600"
-                autoFocus
-              />
+      {aperto &&
+        posizione &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            className="fixed z-[9999] overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-2xl shadow-black/50"
+            style={{
+              top: posizione.top,
+              left: posizione.left,
+              width: posizione.width,
+            }}
+          >
+            <div className="border-b border-zinc-800 p-2.5">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                <input
+                  type="text"
+                  value={ricerca}
+                  onChange={(e) => setRicerca(e.target.value)}
+                  placeholder="Cerca squadra o data..."
+                  className="min-h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 pl-9 pr-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                  autoFocus
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="max-h-64 overflow-y-auto p-2">
-            {partiteFiltrate.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => {
-                  onChange(p);
-                  setAperto(false);
-                }}
-                className="flex w-full items-center justify-between gap-2 rounded-xl p-2.5 text-left text-sm text-zinc-200 transition hover:bg-zinc-900"
-              >
-                <span className="truncate">
-                  {p.squadra_casa?.nome || "Casa"} vs{" "}
-                  {p.squadra_fuori?.nome || "Trasferta"}
-                </span>
-                <span className="shrink-0 text-xs text-zinc-500">
-                  {formatDataPartita(p.data_partita)}
-                </span>
-              </button>
-            ))}
+            <div className="max-h-64 overflow-y-auto p-2">
+              {partiteFiltrate.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    onChange(p);
+                    setAperto(false);
+                  }}
+                  className="flex w-full items-center justify-between gap-2 rounded-xl p-2.5 text-left text-sm text-zinc-200 transition hover:bg-zinc-900"
+                >
+                  <span className="truncate">
+                    {p.squadra_casa?.nome || "Casa"} vs{" "}
+                    {p.squadra_fuori?.nome || "Trasferta"}
+                  </span>
+                  <span className="shrink-0 text-xs text-zinc-500">
+                    {formatDataPartita(p.data_partita)}
+                  </span>
+                </button>
+              ))}
 
-            {partiteFiltrate.length === 0 && (
-              <p className="px-3 py-6 text-center text-sm text-zinc-500">
-                Nessuna partita trovata.
-              </p>
-            )}
-          </div>
-        </div>
-      )}
+              {partiteFiltrate.length === 0 && (
+                <p className="px-3 py-6 text-center text-sm text-zinc-500">
+                  Nessuna partita trovata.
+                </p>
+              )}
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

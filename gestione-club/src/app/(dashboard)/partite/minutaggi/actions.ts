@@ -225,11 +225,6 @@ export async function salvaMinutaggioImport(
   }
 }
 
-type TitolareManuale = {
-  numeroMaglia: number;
-  giocatoreId: string;
-};
-
 type CambioManuale = {
   minuto: number;
   giocatoreEntraId: string;
@@ -238,19 +233,18 @@ type CambioManuale = {
 
 /*
  * Salva un minutaggio inserito manualmente dal popup "Aggiungi
- * Minutaggio" (senza file Excel): formazione titolare (1-15) + panchina
- * + eventuali sostituzioni. A differenza dell'import da file:
- *  - la partita è obbligatoria (non esiste uno stato "da associare");
- *  - la formazione inserita aggiorna anche partite_convocazioni (stessa
- *    tabella usata dal tab "Convocazioni" della partita), così titolari
- *    e panchina restano coerenti con quel tab e con il calcolo minutaggio
- *    (che legge i titolari da lì, vedi calcola-minutaggio.ts).
+ * Minutaggio" (senza file Excel): solo le sostituzioni, perché la
+ * formazione (titolari 1-15 + panchina) viene ereditata da
+ * partite_convocazioni — stessa tabella già gestita dal tab
+ * "Convocazioni" della partita e già letta da calcolaMinutaggioPartita
+ * (vedi calcola-minutaggio.ts) — e non è modificabile da qui: va
+ * impostata prima nel tab Convocazioni della partita.
+ * A differenza dell'import da file, qui la partita è sempre obbligatoria
+ * (non esiste uno stato "da associare").
  */
 export async function salvaMinutaggioManuale(input: {
   partitaId: string;
   durataMinuti: number;
-  titolari: TitolareManuale[];
-  panchina: string[];
   cambi: CambioManuale[];
 }): Promise<MinutaggioActionResult> {
   try {
@@ -266,29 +260,6 @@ export async function salvaMinutaggioManuale(input: {
       Number.isFinite(input.durataMinuti) && input.durataMinuti > 0
         ? input.durataMinuti
         : 80;
-
-    const titolari = (input.titolari ?? []).filter(
-      (t) => t.giocatoreId && Number.isFinite(t.numeroMaglia)
-    );
-
-    const panchina = Array.from(
-      new Set((input.panchina ?? []).filter((id) => id))
-    );
-
-    if (titolari.length === 0) {
-      return {
-        success: false,
-        message: "Seleziona almeno un giocatore titolare.",
-      };
-    }
-
-    const idTitolari = new Set(titolari.map((t) => t.giocatoreId));
-    if (idTitolari.size !== titolari.length) {
-      return {
-        success: false,
-        message: "Uno stesso giocatore è stato assegnato a più maglie.",
-      };
-    }
 
     const cambi = (input.cambi ?? []).filter(
       (c) =>
@@ -310,58 +281,28 @@ export async function salvaMinutaggioManuale(input: {
       return { success: false, message: "La partita selezionata non è valida." };
     }
 
-    // Aggiorna partite_convocazioni: titolari (con numero maglia) e
-    // panchina (convocati, non titolari). La posizione in campo non è
-    // gestita da questo popup (si può rifinire dal tab "Convocazioni"
-    // della partita): tutti vengono salvati come "panchina", il flag
-    // titolare/numero_maglia basta al calcolo del minutaggio.
-    const righeConvocazioni = [
-      ...titolari.map((t) => ({
-        club_id: clubId,
-        squadra_id: partita.squadra_id,
-        partita_id: partita.id,
-        giocatore_id: t.giocatoreId,
-        convocato: true,
-        titolare: true,
-        capitano: false,
-        vicecapitano: false,
-        posizione: "panchina" as const,
-        numero_maglia: t.numeroMaglia,
-        ordine: null,
-        ruolo_panchina: null,
-        created_by: user.id,
-        updated_at: new Date().toISOString(),
-      })),
-      ...panchina
-        .filter((id) => !idTitolari.has(id))
-        .map((giocatoreId) => ({
-          club_id: clubId,
-          squadra_id: partita.squadra_id,
-          partita_id: partita.id,
-          giocatore_id: giocatoreId,
-          convocato: true,
-          titolare: false,
-          capitano: false,
-          vicecapitano: false,
-          posizione: "panchina" as const,
-          numero_maglia: null,
-          ordine: null,
-          ruolo_panchina: null,
-          created_by: user.id,
-          updated_at: new Date().toISOString(),
-        })),
-    ];
-
-    const { error: convocazioniError } = await supabase
+    // La formazione è ereditata da partite_convocazioni e non si
+    // modifica da questo popup: verifichiamo comunque lato server che
+    // esista almeno un titolare, altrimenti il calcolo minutaggio non
+    // avrebbe nessuna base da cui partire (difesa in profondità, oltre
+    // al blocco già presente lato client).
+    const { count: numeroTitolari, error: titolariError } = await supabase
       .from("partite_convocazioni")
-      .upsert(righeConvocazioni, { onConflict: "partita_id,giocatore_id" });
+      .select("id", { count: "exact", head: true })
+      .eq("partita_id", partitaId)
+      .eq("club_id", clubId)
+      .eq("titolare", true);
 
-    if (convocazioniError) {
-      console.error(
-        "Errore salvataggio convocazioni da minutaggio manuale:",
-        convocazioniError
-      );
-      return { success: false, message: convocazioniError.message };
+    if (titolariError) {
+      return { success: false, message: titolariError.message };
+    }
+
+    if (!numeroTitolari || numeroTitolari === 0) {
+      return {
+        success: false,
+        message:
+          "Questa partita non ha ancora una formazione salvata: impostala prima nel tab Convocazioni della partita.",
+      };
     }
 
     // Nomi (cognome) dei giocatori coinvolti nei cambi, solo per
