@@ -1,8 +1,15 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { EyeOff, Loader2, Plus, Trash2 } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { EyeOff, GripVertical, Loader2, Pin, Plus, Trash2 } from "lucide-react";
 
 import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
@@ -909,6 +916,19 @@ function PerformanceTable({
   const [newFormula, setNewFormula] = useState("");
   const [newDecimals, setNewDecimals] = useState(2);
 
+  // Ordine delle colonne base (trascinabile dall'utente) e colonne
+  // "pinnate" (restano ferme durante lo scroll orizzontale della tabella,
+  // sempre nella posizione più a sinistra, nell'ordine in cui sono state
+  // pinnate).
+  const chiaviBaseDefault = useMemo(
+    () => BASE_COLUMNS.map((column) => String(column.key)),
+    []
+  );
+
+  const [ordineColonne, setOrdineColonne] = useState<string[]>(chiaviBaseDefault);
+  const [colonnePinnate, setColonnePinnate] = useState<string[]>([]);
+  const [colonnaTrascinata, setColonnaTrascinata] = useState<string | null>(null);
+
   // Carica le preferenze salvate per questo club (se presenti) al primo
   // render e ogni volta che cambia club. Il flag "pronto" evita che
   // l'effetto di salvataggio sotto sovrascriva subito i dati appena
@@ -932,6 +952,8 @@ function PerformanceTable({
         const salvate = JSON.parse(raw) as {
           visibleColumns?: Record<string, boolean>;
           customColumns?: CustomColumn[];
+          ordineColonne?: string[];
+          colonnePinnate?: string[];
         };
 
         if (salvate.visibleColumns) {
@@ -941,13 +963,40 @@ function PerformanceTable({
         if (Array.isArray(salvate.customColumns)) {
           setCustomColumns(salvate.customColumns);
         }
+
+        // Filtra su chiaviBaseDefault e aggiunge in coda le colonne non
+        // ancora presenti nell'ordine salvato (es. nuovi parametri
+        // Catapult aggiunti dopo il salvataggio): l'ordine resta sempre
+        // completo, così il drag&drop e il pin funzionano su tutte le
+        // colonne disponibili.
+        const chiaviSalvate = Array.isArray(salvate.ordineColonne)
+          ? salvate.ordineColonne.filter((chiave) =>
+              chiaviBaseDefault.includes(chiave)
+            )
+          : [];
+
+        const chiaviMancanti = chiaviBaseDefault.filter(
+          (chiave) => !chiaviSalvate.includes(chiave)
+        );
+
+        setOrdineColonne([...chiaviSalvate, ...chiaviMancanti]);
+
+        setColonnePinnate(
+          Array.isArray(salvate.colonnePinnate)
+            ? salvate.colonnePinnate.filter((chiave) =>
+                chiaviBaseDefault.includes(chiave)
+              )
+            : []
+        );
+      } else {
+        setOrdineColonne(chiaviBaseDefault);
       }
     } catch (error) {
       console.error("Errore caricamento preferenze colonne Performance:", error);
     } finally {
       setPreferenzeCaricate(true);
     }
-  }, [clubId]);
+  }, [clubId, chiaviBaseDefault]);
 
   useEffect(() => {
     if (!preferenzeCaricate || !clubId || typeof window === "undefined") return;
@@ -955,16 +1004,128 @@ function PerformanceTable({
     try {
       window.localStorage.setItem(
         chiavePreferenzeColonne(clubId),
-        JSON.stringify({ visibleColumns, customColumns })
+        JSON.stringify({
+          visibleColumns,
+          customColumns,
+          ordineColonne,
+          colonnePinnate,
+        })
       );
     } catch (error) {
       console.error("Errore salvataggio preferenze colonne Performance:", error);
     }
-  }, [preferenzeCaricate, clubId, visibleColumns, customColumns]);
+  }, [
+    preferenzeCaricate,
+    clubId,
+    visibleColumns,
+    customColumns,
+    ordineColonne,
+    colonnePinnate,
+  ]);
 
-  const activeBaseColumns = BASE_COLUMNS.filter(
-    (column) => visibleColumns[String(column.key)]
+  const mappaColonne = useMemo(
+    () => new Map(BASE_COLUMNS.map((column) => [String(column.key), column])),
+    []
   );
+
+  // Colonne base visibili, ordinate secondo il drag&drop dell'utente, con
+  // quelle pinnate sempre spostate all'inizio (nell'ordine in cui sono
+  // state pinnate) così restano ferme durante lo scroll orizzontale.
+  const activeBaseColumns = useMemo(() => {
+    const visibili = ordineColonne
+      .map((chiave) => mappaColonne.get(chiave))
+      .filter(
+        (column): column is BaseColumn =>
+          Boolean(column) && visibleColumns[String(column.key)]
+      );
+
+    const pinnate = colonnePinnate
+      .map((chiave) => visibili.find((column) => String(column.key) === chiave))
+      .filter((column): column is BaseColumn => Boolean(column));
+
+    const nonPinnate = visibili.filter(
+      (column) => !colonnePinnate.includes(String(column.key))
+    );
+
+    return [...pinnate, ...nonPinnate];
+  }, [ordineColonne, mappaColonne, visibleColumns, colonnePinnate]);
+
+  function togglePinColonna(chiave: string) {
+    setColonnePinnate((prev) =>
+      prev.includes(chiave)
+        ? prev.filter((item) => item !== chiave)
+        : [...prev, chiave]
+    );
+  }
+
+  function ripristinaOrdineColonne() {
+    setOrdineColonne(chiaviBaseDefault);
+    setColonnePinnate([]);
+  }
+
+  function handleDragStartColonna(chiave: string) {
+    setColonnaTrascinata(chiave);
+  }
+
+  function handleDragOverColonna(event: React.DragEvent<HTMLTableCellElement>) {
+    event.preventDefault();
+  }
+
+  function handleDropColonna(chiaveDestinazione: string) {
+    setOrdineColonne((prev) => {
+      if (!colonnaTrascinata || colonnaTrascinata === chiaveDestinazione) {
+        return prev;
+      }
+
+      const daIndex = prev.indexOf(colonnaTrascinata);
+      const aIndex = prev.indexOf(chiaveDestinazione);
+
+      if (daIndex === -1 || aIndex === -1) return prev;
+
+      const aggiornato = [...prev];
+      aggiornato.splice(daIndex, 1);
+      aggiornato.splice(aIndex, 0, colonnaTrascinata);
+
+      return aggiornato;
+    });
+
+    setColonnaTrascinata(null);
+  }
+
+  // Offset "left" (in px) di ogni colonna pinnata, calcolato sommando la
+  // larghezza reale delle intestazioni pinnate che la precedono: serve a
+  // posizionare ogni colonna sticky esattamente dove finisce la
+  // precedente, invece di sovrapporle (le colonne non hanno una
+  // larghezza fissa nota a priori).
+  const thRefs = useRef<Map<string, HTMLTableCellElement>>(new Map());
+  const [offsetPin, setOffsetPin] = useState<Record<string, number>>({});
+
+  const ricalcolaOffsetPin = useCallback(() => {
+    const nuovoOffset: Record<string, number> = {};
+    let accumulato = 0;
+
+    for (const column of activeBaseColumns) {
+      const chiave = String(column.key);
+
+      if (!colonnePinnate.includes(chiave)) break;
+
+      nuovoOffset[chiave] = accumulato;
+
+      const elemento = thRefs.current.get(chiave);
+      accumulato += elemento ? elemento.offsetWidth : 0;
+    }
+
+    setOffsetPin(nuovoOffset);
+  }, [activeBaseColumns, colonnePinnate]);
+
+  useLayoutEffect(() => {
+    ricalcolaOffsetPin();
+  }, [ricalcolaOffsetPin, rows]);
+
+  useEffect(() => {
+    window.addEventListener("resize", ricalcolaOffsetPin);
+    return () => window.removeEventListener("resize", ricalcolaOffsetPin);
+  }, [ricalcolaOffsetPin]);
 
   // Riga di riepilogo in fondo alla tabella: stessa logica di
   // aggregazione usata per accorpare gli split (somma per i campi
@@ -994,6 +1155,7 @@ function PerformanceTable({
     const celleBase = activeBaseColumns.map((column) => ({
       key: String(column.key),
       align: column.align === "right" ? ("right" as const) : ("left" as const),
+      pinnata: colonnePinnate.includes(String(column.key)),
       valore:
         column.type === "number"
           ? formatNumber(totaliColonne[String(column.key)] ?? null, column.decimals ?? 0)
@@ -1003,6 +1165,7 @@ function PerformanceTable({
     const celleCalcolate = customColumns.map((column, index) => ({
       key: column.id,
       align: "right" as const,
+      pinnata: false,
       valore: formatNumber(totaliColonneCalcolate[index], column.decimals),
     }));
 
@@ -1013,7 +1176,13 @@ function PerformanceTable({
     }
 
     return tutte;
-  }, [activeBaseColumns, customColumns, totaliColonne, totaliColonneCalcolate]);
+  }, [
+    activeBaseColumns,
+    customColumns,
+    totaliColonne,
+    totaliColonneCalcolate,
+    colonnePinnate,
+  ]);
 
   function toggleColumn(key: string) {
     setVisibleColumns((prev) => ({
@@ -1260,11 +1429,14 @@ function PerformanceTable({
               </h3>
 
               <p className="mt-1 text-xs font-semibold text-zinc-500">
-                Seleziona quali colonne mostrare nella tabella.
+                Seleziona quali colonne mostrare nella tabella. Trascina
+                l&apos;intestazione di una colonna per riordinarla, o usa
+                l&apos;icona a forma di spilla per bloccarla durante lo
+                scroll orizzontale.
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={showAllColumns}
@@ -1279,6 +1451,14 @@ function PerformanceTable({
                 className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-black text-zinc-400 transition hover:bg-white/10 hover:text-white"
               >
                 Nascondi tutte
+              </button>
+
+              <button
+                type="button"
+                onClick={ripristinaOrdineColonne}
+                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-black text-zinc-400 transition hover:bg-white/10 hover:text-white"
+              >
+                Ripristina ordine
               </button>
             </div>
           </div>
@@ -1357,19 +1537,70 @@ function PerformanceTable({
         <table className="w-full min-w-max border-collapse">
           <thead>
             <tr className="bg-zinc-950">
-              {activeBaseColumns.map((column) => (
-                <th
-                  key={String(column.key)}
-                  className={[
-                    "whitespace-nowrap border-b border-white/10 px-4 py-4 text-xs font-black uppercase tracking-wide text-zinc-400",
-                    column.align === "right"
-                      ? "text-right"
-                      : "text-left",
-                  ].join(" ")}
-                >
-                  {column.label}
-                </th>
-              ))}
+              {activeBaseColumns.map((column) => {
+                const chiave = String(column.key);
+                const pinnata = colonnePinnate.includes(chiave);
+
+                return (
+                  <th
+                    key={chiave}
+                    ref={(elemento) => {
+                      if (elemento) {
+                        thRefs.current.set(chiave, elemento);
+                      } else {
+                        thRefs.current.delete(chiave);
+                      }
+                    }}
+                    draggable
+                    onDragStart={() => handleDragStartColonna(chiave)}
+                    onDragOver={handleDragOverColonna}
+                    onDrop={() => handleDropColonna(chiave)}
+                    onDragEnd={() => setColonnaTrascinata(null)}
+                    className={[
+                      "whitespace-nowrap border-b border-white/10 px-4 py-4 text-xs font-black uppercase tracking-wide text-zinc-400 transition",
+                      column.align === "right" ? "text-right" : "text-left",
+                      pinnata ? "sticky z-20 bg-zinc-950" : "",
+                      colonnaTrascinata === chiave ? "opacity-40" : "",
+                    ].join(" ")}
+                    style={pinnata ? { left: offsetPin[chiave] ?? 0 } : undefined}
+                  >
+                    <div
+                      className={[
+                        "flex cursor-grab items-center gap-1.5 active:cursor-grabbing",
+                        column.align === "right" ? "justify-end" : "",
+                      ].join(" ")}
+                    >
+                      <GripVertical
+                        size={12}
+                        className="shrink-0 text-zinc-700"
+                      />
+
+                      <span className="truncate">{column.label}</span>
+
+                      <button
+                        type="button"
+                        onClick={() => togglePinColonna(chiave)}
+                        title={
+                          pinnata
+                            ? "Sblocca colonna"
+                            : "Blocca colonna durante lo scroll"
+                        }
+                        className={[
+                          "shrink-0 rounded-md p-0.5 transition",
+                          pinnata
+                            ? "text-white"
+                            : "text-zinc-700 hover:text-white",
+                        ].join(" ")}
+                      >
+                        <Pin
+                          size={12}
+                          className={pinnata ? "fill-current" : ""}
+                        />
+                      </button>
+                    </div>
+                  </th>
+                );
+              })}
 
               {customColumns.map((column) => (
                 <th
@@ -1407,14 +1638,16 @@ function PerformanceTable({
               rows.map((row) => (
                 <tr
                   key={row.id}
-                  className="border-b border-white/5 transition hover:bg-white/[0.03]"
+                  className="group border-b border-white/5 transition hover:bg-white/[0.03]"
                 >
                   {activeBaseColumns.map((column) => {
+                    const chiave = String(column.key);
+                    const pinnata = colonnePinnate.includes(chiave);
                     const value = row[column.key];
 
                     return (
                       <td
-                        key={String(column.key)}
+                        key={chiave}
                         className={[
                           "whitespace-nowrap px-4 py-3 text-sm font-semibold text-zinc-300",
                           column.align === "right"
@@ -1423,7 +1656,13 @@ function PerformanceTable({
                           column.key === "date"
                             ? "font-bold text-white"
                             : "",
+                          pinnata
+                            ? "sticky z-10 bg-zinc-900 transition group-hover:bg-zinc-800"
+                            : "",
                         ].join(" ")}
+                        style={
+                          pinnata ? { left: offsetPin[chiave] ?? 0 } : undefined
+                        }
                       >
                         {column.type === "date"
                           ? formatDate(value as string | null)
@@ -1465,7 +1704,13 @@ function PerformanceTable({
                     className={[
                       "whitespace-nowrap px-4 py-3 text-sm font-black text-white",
                       cella.align === "right" ? "text-right" : "text-left",
+                      cella.pinnata ? "sticky z-10 bg-zinc-800" : "",
                     ].join(" ")}
+                    style={
+                      cella.pinnata
+                        ? { left: offsetPin[cella.key] ?? 0 }
+                        : undefined
+                    }
                   >
                     {cella.valore}
                   </td>
