@@ -77,6 +77,26 @@ function getString(value: FormDataEntryValue | null): string {
 }
 
 /*
+ * Verifica che l'ora di fine sia effettivamente successiva a quella di
+ * inizio, considerando anche le date: un evento su più giorni può avere
+ * un'ora di fine "più piccola" di quella di inizio (es. inizio alle 17
+ * l'11/07, fine alle 10 il 12/07) senza che sia un errore.
+ */
+function oraFineNonValida(
+  dataInizio: string,
+  oraInizio: string | null,
+  dataFine: string | null,
+  oraFine: string | null
+): boolean {
+  if (!oraInizio || !oraFine) return false;
+
+  const inizio = new Date(`${dataInizio}T${oraInizio}:00`).getTime();
+  const fine = new Date(`${dataFine || dataInizio}T${oraFine}:00`).getTime();
+
+  return fine <= inizio;
+}
+
+/*
  * Nuova tipologia di evento (es. "Torneo", "Raduno", "Team building"),
  * creata al volo dall'admin dal popup "Crea evento".
  */
@@ -163,10 +183,11 @@ export async function creaEvento(
       };
     }
 
-    if (oraInizio && oraFine && oraFine <= oraInizio) {
+    if (oraFineNonValida(dataInizio, oraInizio, dataFine, oraFine)) {
       return {
         success: false,
-        message: "L'ora di fine deve essere successiva a quella di inizio.",
+        message:
+          "L'ora di fine deve essere successiva a quella di inizio (considerando anche la data).",
       };
     }
 
@@ -261,10 +282,11 @@ export async function aggiornaEvento(
       };
     }
 
-    if (oraInizio && oraFine && oraFine <= oraInizio) {
+    if (oraFineNonValida(dataInizio, oraInizio, dataFine, oraFine)) {
       return {
         success: false,
-        message: "L'ora di fine deve essere successiva a quella di inizio.",
+        message:
+          "L'ora di fine deve essere successiva a quella di inizio (considerando anche la data).",
       };
     }
 
