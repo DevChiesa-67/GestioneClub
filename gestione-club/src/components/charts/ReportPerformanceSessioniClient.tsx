@@ -1036,7 +1036,7 @@ function PerformanceTable({
       .map((chiave) => mappaColonne.get(chiave))
       .filter(
         (column): column is BaseColumn =>
-          Boolean(column) && visibleColumns[String(column.key)]
+          column !== undefined && visibleColumns[String(column.key)]
       );
 
     const pinnate = colonnePinnate
