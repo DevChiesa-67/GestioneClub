@@ -22,6 +22,21 @@ export type AndamentoSessionePdf = {
   playerLoad: number;
 };
 
+export type PdfPerformanceGenerato = {
+  doc: jsPDF;
+  nomeFile: string;
+};
+
+/**
+ * Innesca il download di un PDF già generato con generaPdfPerformance /
+ * generaPdfPresenze. Separato dalla generazione in modo che il chiamante
+ * possa prima mostrare un'anteprima (doc.output("blob") in un iframe) e
+ * scaricare solo quando l'utente conferma.
+ */
+export function scaricaPdfPerformance({ doc, nomeFile }: PdfPerformanceGenerato) {
+  doc.save(nomeFile);
+}
+
 const COLORE_GIALLO: [number, number, number] = [255, 255, 0];
 const COLORE_HEADER: [number, number, number] = [56, 87, 35];
 const COLORE_RIEPILOGO_HEADER: [number, number, number] = [40, 40, 40];
@@ -162,23 +177,18 @@ function disegnaGraficoBarre(
 }
 
 /**
- * Genera e scarica un PDF della scheda performance (dati Catapult) così
- * come filtrata/visualizzata a schermo: stesso titolo giallo e logo in
- * alto a destra usati per il PDF dell'allenamento, ma in orizzontale per
- * ospitare più colonne, con una tabella che rispecchia esattamente le
- * colonne visibili (incluse quelle calcolate) e le righe filtrate.
+ * Disegna l'intestazione comune a tutti i PDF di /performance: barra
+ * gialla col titolo, logo del club in alto a destra ed eventuale
+ * sottotitolo. Estratta da generaPdfPerformance in modo da essere
+ * riutilizzata anche da generaPdfPresenze (stesso stile, contenuto
+ * diverso).
  */
-export async function generaPdfPerformance(
+async function disegnaIntestazionePdf(
+  doc: jsPDF,
   titolo: string,
   sottotitolo: string | null,
-  colonne: ColonnaPdfPerformance[],
-  righe: string[][],
-  club?: ClubPdf | null,
-  nomeFile = "performance.pdf",
-  righeRiepilogo?: RigaRiepilogoPdf[],
-  andamentoSessioni?: AndamentoSessionePdf[]
-) {
-  const doc = new jsPDF({ orientation: "landscape" });
+  club?: ClubPdf | null
+): Promise<number> {
   const larghezzaPagina = doc.internal.pageSize.getWidth();
   const margine = 12;
 
@@ -235,6 +245,32 @@ export async function generaPdfPerformance(
     doc.text(sottotitolo, margine, startY);
     startY += 7;
   }
+
+  return startY;
+}
+
+/**
+ * Genera e scarica un PDF della scheda performance (dati Catapult) così
+ * come filtrata/visualizzata a schermo: stesso titolo giallo e logo in
+ * alto a destra usati per il PDF dell'allenamento, ma in orizzontale per
+ * ospitare più colonne, con una tabella che rispecchia esattamente le
+ * colonne visibili (incluse quelle calcolate) e le righe filtrate.
+ */
+export async function generaPdfPerformance(
+  titolo: string,
+  sottotitolo: string | null,
+  colonne: ColonnaPdfPerformance[],
+  righe: string[][],
+  club?: ClubPdf | null,
+  nomeFile = "performance.pdf",
+  righeRiepilogo?: RigaRiepilogoPdf[],
+  andamentoSessioni?: AndamentoSessionePdf[]
+): Promise<PdfPerformanceGenerato> {
+  const doc = new jsPDF({ orientation: "landscape" });
+  const larghezzaPagina = doc.internal.pageSize.getWidth();
+  const margine = 12;
+
+  let startY = await disegnaIntestazionePdf(doc, titolo, sottotitolo, club);
 
   // Sezione "Riepilogo": statistiche aggregate mostrate come piccola
   // tabella a due colonne prima del dettaglio riga-per-sessione, così il
@@ -354,5 +390,140 @@ export async function generaPdfPerformance(
     },
   });
 
-  doc.save(nomeFile);
+  return { doc, nomeFile };
+}
+
+export type AndamentoPresenzaPdf = {
+  /** Etichetta breve mostrata sotto la barra (es. data in formato gg/mm). */
+  etichetta: string;
+  totale: number;
+};
+
+export type RigaDistribuzionePdf = {
+  label: string;
+  totale: number;
+  percentuale: number;
+};
+
+/**
+ * Genera e scarica un PDF con l'andamento delle presenze in base ai filtri
+ * applicati nella tab "Presenze": riepilogo con % di presenza, grafico a
+ * barre dell'andamento nel periodo e tabella di distribuzione per stato.
+ * Stesso stile (intestazione gialla + logo) del PDF Performance, così i due
+ * export restano coerenti tra loro pur mostrando contenuti diversi.
+ */
+export async function generaPdfPresenze(
+  titolo: string,
+  sottotitolo: string | null,
+  righeRiepilogo: RigaRiepilogoPdf[],
+  andamento: AndamentoPresenzaPdf[],
+  distribuzione: RigaDistribuzionePdf[],
+  club?: ClubPdf | null,
+  nomeFile = "presenze.pdf"
+): Promise<PdfPerformanceGenerato> {
+  const doc = new jsPDF({ orientation: "landscape" });
+  const larghezzaPagina = doc.internal.pageSize.getWidth();
+  const margine = 12;
+
+  let startY = await disegnaIntestazionePdf(doc, titolo, sottotitolo, club);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(0, 0, 0);
+  doc.text("RIEPILOGO", margine, startY);
+  startY += 3;
+
+  const riepilogoStartY = startY;
+  const larghezzaTabellaRiepilogo = 90;
+
+  autoTable(doc, {
+    startY: riepilogoStartY,
+    body: righeRiepilogo.map((riga) => [riga.label, riga.value]),
+    theme: "grid",
+    tableWidth: larghezzaTabellaRiepilogo,
+    margin: { left: margine },
+    styles: {
+      fontSize: 8,
+      cellPadding: 2,
+      lineColor: [0, 0, 0],
+      lineWidth: 0.2,
+      textColor: [0, 0, 0],
+    },
+    columnStyles: {
+      0: { fontStyle: "bold", cellWidth: 55 },
+      1: { halign: "right" },
+    },
+    headStyles: {
+      fillColor: COLORE_RIEPILOGO_HEADER,
+    },
+  });
+
+  const riepilogoFinalY = (
+    doc as unknown as { lastAutoTable: { finalY: number } }
+  ).lastAutoTable.finalY;
+
+  // Grafico "andamento presenze": affiancato alla tabella riepilogo, nello
+  // spazio libero a destra.
+  if (andamento.length > 0) {
+    const gapGrafico = 8;
+    const xGrafico = margine + larghezzaTabellaRiepilogo + gapGrafico;
+    const larghezzaGrafico = larghezzaPagina - margine - xGrafico;
+    const altezzaGrafico = Math.max(riepilogoFinalY - riepilogoStartY, 40);
+
+    disegnaGraficoBarre(doc, {
+      x: xGrafico,
+      y: riepilogoStartY + 4,
+      larghezza: larghezzaGrafico,
+      altezza: altezzaGrafico,
+      titolo: "Andamento presenze nel periodo",
+      valori: andamento.map((voce) => ({
+        etichetta: voce.etichetta,
+        valore: voce.totale,
+      })),
+      colore: COLORE_BARRA_DISTANZA,
+    });
+  }
+
+  startY = riepilogoFinalY + 8;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(0, 0, 0);
+  doc.text("DISTRIBUZIONE PER STATO", margine, startY);
+  startY += 3;
+
+  autoTable(doc, {
+    startY,
+    head: [["Stato", "Totale", "% sul totale"]],
+    body: distribuzione.map((riga) => [
+      riga.label,
+      String(riga.totale),
+      `${riga.percentuale}%`,
+    ]),
+    theme: "grid",
+    tableWidth: larghezzaTabellaRiepilogo + 40,
+    margin: { left: margine },
+    styles: {
+      fontSize: 8,
+      cellPadding: 2,
+      lineColor: [0, 0, 0],
+      lineWidth: 0.2,
+      textColor: [0, 0, 0],
+    },
+    columnStyles: {
+      1: { halign: "right" },
+      2: { halign: "right" },
+    },
+    headStyles: {
+      fillColor: COLORE_HEADER,
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+      halign: "center",
+    },
+    alternateRowStyles: {
+      fillColor: [245, 245, 245],
+    },
+  });
+
+  return { doc, nomeFile };
 }

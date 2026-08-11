@@ -5,7 +5,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { ChevronDown, Download, Loader2, UserRound, Upload } from "lucide-react";
 
-import ReportPerformanceClient from "@/components/charts/ReportPerformanceClient";
+import ReportPerformanceClient, {
+  STATI,
+  fetchPresenzeRows,
+  calcolaStatistichePresenze,
+} from "@/components/charts/ReportPerformanceClient";
 import ReportAcwrClient from "@/components/charts/ReportAcwrClient";
 import { AppCard } from "@/components/ui/AppCard";
 import { DateInput } from "@/components/ui/DateInput";
@@ -23,8 +27,12 @@ import ConfrontoPerformanceClient from "@/components/charts/ConfrontoPerformance
 import MinutaggioPartiteClient from "@/components/charts/MinutaggioPartiteClient";
 import {
   generaPdfPerformance,
+  generaPdfPresenze,
+  scaricaPdfPerformance,
   type AndamentoSessionePdf,
+  type PdfPerformanceGenerato,
 } from "@/lib/pdf-performance";
+import PdfPreviewModal from "@/components/allenamenti/PdfPreviewModal";
 import {
   TAG_ALLENAMENTO,
   TAG_PARTITA,
@@ -236,7 +244,10 @@ export default function ReportTabsClient({
     []
   );
 
-  const [scaricandoPdf, setScaricandoPdf] = useState(false);
+  const [generandoPdf, setGenerandoPdf] = useState(false);
+  const [pdfInAnteprima, setPdfInAnteprima] = useState<
+    (PdfPerformanceGenerato & { blobUrl: string }) | null
+  >(null);
 
   function toggleGiocatore(id: string) {
     setGiocatoreIds((prev) =>
@@ -423,13 +434,71 @@ export default function ReportTabsClient({
       ? "Nome allenamento"
       : "Nome evento";
 
-  async function handleDownloadPdf() {
-    if (scaricandoPdf) return;
+  function chiudiAnteprimaPdf() {
+    if (pdfInAnteprima) URL.revokeObjectURL(pdfInAnteprima.blobUrl);
+    setPdfInAnteprima(null);
+  }
 
-    setScaricandoPdf(true);
+  // Tab "Presenze": il PDF mostra l'andamento delle presenze in base ai
+  // filtri applicati (non la scheda Catapult, che qui non ha senso).
+  async function generaAnteprimaPdfPresenze() {
+    const presenzeRows = await fetchPresenzeRows({
+      clubId,
+      squadraId,
+      dataDa,
+      dataA,
+      tipiSeduta,
+      giocatoreIds,
+      eventoDate: sessioniSelezionateDate,
+    });
 
-    try {
-      const performanceRows = await fetchPerformanceRows({
+    const statistiche = calcolaStatistichePresenze(presenzeRows);
+
+    const righeRiepilogo = [
+      {
+        label: "Rilevazioni registrate",
+        value: String(statistiche.totaleRilevazioni),
+      },
+      {
+        label: "Presenze totali",
+        value: String(statistiche.totalePresenze),
+      },
+      {
+        label: "% di presenza",
+        value: `${statistiche.percentualePresenza}%`,
+      },
+    ];
+
+    const andamento = statistiche.datiGrafico.map((voce) => ({
+      etichetta: formatDataIT(voce.data).slice(0, 5),
+      totale: voce.totale,
+    }));
+
+    const distribuzione = statistiche.distribuzione.map((voce) => {
+      const label =
+        STATI.find((stato) => stato.key === voce.stato)?.title ?? voce.stato;
+
+      const percentuale =
+        statistiche.totaleRilevazioni > 0
+          ? Math.round((voce.totale / statistiche.totaleRilevazioni) * 100)
+          : 0;
+
+      return { label, totale: voce.totale, percentuale };
+    });
+
+    return generaPdfPresenze(
+      "ANDAMENTO PRESENZE",
+      filtroDescrizionePerformance,
+      righeRiepilogo,
+      andamento,
+      distribuzione,
+      { logo_url: clubLogoUrl },
+      `presenze-${new Date().toISOString().slice(0, 10)}.pdf`
+    );
+  }
+
+  async function generaAnteprimaPdfPerformance() {
+    const performanceRows = await fetchPerformanceRows({
         clubId,
         squadraId,
         giocatoreIds,
@@ -516,20 +585,36 @@ export default function ReportTabsClient({
         );
       }
 
-      const andamentoSessioni = calcolaAndamentoSessioni(performanceRows);
+    const andamentoSessioni = calcolaAndamentoSessioni(performanceRows);
 
-      await generaPdfPerformance(
-        "SCHEDA PERFORMANCE",
-        filtroDescrizionePerformance,
-        colonnePdf,
-        righePdf,
-        { logo_url: clubLogoUrl },
-        `performance-${new Date().toISOString().slice(0, 10)}.pdf`,
-        righeRiepilogo,
-        andamentoSessioni
-      );
+    return generaPdfPerformance(
+      "SCHEDA PERFORMANCE",
+      filtroDescrizionePerformance,
+      colonnePdf,
+      righePdf,
+      { logo_url: clubLogoUrl },
+      `performance-${new Date().toISOString().slice(0, 10)}.pdf`,
+      righeRiepilogo,
+      andamentoSessioni
+    );
+  }
+
+  async function handleDownloadPdf() {
+    if (generandoPdf) return;
+
+    setGenerandoPdf(true);
+
+    try {
+      const generato =
+        activeTab === "presenze"
+          ? await generaAnteprimaPdfPresenze()
+          : await generaAnteprimaPdfPerformance();
+
+      const blobUrl = URL.createObjectURL(generato.doc.output("blob"));
+
+      setPdfInAnteprima({ ...generato, blobUrl });
     } finally {
-      setScaricandoPdf(false);
+      setGenerandoPdf(false);
     }
   }
 
@@ -547,15 +632,15 @@ export default function ReportTabsClient({
           <button
             type="button"
             onClick={handleDownloadPdf}
-            disabled={scaricandoPdf}
+            disabled={generandoPdf}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {scaricandoPdf ? (
+            {generandoPdf ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Download className="h-4 w-4" />
             )}
-            Scarica PDF
+            Anteprima PDF
           </button>
 
           <Link
@@ -1164,6 +1249,26 @@ export default function ReportTabsClient({
           dataA={dataA}
           coloreFlag={coloreFlag}
         />
+      )}
+
+      {pdfInAnteprima && (
+        <div className="fixed inset-0 z-[9999] overflow-y-auto bg-black/80 px-3 py-4 backdrop-blur-sm sm:px-6 sm:py-8">
+          <div
+            className="mx-auto max-w-4xl min-w-0 overflow-x-hidden rounded-3xl border bg-[#090909] p-4 shadow-2xl sm:p-6"
+            style={{
+              borderColor: `${coloreFlag}55`,
+              boxShadow: `0 30px 80px ${coloreFlag}22`,
+            }}
+          >
+            <PdfPreviewModal
+              blobUrl={pdfInAnteprima.blobUrl}
+              nomeFile={pdfInAnteprima.nomeFile}
+              themeColor={coloreFlag}
+              onDownload={() => scaricaPdfPerformance(pdfInAnteprima)}
+              onClose={chiudiAnteprimaPdf}
+            />
+          </div>
+        </div>
       )}
 
     </div>
