@@ -177,6 +177,152 @@ function disegnaGraficoBarre(
 }
 
 /**
+ * Come disegnaGraficoBarre, ma ogni colonna è impilata (stacked) con più
+ * segmenti colorati: usato per l'andamento presenze, dove ogni giornata va
+ * scomposta per stato (Presente, Infortunato, ecc.) con lo stesso colore
+ * usato nell'istogramma a schermo. Con un solo segmento per colonna si
+ * riduce automaticamente a una barra piena di un colore (caso "filtrato
+ * su una card").
+ */
+function disegnaGraficoBarreImpilate(
+  doc: jsPDF,
+  opzioni: {
+    x: number;
+    y: number;
+    larghezza: number;
+    altezza: number;
+    titolo: string;
+    colonne: {
+      etichetta: string;
+      segmenti: { colore: [number, number, number]; valore: number }[];
+    }[];
+  }
+) {
+  const { x, y, larghezza, altezza, titolo, colonne } = opzioni;
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor(0, 0, 0);
+  doc.text(titolo, x, y);
+
+  const areaY = y + 3;
+  const areaAltezzaLabel = 8;
+  const areaAltezza = altezza - areaAltezzaLabel;
+
+  doc.setDrawColor(180, 180, 180);
+  doc.setLineWidth(0.1);
+  doc.line(x, areaY + areaAltezza, x + larghezza, areaY + areaAltezza);
+
+  if (colonne.length === 0) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(120, 120, 120);
+    doc.text("Nessun dato disponibile", x, areaY + areaAltezza / 2);
+    return;
+  }
+
+  const totali = colonne.map((colonna) =>
+    colonna.segmenti.reduce((somma, segmento) => somma + segmento.valore, 0)
+  );
+  const massimo = Math.max(1, ...totali);
+  const gap = 2;
+  const larghezzaBarra = Math.max(
+    2,
+    (larghezza - gap * (colonne.length - 1)) / colonne.length
+  );
+
+  colonne.forEach((colonna, indice) => {
+    const totaleColonna = totali[indice];
+    const barX = x + indice * (larghezzaBarra + gap);
+    const barAltezzaTotale =
+      totaleColonna > 0
+        ? Math.max(0.3, (totaleColonna / massimo) * (areaAltezza - 5))
+        : 0;
+
+    let cursoreY = areaY + areaAltezza;
+
+    colonna.segmenti.forEach((segmento) => {
+      if (segmento.valore <= 0 || totaleColonna <= 0) return;
+
+      const segmentoAltezza =
+        barAltezzaTotale * (segmento.valore / totaleColonna);
+      const segmentoY = cursoreY - segmentoAltezza;
+
+      doc.setFillColor(...segmento.colore);
+      doc.setDrawColor(...segmento.colore);
+      doc.rect(barX, segmentoY, larghezzaBarra, segmentoAltezza, "F");
+
+      cursoreY = segmentoY;
+    });
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6);
+    doc.setTextColor(0, 0, 0);
+    doc.text(
+      String(totaleColonna),
+      barX + larghezzaBarra / 2,
+      areaY + areaAltezza - barAltezzaTotale - 1,
+      { align: "center" }
+    );
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6);
+    doc.setTextColor(80, 80, 80);
+    doc.text(
+      colonna.etichetta,
+      barX + larghezzaBarra / 2,
+      areaY + areaAltezza + 4,
+      { align: "center", maxWidth: larghezzaBarra + gap }
+    );
+  });
+}
+
+/**
+ * Disegna la legenda colori (quadratino + etichetta) usata sotto il
+ * grafico impilato dell'andamento presenze, in modo che i colori dei
+ * segmenti restino leggibili anche senza guardare lo schermo.
+ */
+function disegnaLegendaPresenze(
+  doc: jsPDF,
+  opzioni: {
+    x: number;
+    y: number;
+    larghezzaMax: number;
+    voci: { label: string; colore: [number, number, number] }[];
+  }
+) {
+  const { x, y, larghezzaMax, voci } = opzioni;
+  const dimQuadrato = 3;
+  const gapVoci = 5;
+
+  let curX = x;
+  let curY = y;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.5);
+
+  voci.forEach((voce) => {
+    const larghezzaTesto = doc.getTextWidth(voce.label);
+    const larghezzaVoce = dimQuadrato + 1.5 + larghezzaTesto + gapVoci;
+
+    if (curX + larghezzaVoce > x + larghezzaMax) {
+      curX = x;
+      curY += 5;
+    }
+
+    doc.setFillColor(...voce.colore);
+    doc.rect(curX, curY - dimQuadrato, dimQuadrato, dimQuadrato, "F");
+
+    doc.setTextColor(90, 90, 90);
+    doc.text(voce.label, curX + dimQuadrato + 1.5, curY);
+
+    curX += larghezzaVoce;
+  });
+
+  return curY;
+}
+
+/**
  * Disegna l'intestazione comune a tutti i PDF di /performance: barra
  * gialla col titolo, logo del club in alto a destra ed eventuale
  * sottotitolo. Estratta da generaPdfPerformance in modo da essere
@@ -393,10 +539,25 @@ export async function generaPdfPerformance(
   return { doc, nomeFile };
 }
 
+export type SegmentoAndamentoPresenzaPdf = {
+  colore: [number, number, number];
+  valore: number;
+};
+
 export type AndamentoPresenzaPdf = {
   /** Etichetta breve mostrata sotto la barra (es. data in formato gg/mm). */
   etichetta: string;
-  totale: number;
+  /**
+   * Uno o più segmenti impilati nella colonna, ciascuno col colore dello
+   * stato corrispondente (stessi colori dell'istogramma a schermo). Con un
+   * solo segmento la barra resta di un unico colore (card filtrata).
+   */
+  segmenti: SegmentoAndamentoPresenzaPdf[];
+};
+
+export type LegendaPresenzaPdf = {
+  label: string;
+  colore: [number, number, number];
 };
 
 export type RigaDistribuzionePdf = {
@@ -407,10 +568,12 @@ export type RigaDistribuzionePdf = {
 
 /**
  * Genera e scarica un PDF con l'andamento delle presenze in base ai filtri
- * applicati nella tab "Presenze": riepilogo con % di presenza, grafico a
- * barre dell'andamento nel periodo e tabella di distribuzione per stato.
- * Stesso stile (intestazione gialla + logo) del PDF Performance, così i due
- * export restano coerenti tra loro pur mostrando contenuti diversi.
+ * applicati nella tab "Presenze" (inclusa l'eventuale card di stato
+ * selezionata): riepilogo con % di presenza, grafico a barre impilate con
+ * gli stessi colori dell'istogramma a schermo e tabella di distribuzione
+ * per stato. Stesso stile (intestazione gialla + logo) del PDF
+ * Performance, così i due export restano coerenti tra loro pur mostrando
+ * contenuti diversi.
  */
 export async function generaPdfPresenze(
   titolo: string,
@@ -418,6 +581,7 @@ export async function generaPdfPresenze(
   righeRiepilogo: RigaRiepilogoPdf[],
   andamento: AndamentoPresenzaPdf[],
   distribuzione: RigaDistribuzionePdf[],
+  legenda: LegendaPresenzaPdf[],
   club?: ClubPdf | null,
   nomeFile = "presenze.pdf"
 ): Promise<PdfPerformanceGenerato> {
@@ -463,28 +627,41 @@ export async function generaPdfPresenze(
   ).lastAutoTable.finalY;
 
   // Grafico "andamento presenze": affiancato alla tabella riepilogo, nello
-  // spazio libero a destra.
+  // spazio libero a destra, con le colonne impilate colorate per stato
+  // (stessi colori dell'istogramma a schermo).
+  let yLegenda = riepilogoFinalY;
+
   if (andamento.length > 0) {
     const gapGrafico = 8;
     const xGrafico = margine + larghezzaTabellaRiepilogo + gapGrafico;
     const larghezzaGrafico = larghezzaPagina - margine - xGrafico;
     const altezzaGrafico = Math.max(riepilogoFinalY - riepilogoStartY, 40);
 
-    disegnaGraficoBarre(doc, {
+    disegnaGraficoBarreImpilate(doc, {
       x: xGrafico,
       y: riepilogoStartY + 4,
       larghezza: larghezzaGrafico,
       altezza: altezzaGrafico,
       titolo: "Andamento presenze nel periodo",
-      valori: andamento.map((voce) => ({
+      colonne: andamento.map((voce) => ({
         etichetta: voce.etichetta,
-        valore: voce.totale,
+        segmenti: voce.segmenti,
       })),
-      colore: COLORE_BARRA_DISTANZA,
     });
+
+    // La legenda ha senso solo quando ci sono più colori da spiegare
+    // (nessun filtro attivo su una sola card).
+    if (legenda.length > 1) {
+      yLegenda = disegnaLegendaPresenze(doc, {
+        x: xGrafico,
+        y: riepilogoStartY + 4 + altezzaGrafico + 3,
+        larghezzaMax: larghezzaGrafico,
+        voci: legenda,
+      });
+    }
   }
 
-  startY = riepilogoFinalY + 8;
+  startY = Math.max(riepilogoFinalY, yLegenda) + 8;
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);

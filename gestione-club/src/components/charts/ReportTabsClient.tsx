@@ -9,6 +9,7 @@ import ReportPerformanceClient, {
   STATI,
   fetchPresenzeRows,
   calcolaStatistichePresenze,
+  type StatoPresenzaDb,
 } from "@/components/charts/ReportPerformanceClient";
 import ReportAcwrClient from "@/components/charts/ReportAcwrClient";
 import { AppCard } from "@/components/ui/AppCard";
@@ -54,6 +55,16 @@ type TabKey =
 // solo a etichettarli in modo leggibile quando riconosciamo un pattern
 // comune. Se non riconosciamo nulla, mostriamo il valore così com'è,
 // così il filtro funziona comunque.
+// STATI.color è una stringa hex ("#16a34a") pensata per il CSS a schermo:
+// il PDF (jsPDF) vuole invece una tripla RGB, quindi la convertiamo qui
+// per riusare esattamente gli stessi colori dell'istogramma.
+function hexToRgb(hex: string): [number, number, number] {
+  const normalizzato = hex.replace("#", "");
+  const valore = parseInt(normalizzato, 16);
+
+  return [(valore >> 16) & 255, (valore >> 8) & 255, valore & 255];
+}
+
 function etichettaSplitPartita(nome: string): string {
   const normalizzato = nome.trim().toLowerCase();
 
@@ -243,6 +254,12 @@ export default function ReportTabsClient({
   const [splitSelezionati, setSplitSelezionati] = useState<string[]>(
     []
   );
+
+  // Card di stato selezionata nella tab Presenze (filtro sull'istogramma):
+  // vive qui, non dentro ReportPerformanceClient, così anche l'export PDF
+  // (gestito in questo componente) sa quale card è attiva.
+  const [statoPresenzeSelezionato, setStatoPresenzeSelezionato] =
+    useState<StatoPresenzaDb | null>(null);
 
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [pdfInAnteprima, setPdfInAnteprima] = useState<
@@ -469,12 +486,38 @@ export default function ReportTabsClient({
       },
     ];
 
+    // Se è selezionata una card (es. "Infortunato"), il PDF resta coerente
+    // con quello che si vede a schermo: istogramma isolato su quello stato
+    // solo, distribuzione limitata alla stessa riga, titolo e sottotitolo
+    // aggiornati.
+    const statoInfo = statoPresenzeSelezionato
+      ? STATI.find((stato) => stato.key === statoPresenzeSelezionato)
+      : null;
+
+    const statiDaMostrare = statoInfo ? [statoInfo] : STATI;
+
     const andamento = statistiche.datiGrafico.map((voce) => ({
       etichetta: formatDataIT(voce.data).slice(0, 5),
-      totale: voce.totale,
+      segmenti: statiDaMostrare
+        .map((stato) => ({
+          colore: hexToRgb(stato.color),
+          valore: voce.perStato[stato.key] ?? 0,
+        }))
+        .filter((segmento) => segmento.valore > 0),
     }));
 
-    const distribuzione = statistiche.distribuzione.map((voce) => {
+    const legenda = statiDaMostrare.map((stato) => ({
+      label: stato.title,
+      colore: hexToRgb(stato.color),
+    }));
+
+    const distribuzioneFiltrata = statoInfo
+      ? statistiche.distribuzione.filter(
+          (voce) => voce.stato === statoInfo.key
+        )
+      : statistiche.distribuzione;
+
+    const distribuzione = distribuzioneFiltrata.map((voce) => {
       const label =
         STATI.find((stato) => stato.key === voce.stato)?.title ?? voce.stato;
 
@@ -486,12 +529,21 @@ export default function ReportTabsClient({
       return { label, totale: voce.totale, percentuale };
     });
 
+    const titolo = statoInfo
+      ? `ANDAMENTO PRESENZE — ${statoInfo.title.toUpperCase()}`
+      : "ANDAMENTO PRESENZE";
+
+    const sottotitolo = statoInfo
+      ? `${filtroDescrizionePerformance}  |  Stato: ${statoInfo.title}`
+      : filtroDescrizionePerformance;
+
     return generaPdfPresenze(
-      "ANDAMENTO PRESENZE",
-      filtroDescrizionePerformance,
+      titolo,
+      sottotitolo,
       righeRiepilogo,
       andamento,
       distribuzione,
+      legenda,
       { logo_url: clubLogoUrl },
       `presenze-${new Date().toISOString().slice(0, 10)}.pdf`
     );
@@ -1183,6 +1235,8 @@ export default function ReportTabsClient({
           giocatoreIds={giocatoreIds}
           eventoDate={sessioniSelezionateDate}
           hideFilters
+          statoSelezionato={statoPresenzeSelezionato}
+          onStatoSelezionatoChange={setStatoPresenzeSelezionato}
         />
       )}
 

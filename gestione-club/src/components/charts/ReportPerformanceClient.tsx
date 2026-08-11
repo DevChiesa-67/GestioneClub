@@ -42,6 +42,11 @@ giocatoreId?: string | null;
 giocatoreIds?: string[];
 eventoDate?: string[];
 hideFilters?: boolean;
+// Stato selezionato cliccando una card (filtro sull'istogramma). Sollevato
+// al chiamante in modo che anche l'export PDF nella pagina Performance
+// possa sapere quale card è attiva e generare un PDF coerente.
+statoSelezionato?: StatoPresenzaDb | null;
+onStatoSelezionatoChange?: (stato: StatoPresenzaDb | null) => void;
 };
 
 export const STATI: {
@@ -492,6 +497,8 @@ tipiSeduta = [],
 giocatoreId = null,
 giocatoreIds = [],
 eventoDate = [],
+statoSelezionato = null,
+onStatoSelezionatoChange = () => {},
 
 }: Props) {
 const [presenze, setPresenze] = useState<PresenzaRow[]>(
@@ -500,14 +507,8 @@ const [presenze, setPresenze] = useState<PresenzaRow[]>(
 
 const [loading, setLoading] = useState(true);
 
-// Filtro attivato cliccando una delle card in alto (Presente, Infortunato,
-// ecc.): isola quello stato nell'istogramma "Andamento presenze". Un
-// secondo click sulla stessa card lo disattiva.
-const [statoSelezionato, setStatoSelezionato] =
-  useState<StatoPresenzaDb | null>(null);
-
 function toggleStatoSelezionato(stato: StatoPresenzaDb) {
-  setStatoSelezionato((current) => (current === stato ? null : stato));
+  onStatoSelezionatoChange(statoSelezionato === stato ? null : stato);
 }
 
 const tipiSedutaEffettivi = risolviTipiSeduta(tipoSeduta, tipiSeduta);
@@ -677,7 +678,7 @@ return ( <div className="space-y-5"> <div className="grid gap-3 md:grid-cols-6">
           {statoSelezionato && (
             <button
               type="button"
-              onClick={() => setStatoSelezionato(null)}
+              onClick={() => onStatoSelezionatoChange(null)}
               className="text-xs font-bold text-zinc-400 transition hover:text-white"
             >
               Mostra tutte
