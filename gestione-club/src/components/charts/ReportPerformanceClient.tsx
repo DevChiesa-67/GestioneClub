@@ -104,14 +104,32 @@ year: "numeric",
 }).format(new Date(Number(anno), Number(mese) - 1, 1));
 }
 
+type DatoGraficoPresenza = {
+data: string;
+totale: number;
+perStato: Record<StatoPresenzaDb, number>;
+};
+
 function BarChart({
 dati,
+statoAttivo = null,
 }: {
-dati: { data: string; totale: number }[];
+dati: DatoGraficoPresenza[];
+statoAttivo?: StatoPresenzaDb | null;
 }) {
-const max = Math.max(...dati.map((d) => d.totale), 1);
+// Con un filtro attivo il totale della colonna è solo quello stato (barra
+// di un colore solo); senza filtro la colonna resta segmentata per tutti
+// gli stati, così l'istogramma mostra la composizione di ogni giornata.
+const valoreColonna = (item: DatoGraficoPresenza) =>
+statoAttivo ? (item.perStato[statoAttivo] ?? 0) : item.totale;
 
-return ( 
+const max = Math.max(...dati.map(valoreColonna), 1);
+
+const statiDaMostrare = statoAttivo
+? STATI.filter((stato) => stato.key === statoAttivo)
+: STATI;
+
+return (
 <div className="flex h-80 items-end gap-3 overflow-x-auto">
 {dati.length === 0 && ( <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">
 Nessun dato disponibile. </div>
@@ -119,7 +137,9 @@ Nessun dato disponibile. </div>
 
 
   {dati.map((item) => {
-    const altezza = Math.max((item.totale / max) * 240, 8);
+    const totaleColonna = valoreColonna(item);
+    const altezza =
+      totaleColonna > 0 ? Math.max((totaleColonna / max) * 240, 8) : 0;
 
     return (
       <div
@@ -127,13 +147,33 @@ Nessun dato disponibile. </div>
         className="flex min-w-20 flex-col items-center justify-end gap-2"
       >
         <p className="text-sm font-bold text-white">
-          {item.totale}
+          {totaleColonna}
         </p>
 
         <div
-          className="w-9 rounded-t-xl bg-[#d71920]"
+          className="flex w-9 flex-col-reverse overflow-hidden rounded-t-xl"
           style={{ height: `${altezza}px` }}
-        />
+        >
+          {statiDaMostrare.map((stato) => {
+            const valore = item.perStato[stato.key] ?? 0;
+
+            if (valore <= 0) return null;
+
+            const quota =
+              totaleColonna > 0 ? (valore / totaleColonna) * 100 : 0;
+
+            return (
+              <div
+                key={stato.key}
+                title={`${stato.title}: ${valore}`}
+                style={{
+                  height: `${quota}%`,
+                  backgroundColor: stato.color,
+                }}
+              />
+            );
+          })}
+        </div>
 
         <p className="max-w-20 truncate text-center text-xs text-zinc-500">
           {formatData(item.data)}
@@ -144,6 +184,25 @@ Nessun dato disponibile. </div>
 </div>
 
 
+);
+}
+
+function LegendaStati() {
+return (
+<div className="mt-4 flex flex-wrap gap-x-4 gap-y-2">
+{STATI.map((stato) => (
+<span
+key={stato.key}
+className="flex items-center gap-1.5 text-xs text-zinc-500"
+>
+<span
+className="h-2.5 w-2.5 rounded-full"
+style={{ backgroundColor: stato.color }}
+/>
+{stato.title}
+</span>
+))}
+</div>
 );
 }
 
@@ -330,7 +389,7 @@ export async function fetchPresenzeRows(params: {
 
 export type StatistichePresenze = {
   totalePerStato: Record<StatoPresenzaDb, number>;
-  datiGrafico: { data: string; totale: number }[];
+  datiGrafico: DatoGraficoPresenza[];
   distribuzione: { stato: StatoPresenzaDb; totale: number }[];
   mesiDisponibili: string[];
   totalePresenze: number;
@@ -355,15 +414,34 @@ export function calcolaStatistichePresenze(
     totalePerStato[row.stato] = (totalePerStato[row.stato] ?? 0) + 1;
   }
 
-  const grouped = presenze.reduce<Record<string, number>>((acc, presenza) => {
+  // Raggruppato per data E per stato, in modo che l'istogramma possa
+  // mostrare ogni colonna segmentata per colore (o isolare un solo stato
+  // quando l'utente filtra da una card).
+  const grouped = presenze.reduce<
+    Record<string, { totale: number; perStato: Record<StatoPresenzaDb, number> }>
+  >((acc, presenza) => {
     const data = presenza.allenamento?.data_allenamento;
     if (!data) return acc;
-    acc[data] = (acc[data] ?? 0) + 1;
+
+    if (!acc[data]) {
+      const perStato = {} as Record<StatoPresenzaDb, number>;
+      for (const stato of STATI) perStato[stato.key] = 0;
+      acc[data] = { totale: 0, perStato };
+    }
+
+    acc[data].totale += 1;
+    acc[data].perStato[presenza.stato] =
+      (acc[data].perStato[presenza.stato] ?? 0) + 1;
+
     return acc;
   }, {});
 
   const datiGrafico = Object.entries(grouped)
-    .map(([data, totale]) => ({ data, totale }))
+    .map(([data, valori]) => ({
+      data,
+      totale: valori.totale,
+      perStato: valori.perStato,
+    }))
     .sort((a, b) => a.data.localeCompare(b.data));
 
   const distribuzione = Object.entries(totalePerStato)
@@ -422,6 +500,16 @@ const [presenze, setPresenze] = useState<PresenzaRow[]>(
 
 const [loading, setLoading] = useState(true);
 
+// Filtro attivato cliccando una delle card in alto (Presente, Infortunato,
+// ecc.): isola quello stato nell'istogramma "Andamento presenze". Un
+// secondo click sulla stessa card lo disattiva.
+const [statoSelezionato, setStatoSelezionato] =
+  useState<StatoPresenzaDb | null>(null);
+
+function toggleStatoSelezionato(stato: StatoPresenzaDb) {
+  setStatoSelezionato((current) => (current === stato ? null : stato));
+}
+
 const tipiSedutaEffettivi = risolviTipiSeduta(tipoSeduta, tipiSeduta);
 
 useEffect(() => {
@@ -474,9 +562,35 @@ const {
 } = useMemo(() => calcolaStatistichePresenze(presenze), [presenze]);
 
 return ( <div className="space-y-5"> <div className="grid gap-3 md:grid-cols-6">
-{STATI.map((stato) => ( <AppCard key={stato.key}> <div className="flex items-center justify-between"> <div> <p className="text-xs text-zinc-400">
-{stato.title} </p>
+{STATI.map((stato) => {
+  const attivo = statoSelezionato === stato.key;
 
+  return (
+    <button
+      key={stato.key}
+      type="button"
+      onClick={() => toggleStatoSelezionato(stato.key)}
+      className="rounded-xl text-left transition"
+      style={
+        attivo
+          ? {
+              boxShadow: `0 0 0 2px ${stato.color}`,
+              borderRadius: "0.75rem",
+            }
+          : undefined
+      }
+      title={
+        attivo
+          ? "Clicca di nuovo per rimuovere il filtro"
+          : `Mostra solo ${stato.title} nell'istogramma`
+      }
+    >
+      <AppCard
+        className={attivo ? "bg-zinc-800" : undefined}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs text-zinc-400">{stato.title}</p>
 
             <p className="mt-1 text-2xl font-bold text-white">
               {totalePerStato[stato.key] ?? 0}
@@ -493,7 +607,9 @@ return ( <div className="space-y-5"> <div className="grid gap-3 md:grid-cols-6">
           </div>
         </div>
       </AppCard>
-    ))}
+    </button>
+  );
+})}
   </div>
 
   <div className="grid gap-3 md:grid-cols-3">
@@ -543,17 +659,40 @@ return ( <div className="space-y-5"> <div className="grid gap-3 md:grid-cols-6">
 
   <div className="grid gap-5 lg:grid-cols-4">
     <AppCard className="lg:col-span-3">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-white">
           Andamento presenze allenamenti
+          {statoSelezionato && (
+            <span className="ml-2 text-sm font-normal text-zinc-400">
+              —{" "}
+              {
+                STATI.find((s) => s.key === statoSelezionato)
+                  ?.title
+              }
+            </span>
+          )}
         </h2>
 
-        {loading && (
-          <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
-        )}
+        <div className="flex items-center gap-3">
+          {statoSelezionato && (
+            <button
+              type="button"
+              onClick={() => setStatoSelezionato(null)}
+              className="text-xs font-bold text-zinc-400 transition hover:text-white"
+            >
+              Mostra tutte
+            </button>
+          )}
+
+          {loading && (
+            <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
+          )}
+        </div>
       </div>
 
-      <BarChart dati={datiGrafico} />
+      <BarChart dati={datiGrafico} statoAttivo={statoSelezionato} />
+
+      <LegendaStati />
     </AppCard>
 
     <AppCard>
