@@ -234,10 +234,14 @@ function disegnaGraficoBarreImpilate(
   colonne.forEach((colonna, indice) => {
     const totaleColonna = totali[indice];
     const barX = x + indice * (larghezzaBarra + gap);
-    const barAltezzaTotale =
-      totaleColonna > 0
-        ? Math.max(0.3, (totaleColonna / massimo) * (areaAltezza - 5))
-        : 0;
+    // Come in disegnaGraficoBarre: sempre un'altezza minima (0.3mm), anche
+    // per le colonne a 0 (es. giornata senza quello stato dopo un filtro
+    // da card). Senza questo minimo l'etichetta del valore finisce esatta-
+    // mente sopra la linea dell'asse e si sovrappone, con effetto "sballato".
+    const barAltezzaTotale = Math.max(
+      0.3,
+      (totaleColonna / massimo) * (areaAltezza - 5)
+    );
 
     let cursoreY = areaY + areaAltezza;
 
