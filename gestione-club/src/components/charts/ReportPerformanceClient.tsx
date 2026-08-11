@@ -9,7 +9,7 @@ import {
   type TipoSedutaSingolo,
 } from "@/lib/performance/catapult-filtri";
 
-type StatoPresenzaDb =
+export type StatoPresenzaDb =
 | "presente_mattina"
 | "presente_pomeriggio"
 | "presente_entrambe"
@@ -19,7 +19,7 @@ type StatoPresenzaDb =
 
 type TipoSeduta = "tutte" | "allenamento" | "partita";
 
-type PresenzaRow = {
+export type PresenzaRow = {
 id: string;
 stato: StatoPresenzaDb;
 giocatore_id: string;
@@ -44,7 +44,7 @@ eventoDate?: string[];
 hideFilters?: boolean;
 };
 
-const STATI: {
+export const STATI: {
 key: StatoPresenzaDb;
 label: string;
 title: string;
@@ -240,6 +240,170 @@ background: `conic-gradient(${gradient})`,
 );
 }
 
+/**
+ * Interroga presenze_allenamenti con lo stesso set di filtri usato dalla
+ * tab Presenze (giocatori, periodo, tipo seduta, eventi) e ritorna le
+ * righe filtrate. Estratta come funzione a sé in modo da poter essere
+ * richiamata anche fuori dal ciclo di vita di questo componente, ad
+ * esempio dal pulsante "Scarica PDF" nell'header della pagina Performance
+ * quando la tab "Presenze" è quella attiva.
+ */
+export async function fetchPresenzeRows(params: {
+  clubId: string;
+  squadraId: string | null;
+  dataDa?: string;
+  dataA?: string;
+  tipiSeduta?: TipoSedutaSingolo[];
+  giocatoreId?: string | null;
+  giocatoreIds?: string[];
+  eventoDate?: string[];
+}): Promise<PresenzaRow[]> {
+  const tipiSedutaEffettivi = params.tipiSeduta ?? [];
+
+  // Questa fonte legge presenze_allenamenti: nessun filtro (o
+  // "allenamento" incluso) mostra i dati, "solo partita" selezionato
+  // non ritorna nulla perché le presenze partita hanno una sorgente
+  // diversa.
+  const soloPartita =
+    tipiSedutaEffettivi.length === 1 && tipiSedutaEffettivi[0] === "partita";
+
+  if (soloPartita) return [];
+
+  let query = supabase
+    .from("presenze_allenamenti")
+    .select(
+      `
+        id,
+        stato,
+        giocatore_id,
+        squadra_id,
+        allenamento_id,
+        allenamento:allenamenti!presenze_allenamenti_allenamento_id_fkey (
+          id,
+          data_allenamento
+        )
+      `
+    )
+    .eq("club_id", params.clubId);
+
+  if (params.squadraId) {
+    query = query.eq("squadra_id", params.squadraId);
+  }
+
+  const filtroGiocatori =
+    params.giocatoreIds && params.giocatoreIds.length > 0
+      ? params.giocatoreIds
+      : params.giocatoreId
+        ? [params.giocatoreId]
+        : null;
+
+  if (filtroGiocatori) {
+    query = query.in("giocatore_id", filtroGiocatori);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error("Errore presenze_allenamenti:", error);
+    return [];
+  }
+
+  const eventoDate = params.eventoDate ?? [];
+
+  return ((data ?? []) as unknown as PresenzaRow[]).filter((row) => {
+    const dataAllenamento = row.allenamento?.data_allenamento;
+
+    if (!dataAllenamento) return false;
+    if (params.dataDa && dataAllenamento < params.dataDa) return false;
+    if (params.dataA && dataAllenamento > params.dataA) return false;
+
+    // Filtro evento (le sessioni Catapult selezionate): approssimato per
+    // data, dato che presenze_allenamenti non ha un riferimento a
+    // session_title.
+    if (eventoDate.length > 0 && !eventoDate.includes(dataAllenamento)) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+export type StatistichePresenze = {
+  totalePerStato: Record<StatoPresenzaDb, number>;
+  datiGrafico: { data: string; totale: number }[];
+  distribuzione: { stato: StatoPresenzaDb; totale: number }[];
+  mesiDisponibili: string[];
+  totalePresenze: number;
+  totaleRilevazioni: number;
+  percentualePresenza: number;
+};
+
+/**
+ * Calcola tutte le statistiche derivate mostrate nella tab Presenze
+ * (usata anche dall'export PDF) a partire dalle righe grezze.
+ */
+export function calcolaStatistichePresenze(
+  presenze: PresenzaRow[]
+): StatistichePresenze {
+  const totalePerStato = {} as Record<StatoPresenzaDb, number>;
+
+  for (const stato of STATI) {
+    totalePerStato[stato.key] = 0;
+  }
+
+  for (const row of presenze) {
+    totalePerStato[row.stato] = (totalePerStato[row.stato] ?? 0) + 1;
+  }
+
+  const grouped = presenze.reduce<Record<string, number>>((acc, presenza) => {
+    const data = presenza.allenamento?.data_allenamento;
+    if (!data) return acc;
+    acc[data] = (acc[data] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const datiGrafico = Object.entries(grouped)
+    .map(([data, totale]) => ({ data, totale }))
+    .sort((a, b) => a.data.localeCompare(b.data));
+
+  const distribuzione = Object.entries(totalePerStato)
+    .map(([stato, totale]) => ({ stato: stato as StatoPresenzaDb, totale }))
+    .filter((item) => item.totale > 0)
+    .sort((a, b) => b.totale - a.totale);
+
+  const mesi = new Set<string>();
+  presenze.forEach((presenza) => {
+    const data = presenza.allenamento?.data_allenamento;
+    if (data) mesi.add(data.slice(0, 7));
+  });
+  const mesiDisponibili = Array.from(mesi).sort();
+
+  const totalePresenze = presenze.filter((p) =>
+    [
+      "presente_mattina",
+      "presente_pomeriggio",
+      "presente_entrambe",
+    ].includes(p.stato)
+  ).length;
+
+  const totaleRilevazioni = presenze.length;
+
+  const percentualePresenza =
+    totaleRilevazioni > 0
+      ? Math.round((totalePresenze / totaleRilevazioni) * 100)
+      : 0;
+
+  return {
+    totalePerStato,
+    datiGrafico,
+    distribuzione,
+    mesiDisponibili,
+    totalePresenze,
+    totaleRilevazioni,
+    percentualePresenza,
+  };
+}
+
 export default function ReportPerformanceClient({
 clubId,
 squadraId,
@@ -261,228 +425,53 @@ const [loading, setLoading] = useState(true);
 const tipiSedutaEffettivi = risolviTipiSeduta(tipoSeduta, tipiSeduta);
 
 useEffect(() => {
-let cancelled = false;
+  let cancelled = false;
 
+  async function caricaPresenze() {
+    setLoading(true);
 
-async function loadPresenze() {
-  setLoading(true);
+    const rows = await fetchPresenzeRows({
+      clubId,
+      squadraId,
+      dataDa,
+      dataA,
+      tipiSeduta: tipiSedutaEffettivi,
+      giocatoreId,
+      giocatoreIds,
+      eventoDate,
+    });
 
-  /*
-   * Questo componente legge presenze_allenamenti.
-   *
-   * Quindi:
-   * - nessun filtro, o "allenamento" incluso -> mostra i dati
-   * - solo "partita" selezionato -> nessun dato, perché le
-   *   presenze partita appartengono a una sorgente diversa
-   */
-  const soloPartita =
-    tipiSedutaEffettivi.length === 1 &&
-    tipiSedutaEffettivi[0] === "partita";
+    if (cancelled) return;
 
-  if (soloPartita) {
-    if (!cancelled) {
-      setPresenze([]);
-      setLoading(false);
-    }
-    return;
-  }
-
-  let query = supabase
-    .from("presenze_allenamenti")
-    .select(
-      `
-        id,
-        stato,
-        giocatore_id,
-        squadra_id,
-        allenamento_id,
-        allenamento:allenamenti!presenze_allenamenti_allenamento_id_fkey (
-          id,
-          data_allenamento
-        )
-      `
-    )
-    .eq("club_id", clubId);
-
-  /*
-   * Multi-squadra:
-   * filtra sempre per la squadra attiva quando presente.
-   */
-  if (squadraId) {
-    query = query.eq("squadra_id", squadraId);
-  }
-
-  /*
-   * Filtro giocatore (supporta selezione multipla).
-   */
-  const filtroGiocatori =
-    giocatoreIds.length > 0
-      ? giocatoreIds
-      : giocatoreId
-        ? [giocatoreId]
-        : null;
-
-  if (filtroGiocatori) {
-    query = query.in("giocatore_id", filtroGiocatori);
-  }
-
-  const { data, error } = await query;
-
-  if (cancelled) return;
-
-  if (error) {
-    console.error(
-      "Errore presenze_allenamenti:",
-      error
-    );
-
-    setPresenze([]);
+    setPresenze(rows);
     setLoading(false);
-    return;
   }
 
-  const rows = (
-    (data ?? []) as unknown as PresenzaRow[]
-  ).filter((row) => {
-    const dataAllenamento =
-      row.allenamento?.data_allenamento;
+  void caricaPresenze();
 
-    if (!dataAllenamento) return false;
-
-    if (dataDa && dataAllenamento < dataDa) {
-      return false;
-    }
-
-    if (dataA && dataAllenamento > dataA) {
-      return false;
-    }
-
-    /*
-     * Filtro evento (le sessioni Catapult selezionate): approssimato
-     * per data, dato che presenze_allenamenti non ha un riferimento a
-     * session_title.
-     */
-    if (eventoDate.length > 0 && !eventoDate.includes(dataAllenamento)) {
-      return false;
-    }
-
-    return true;
-  });
-
-  setPresenze(rows);
-  setLoading(false);
-}
-
-loadPresenze();
-
-return () => {
-  cancelled = true;
-};
-
-
+  return () => {
+    cancelled = true;
+  };
 }, [
-clubId,
-squadraId,
-dataDa,
-dataA,
-tipiSedutaEffettivi.join(","),
-giocatoreId,
-giocatoreIds.join(","),
-eventoDate.join(","),
+  clubId,
+  squadraId,
+  dataDa,
+  dataA,
+  tipiSedutaEffettivi.join(","),
+  giocatoreId,
+  giocatoreIds.join(","),
+  eventoDate.join(","),
 ]);
 
-const totalePerStato = useMemo(() => {
-const result = {} as Record<
-StatoPresenzaDb,
-number
->;
-
-
-for (const stato of STATI) {
-  result[stato.key] = 0;
-}
-
-for (const row of presenze) {
-  result[row.stato] =
-    (result[row.stato] ?? 0) + 1;
-}
-
-return result;
-
-
-}, [presenze]);
-
-const datiGrafico = useMemo(() => {
-const grouped = presenze.reduce<
-Record<string, number>
->((acc, presenza) => {
-const data =
-presenza.allenamento?.data_allenamento;
-
-
-  if (!data) return acc;
-
-  acc[data] = (acc[data] ?? 0) + 1;
-
-  return acc;
-}, {});
-
-return Object.entries(grouped)
-  .map(([data, totale]) => ({
-    data,
-    totale,
-  }))
-  .sort((a, b) => a.data.localeCompare(b.data));
-
-
-}, [presenze]);
-
-const distribuzione = useMemo(() => {
-return Object.entries(totalePerStato)
-.map(([stato, totale]) => ({
-stato: stato as StatoPresenzaDb,
-totale,
-}))
-.filter((item) => item.totale > 0)
-.sort((a, b) => b.totale - a.totale);
-}, [totalePerStato]);
-
-const mesiDisponibili = useMemo(() => {
-const mesi = new Set<string>();
-
-
-presenze.forEach((presenza) => {
-  const data =
-    presenza.allenamento?.data_allenamento;
-
-  if (data) {
-    mesi.add(data.slice(0, 7));
-  }
-});
-
-return Array.from(mesi).sort();
-
-
-}, [presenze]);
-
-const totalePresenze = presenze.filter((p) =>
-[
-"presente_mattina",
-"presente_pomeriggio",
-"presente_entrambe",
-].includes(p.stato)
-).length;
-
-const totaleAllenamentiPeriodo = presenze.length;
-
-const percentualePresenza =
-totaleAllenamentiPeriodo > 0
-? Math.round(
-(totalePresenze /
-totaleAllenamentiPeriodo) *
-100
-)
-: 0;
+const {
+  totalePerStato,
+  datiGrafico,
+  distribuzione,
+  mesiDisponibili,
+  totalePresenze,
+  totaleRilevazioni: totaleAllenamentiPeriodo,
+  percentualePresenza,
+} = useMemo(() => calcolaStatistichePresenze(presenze), [presenze]);
 
 return ( <div className="space-y-5"> <div className="grid gap-3 md:grid-cols-6">
 {STATI.map((stato) => ( <AppCard key={stato.key}> <div className="flex items-center justify-between"> <div> <p className="text-xs text-zinc-400">
