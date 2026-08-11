@@ -27,6 +27,8 @@ export type EventoDettaglio = {
   data_inizio: string;
   data_fine: string | null;
   ora_inizio: string | null;
+  ora_fine: string | null;
+  logo_url: string | null;
   luogo: string | null;
   note: string | null;
   tipo_evento_id: string;
@@ -101,6 +103,8 @@ export default async function EventoDetailPage({ params }: PageProps) {
         data_inizio,
         data_fine,
         ora_inizio,
+        ora_fine,
+        logo_url,
         luogo,
         note,
         tipo_evento_id,

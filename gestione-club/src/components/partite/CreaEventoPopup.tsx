@@ -24,8 +24,11 @@ export function CreaEventoPopup({ tipiEventi, coloreClub }: Props) {
   const [dataInizio, setDataInizio] = useState("");
   const [dataFine, setDataFine] = useState("");
   const [oraInizio, setOraInizio] = useState("");
+  const [oraFine, setOraFine] = useState("");
   const [luogo, setLuogo] = useState("");
   const [note, setNote] = useState("");
+  const [logo, setLogo] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
 
   const [nuovaTipologiaAperta, setNuovaTipologiaAperta] = useState(false);
   const [nomeTipologia, setNomeTipologia] = useState("");
@@ -38,12 +41,23 @@ export function CreaEventoPopup({ tipiEventi, coloreClub }: Props) {
     setDataInizio("");
     setDataFine("");
     setOraInizio("");
+    setOraFine("");
     setLuogo("");
     setNote("");
     setErrore(null);
     setNuovaTipologiaAperta(false);
     setNomeTipologia("");
     setColoreTipologia(coloreClub);
+    setLogo(null);
+    setLogoPreview(null);
+  }
+
+  function handleLogoChange(file: File | null) {
+    setLogo(file);
+    setLogoPreview((precedente) => {
+      if (precedente) URL.revokeObjectURL(precedente);
+      return file ? URL.createObjectURL(file) : null;
+    });
   }
 
   async function salvaTipologia() {
@@ -104,8 +118,10 @@ export function CreaEventoPopup({ tipiEventi, coloreClub }: Props) {
     formData.set("data_inizio", dataInizio);
     formData.set("data_fine", dataFine);
     formData.set("ora_inizio", oraInizio);
+    formData.set("ora_fine", oraFine);
     formData.set("luogo", luogo.trim());
     formData.set("note", note.trim());
+    if (logo) formData.set("logo", logo);
 
     const result = await creaEvento(formData);
 
@@ -285,7 +301,7 @@ export function CreaEventoPopup({ tipiEventi, coloreClub }: Props) {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <DateInput
                   label="Data inizio"
                   value={dataInizio}
@@ -302,7 +318,9 @@ export function CreaEventoPopup({ tipiEventi, coloreClub }: Props) {
                   wrapperClassName="bg-zinc-900"
                   wrapperStyle={{ borderColor: `${coloreClub}45` }}
                 />
+              </div>
 
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-zinc-300">
                     Ora inizio
@@ -313,6 +331,46 @@ export function CreaEventoPopup({ tipiEventi, coloreClub }: Props) {
                     value={oraInizio}
                     onChange={(e) => setOraInizio(e.target.value)}
                     className="w-full rounded-xl border bg-zinc-900 px-3 py-2 text-sm text-white outline-none transition"
+                    style={{ borderColor: `${coloreClub}45` }}
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-zinc-300">
+                    Ora fine
+                  </label>
+
+                  <input
+                    type="time"
+                    value={oraFine}
+                    onChange={(e) => setOraFine(e.target.value)}
+                    className="w-full rounded-xl border bg-zinc-900 px-3 py-2 text-sm text-white outline-none transition"
+                    style={{ borderColor: `${coloreClub}45` }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-300">
+                  Logo evento (facoltativo)
+                </label>
+
+                <div className="flex items-center gap-3">
+                  {logoPreview && (
+                    <img
+                      src={logoPreview}
+                      alt="Anteprima logo"
+                      className="h-12 w-12 shrink-0 rounded-xl border border-zinc-700 object-contain"
+                    />
+                  )}
+
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) =>
+                      handleLogoChange(e.target.files?.[0] ?? null)
+                    }
+                    className="flex-1 rounded-xl border bg-zinc-900 px-3 py-2 text-sm text-zinc-300 outline-none"
                     style={{ borderColor: `${coloreClub}45` }}
                   />
                 </div>

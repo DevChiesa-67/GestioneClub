@@ -351,6 +351,7 @@ export async function getUpcomingEventiClub(limit = 4) {
       data_inizio,
       ora_inizio,
       luogo,
+      logo_url,
       tipo_evento:tipo_evento_id (
         nome
       )
@@ -385,7 +386,7 @@ export async function getUpcomingEventiClub(limit = 4) {
       date: evento.data_inizio,
       time: evento.ora_inizio?.slice(0, 5) ?? "",
       place: evento.luogo ?? null,
-      logoCasa: null as string | null,
+      logoCasa: evento.logo_url ?? null,
       logoFuori: null as string | null,
     };
   });

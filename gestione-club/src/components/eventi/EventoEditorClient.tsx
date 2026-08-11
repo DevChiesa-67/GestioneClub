@@ -137,8 +137,25 @@ export default function EventoEditorClient({
     evento.data_fine ?? ""
   );
   const [oraModifica, setOraModifica] = useState(evento.ora_inizio ?? "");
+  const [oraFineModifica, setOraFineModifica] = useState(
+    evento.ora_fine ?? ""
+  );
   const [luogoModifica, setLuogoModifica] = useState(evento.luogo ?? "");
   const [noteModifica, setNoteModifica] = useState(evento.note ?? "");
+  const [logoModifica, setLogoModifica] = useState<File | null>(null);
+  const [logoPreviewModifica, setLogoPreviewModifica] = useState<
+    string | null
+  >(null);
+  const [rimuoviLogoModifica, setRimuoviLogoModifica] = useState(false);
+
+  function handleLogoModificaChange(file: File | null) {
+    setLogoModifica(file);
+    setRimuoviLogoModifica(false);
+    setLogoPreviewModifica((precedente) => {
+      if (precedente) URL.revokeObjectURL(precedente);
+      return file ? URL.createObjectURL(file) : null;
+    });
+  }
 
   const coloreTipo = evento.tipo_evento?.colore || coloreClub;
 
@@ -221,8 +238,11 @@ export default function EventoEditorClient({
     formData.set("data_inizio", dataInizioModifica);
     formData.set("data_fine", dataFineModifica);
     formData.set("ora_inizio", oraModifica);
+    formData.set("ora_fine", oraFineModifica);
     formData.set("luogo", luogoModifica.trim());
     formData.set("note", noteModifica.trim());
+    if (logoModifica) formData.set("logo", logoModifica);
+    if (rimuoviLogoModifica) formData.set("rimuovi_logo", "1");
 
     const result = await aggiornaEvento(formData);
 
@@ -235,6 +255,8 @@ export default function EventoEditorClient({
 
     showToast({ type: "success", message: result.message });
     setModalModificaAperto(false);
+    handleLogoModificaChange(null);
+    setRimuoviLogoModifica(false);
     router.refresh();
   }
 
@@ -253,50 +275,70 @@ export default function EventoEditorClient({
         style={{ boxShadow: `0 0 32px ${coloreTipo}12` }}
       >
         <div className="flex flex-col gap-4 border-b border-zinc-800 bg-zinc-900 px-5 py-5 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <span
-              className="mb-3 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wider"
-              style={{
-                borderColor: `${coloreTipo}55`,
-                backgroundColor: `${coloreTipo}18`,
-                color: coloreTipo,
-              }}
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              {evento.tipo_evento?.nome || "Evento"}
-            </span>
-
-            <h1 className="text-2xl font-black text-white sm:text-3xl">
-              {evento.titolo}
-            </h1>
-
-            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-zinc-300">
-              <span className="flex items-center gap-2">
-                <CalendarDays
-                  className="h-4 w-4"
-                  style={{ color: coloreTipo }}
+          <div className="flex min-w-0 items-start gap-4">
+            {evento.logo_url && (
+              <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 sm:h-16 sm:w-16">
+                <Image
+                  src={evento.logo_url}
+                  alt={`Logo ${evento.titolo}`}
+                  fill
+                  sizes="64px"
+                  className="object-contain p-1"
                 />
-                {formatRangeDate(evento)}
-              </span>
-
-              {evento.ora_inizio && (
-                <span className="flex items-center gap-2">
-                  <Clock className="h-4 w-4" style={{ color: coloreTipo }} />
-                  {evento.ora_inizio.slice(0, 5)}
-                </span>
-              )}
-
-              <span className="flex items-center gap-2">
-                <MapPin className="h-4 w-4" style={{ color: coloreTipo }} />
-                {evento.luogo || "Luogo da definire"}
-              </span>
-            </div>
-
-            {evento.note && (
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-400">
-                {evento.note}
-              </p>
+              </div>
             )}
+
+            <div className="min-w-0">
+              <span
+                className="mb-3 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wider"
+                style={{
+                  borderColor: `${coloreTipo}55`,
+                  backgroundColor: `${coloreTipo}18`,
+                  color: coloreTipo,
+                }}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                {evento.tipo_evento?.nome || "Evento"}
+              </span>
+
+              <h1 className="text-2xl font-black text-white sm:text-3xl">
+                {evento.titolo}
+              </h1>
+
+              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-zinc-300">
+                <span className="flex items-center gap-2">
+                  <CalendarDays
+                    className="h-4 w-4"
+                    style={{ color: coloreTipo }}
+                  />
+                  {formatRangeDate(evento)}
+                </span>
+
+                {(evento.ora_inizio || evento.ora_fine) && (
+                  <span className="flex items-center gap-2">
+                    <Clock
+                      className="h-4 w-4"
+                      style={{ color: coloreTipo }}
+                    />
+                    {evento.ora_inizio?.slice(0, 5) ?? ""}
+                    {evento.ora_fine
+                      ? `–${evento.ora_fine.slice(0, 5)}`
+                      : ""}
+                  </span>
+                )}
+
+                <span className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4" style={{ color: coloreTipo }} />
+                  {evento.luogo || "Luogo da definire"}
+                </span>
+              </div>
+
+              {evento.note && (
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-400">
+                  {evento.note}
+                </p>
+              )}
+            </div>
           </div>
 
           {isAdmin && (
@@ -496,7 +538,7 @@ export default function EventoEditorClient({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <DateInput
                   label="Data inizio"
                   value={dataInizioModifica}
@@ -513,7 +555,9 @@ export default function EventoEditorClient({
                   wrapperClassName="bg-zinc-900"
                   wrapperStyle={{ borderColor: `${coloreClub}45` }}
                 />
+              </div>
 
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-sm font-medium text-zinc-300">
                     Ora inizio
@@ -526,6 +570,65 @@ export default function EventoEditorClient({
                     className="w-full rounded-xl border bg-zinc-900 px-3 py-2 text-sm text-white outline-none transition"
                     style={{ borderColor: `${coloreClub}45` }}
                   />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-zinc-300">
+                    Ora fine
+                  </label>
+
+                  <input
+                    type="time"
+                    value={oraFineModifica}
+                    onChange={(e) => setOraFineModifica(e.target.value)}
+                    className="w-full rounded-xl border bg-zinc-900 px-3 py-2 text-sm text-white outline-none transition"
+                    style={{ borderColor: `${coloreClub}45` }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-zinc-300">
+                  Logo evento
+                </label>
+
+                <div className="flex items-center gap-3">
+                  {logoPreviewModifica ? (
+                    <img
+                      src={logoPreviewModifica}
+                      alt="Anteprima logo"
+                      className="h-12 w-12 shrink-0 rounded-xl border border-zinc-700 object-contain"
+                    />
+                  ) : evento.logo_url && !rimuoviLogoModifica ? (
+                    <img
+                      src={evento.logo_url}
+                      alt="Logo attuale"
+                      className="h-12 w-12 shrink-0 rounded-xl border border-zinc-700 object-contain"
+                    />
+                  ) : null}
+
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) =>
+                      handleLogoModificaChange(e.target.files?.[0] ?? null)
+                    }
+                    className="flex-1 rounded-xl border bg-zinc-900 px-3 py-2 text-sm text-zinc-300 outline-none"
+                    style={{ borderColor: `${coloreClub}45` }}
+                  />
+
+                  {evento.logo_url && !logoModifica && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRimuoviLogoModifica((v) => !v);
+                      }}
+                      className="shrink-0 rounded-xl border px-3 py-2 text-xs font-bold text-zinc-400 transition hover:text-white"
+                      style={{ borderColor: `${coloreClub}45` }}
+                    >
+                      {rimuoviLogoModifica ? "Annulla" : "Rimuovi"}
+                    </button>
+                  )}
                 </div>
               </div>
 

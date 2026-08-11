@@ -127,10 +127,10 @@ export default function DashboardEventCard({
         color: themeColor,
       }}
     >
-      {isPartita && event.logoCasa ? (
+      {(isPartita || event.type === "Evento") && event.logoCasa ? (
         <Image
           src={event.logoCasa}
-          alt="Squadra casa"
+          alt={isPartita ? "Squadra casa" : "Logo evento"}
           width={96}
           height={96}
           className="h-15 w-15 rounded-full object-contain  sm:h-24 sm:w-24"

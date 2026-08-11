@@ -523,6 +523,18 @@ function EventoCard({
     >
       <div className="flex flex-col gap-3 border-b border-zinc-800 bg-zinc-900 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div className="flex flex-wrap items-center gap-2">
+          {evento.logo_url && (
+            <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950">
+              <Image
+                src={evento.logo_url}
+                alt={`Logo ${evento.titolo}`}
+                fill
+                sizes="32px"
+                className="object-contain p-0.5"
+              />
+            </div>
+          )}
+
           <span
             className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-black uppercase tracking-wider"
             style={{
@@ -540,10 +552,11 @@ function EventoCard({
           <CalendarDays className="h-4 w-4" style={{ color: coloreTipo }} />
           <span>{formatRangeDate(evento)}</span>
 
-          {evento.ora_inizio && (
+          {(evento.ora_inizio || evento.ora_fine) && (
             <span className="flex items-center gap-1 rounded-full border border-zinc-800 bg-zinc-950 px-2 py-1 text-xs">
               <Clock className="h-3.5 w-3.5" style={{ color: coloreTipo }} />
-              {formatOra(evento.ora_inizio)}
+              {evento.ora_inizio ? formatOra(evento.ora_inizio) : ""}
+              {evento.ora_fine ? `–${formatOra(evento.ora_fine)}` : ""}
             </span>
           )}
         </div>

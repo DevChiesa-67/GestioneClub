@@ -9,6 +9,36 @@ export type EventoActionResult = {
   id?: string;
 };
 
+const BUCKET_LOGHI = "club-loghi";
+
+/*
+ * Carica il logo di un evento nello stesso bucket pubblico già usato per
+ * i loghi del club (cartella "eventi" per non mischiarli). Ritorna null
+ * se non c'è nessun file (permette di lasciare l'evento senza logo).
+ */
+async function uploadLogoEvento(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  file: File | null
+): Promise<string | null> {
+  if (!file || file.size === 0) return null;
+
+  const ext = file.name.split(".").pop() || "png";
+  const path = `eventi/${crypto.randomUUID()}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from(BUCKET_LOGHI)
+    .upload(path, file, {
+      cacheControl: "3600",
+      upsert: false,
+    });
+
+  if (error) throw new Error(error.message);
+
+  const { data } = supabase.storage.from(BUCKET_LOGHI).getPublicUrl(path);
+
+  return data.publicUrl;
+}
+
 async function getContestoAdmin() {
   const supabase = await createClient();
 
@@ -109,8 +139,10 @@ export async function creaEvento(
     const dataInizio = getString(formData.get("data_inizio"));
     const dataFine = getString(formData.get("data_fine")) || null;
     const oraInizio = getString(formData.get("ora_inizio")) || null;
+    const oraFine = getString(formData.get("ora_fine")) || null;
     const luogo = getString(formData.get("luogo")) || null;
     const note = getString(formData.get("note")) || null;
+    const logoFile = formData.get("logo");
 
     if (!titolo) {
       return { success: false, message: "Inserisci il titolo dell'evento." };
@@ -131,6 +163,13 @@ export async function creaEvento(
       };
     }
 
+    if (oraInizio && oraFine && oraFine <= oraInizio) {
+      return {
+        success: false,
+        message: "L'ora di fine deve essere successiva a quella di inizio.",
+      };
+    }
+
     const { data: tipoValido, error: tipoError } = await supabase
       .from("tipi_eventi")
       .select("id")
@@ -142,6 +181,11 @@ export async function creaEvento(
       return { success: false, message: "Tipologia di evento non valida." };
     }
 
+    const logoUrl = await uploadLogoEvento(
+      supabase,
+      logoFile instanceof File ? logoFile : null
+    );
+
     const { data, error } = await supabase
       .from("eventi")
       .insert({
@@ -152,6 +196,8 @@ export async function creaEvento(
         data_inizio: dataInizio,
         data_fine: dataFine,
         ora_inizio: oraInizio,
+        ora_fine: oraFine,
+        logo_url: logoUrl,
         luogo,
         note,
         created_by: user.id,
@@ -190,8 +236,11 @@ export async function aggiornaEvento(
     const dataInizio = getString(formData.get("data_inizio"));
     const dataFine = getString(formData.get("data_fine")) || null;
     const oraInizio = getString(formData.get("ora_inizio")) || null;
+    const oraFine = getString(formData.get("ora_fine")) || null;
     const luogo = getString(formData.get("luogo")) || null;
     const note = getString(formData.get("note")) || null;
+    const logoFile = formData.get("logo");
+    const rimuoviLogo = getString(formData.get("rimuovi_logo")) === "1";
 
     if (!id) {
       return { success: false, message: "Evento non valido." };
@@ -212,18 +261,42 @@ export async function aggiornaEvento(
       };
     }
 
+    if (oraInizio && oraFine && oraFine <= oraInizio) {
+      return {
+        success: false,
+        message: "L'ora di fine deve essere successiva a quella di inizio.",
+      };
+    }
+
+    // Il logo si aggiorna solo se viene caricato un nuovo file, o si
+    // rimuove esplicitamente con "rimuovi_logo": altrimenti resta quello
+    // già salvato (non lo tocchiamo per non perderlo a ogni modifica).
+    const nuovoLogoUrl = await uploadLogoEvento(
+      supabase,
+      logoFile instanceof File ? logoFile : null
+    );
+
+    const aggiornamento: Record<string, unknown> = {
+      titolo,
+      tipo_evento_id: tipoEventoId,
+      data_inizio: dataInizio,
+      data_fine: dataFine,
+      ora_inizio: oraInizio,
+      ora_fine: oraFine,
+      luogo,
+      note,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (nuovoLogoUrl) {
+      aggiornamento.logo_url = nuovoLogoUrl;
+    } else if (rimuoviLogo) {
+      aggiornamento.logo_url = null;
+    }
+
     const { error } = await supabase
       .from("eventi")
-      .update({
-        titolo,
-        tipo_evento_id: tipoEventoId,
-        data_inizio: dataInizio,
-        data_fine: dataFine,
-        ora_inizio: oraInizio,
-        luogo,
-        note,
-        updated_at: new Date().toISOString(),
-      })
+      .update(aggiornamento)
       .eq("id", id)
       .eq("club_id", clubId);
 
