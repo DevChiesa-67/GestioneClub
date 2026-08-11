@@ -183,6 +183,175 @@ function secondiInMinuti(value: unknown): number | null {
   return numero === null ? null : numero / 60;
 }
 
+// Campi "di picco": rappresentano un massimo raggiunto nella seduta, non
+// un accumulo. Quando si uniscono più split (es. Primo Tempo + Secondo
+// Tempo) vanno combinati con il massimo tra le righe, non sommati (sommare
+// due "top speed" non avrebbe senso).
+const CAMPI_AGGREGAZIONE_MASSIMO = new Set<string>([
+  "top_speed",
+  "max_acc",
+  "max_dec",
+  "hr_max_bpm",
+]);
+
+// Campi che sono già un tasso/indice (non un accumulo): uniti con una
+// media pesata sui minuti di ciascuna riga, così una riga più lunga pesa
+// di più di una più corta.
+const CAMPI_AGGREGAZIONE_MEDIA_PESATA = new Set<string>([
+  "power_score",
+  "work_ratio",
+]);
+
+/**
+ * Combina i valori numerici di più righe (stesso giocatore/sessione, split
+ * diversi) in un'unica mappa chiave -> valore aggregato, usata sia per
+ * accorpare gli split selezionati sia per calcolare la riga dei totali in
+ * fondo alla tabella. La durata è sempre sommata (minuti totali). I campi
+ * "di picco" prendono il massimo, i tassi/indici una media pesata sui
+ * minuti, "distanza per minuto" viene ricalcolata da distanza totale /
+ * durata totale, tutti gli altri campi (distanza, player load, impatti,
+ * zone di velocità/accelerazione/potenza/frequenza cardiaca...) sono
+ * cumulativi e vengono sommati.
+ */
+export function aggregaValoriNumerici(
+  righe: PerformanceRow[],
+  colonne: BaseColumn[]
+): Record<string, number | null> {
+  const risultato: Record<string, number | null> = {};
+
+  const durataTotale = righe.reduce(
+    (somma, riga) => somma + (normalizeNumber(riga.duration) ?? 0),
+    0
+  );
+
+  const distanzaTotale = righe.reduce(
+    (somma, riga) => somma + (normalizeNumber(riga.distance) ?? 0),
+    0
+  );
+
+  for (const colonna of colonne) {
+    if (colonna.type !== "number") continue;
+
+    const chiave = String(colonna.key);
+
+    if (chiave === "duration") {
+      risultato[chiave] = durataTotale;
+      continue;
+    }
+
+    if (chiave === "distance_per_minute") {
+      risultato[chiave] =
+        durataTotale > 0 ? distanzaTotale / durataTotale : null;
+      continue;
+    }
+
+    const valoriValidi = righe
+      .map((riga) => normalizeNumber(riga[chiave]))
+      .filter((valore): valore is number => valore !== null);
+
+    if (valoriValidi.length === 0) {
+      risultato[chiave] = null;
+      continue;
+    }
+
+    if (CAMPI_AGGREGAZIONE_MASSIMO.has(chiave)) {
+      risultato[chiave] = Math.max(...valoriValidi);
+      continue;
+    }
+
+    if (CAMPI_AGGREGAZIONE_MEDIA_PESATA.has(chiave)) {
+      const contributi = righe.filter(
+        (riga) => normalizeNumber(riga[chiave]) !== null
+      );
+
+      const pesoTotale = contributi.reduce(
+        (somma, riga) => somma + (normalizeNumber(riga.duration) ?? 0),
+        0
+      );
+
+      if (pesoTotale > 0) {
+        const sommaPesata = contributi.reduce(
+          (somma, riga) =>
+            somma +
+            (normalizeNumber(riga[chiave]) ?? 0) *
+              (normalizeNumber(riga.duration) ?? 0),
+          0
+        );
+
+        risultato[chiave] = sommaPesata / pesoTotale;
+      } else {
+        risultato[chiave] =
+          valoriValidi.reduce((somma, valore) => somma + valore, 0) /
+          valoriValidi.length;
+      }
+
+      continue;
+    }
+
+    risultato[chiave] = valoriValidi.reduce(
+      (somma, valore) => somma + valore,
+      0
+    );
+  }
+
+  return risultato;
+}
+
+/**
+ * Quando l'utente seleziona più split/tempi contemporaneamente (es.
+ * "Primo Tempo" + "Secondo Tempo") la query ritorna una riga per split:
+ * questa funzione le accorpa in un'unica riga per giocatore/sessione con
+ * la durata totale (non splittata) e lo split_name che diventa la
+ * concatenazione dei nomi originali (es. "1st-2nd"). Se è selezionato al
+ * più uno split non c'è nulla da accorpare e le righe tornano invariate.
+ */
+function accorpaSplitSelezionati(
+  righe: PerformanceRow[],
+  splitSelezionati?: string[]
+): PerformanceRow[] {
+  if (!splitSelezionati || splitSelezionati.length <= 1) return righe;
+
+  const gruppi = new Map<string, PerformanceRow[]>();
+
+  for (const riga of righe) {
+    const chiave = `${riga.giocatore_id ?? riga.player_name ?? ""}__${riga.date ?? ""}__${riga.session_title ?? ""}`;
+
+    const gruppo = gruppi.get(chiave);
+
+    if (gruppo) {
+      gruppo.push(riga);
+    } else {
+      gruppi.set(chiave, [riga]);
+    }
+  }
+
+  const risultato: PerformanceRow[] = [];
+
+  for (const gruppo of gruppi.values()) {
+    if (gruppo.length === 1) {
+      risultato.push(gruppo[0]);
+      continue;
+    }
+
+    const nomiSplit = Array.from(
+      new Set(
+        gruppo
+          .map((riga) => riga.split_name)
+          .filter((nome): nome is string => Boolean(nome))
+      )
+    );
+
+    risultato.push({
+      ...gruppo[0],
+      ...aggregaValoriNumerici(gruppo, BASE_COLUMNS),
+      id: gruppo.map((riga) => riga.id).join("+"),
+      split_name: nomiSplit.join("-"),
+    });
+  }
+
+  return risultato.sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
+}
+
 /**
  * Interroga catapult_data con lo stesso set di filtri usato dalla tabella
  * Performance (giocatori, periodo, tipo seduta, eventi, split) e ritorna
@@ -285,7 +454,7 @@ export async function fetchPerformanceRows(params: {
 
   const catapultRows = (data ?? []) as unknown as Record<string, unknown>[];
 
-  return catapultRows.map((row) => {
+  const righeNormalizzate = catapultRows.map((row) => {
     const risultato: PerformanceRow = {
       id: row.id as string,
       club_id: row.club_id as string,
@@ -317,6 +486,8 @@ export async function fetchPerformanceRows(params: {
 
     return risultato;
   });
+
+  return accorpaSplitSelezionati(righeNormalizzate, params.splitSelezionati);
 }
 
 /**
@@ -795,6 +966,55 @@ function PerformanceTable({
     (column) => visibleColumns[String(column.key)]
   );
 
+  // Riga di riepilogo in fondo alla tabella: stessa logica di
+  // aggregazione usata per accorpare gli split (somma per i campi
+  // cumulativi, massimo per i picchi, media pesata per i tassi/indici).
+  const totaliColonne = useMemo(
+    () => aggregaValoriNumerici(rows, activeBaseColumns),
+    [rows, activeBaseColumns]
+  );
+
+  const totaliColonneCalcolate = useMemo(() => {
+    return customColumns.map((column) => {
+      const valori = rows
+        .map((row) => safeCalculateFormula(row, column.formula))
+        .filter((valore): valore is number => valore !== null);
+
+      return valori.length > 0
+        ? valori.reduce((somma, valore) => somma + valore, 0)
+        : null;
+    });
+  }, [rows, customColumns]);
+
+  // Celle della riga di riepilogo, in ordine colonne base + colonne
+  // calcolate: la primissima cella diventa l'etichetta "Totale" (a
+  // prescindere dal tipo della colonna), le altre mostrano il valore
+  // aggregato.
+  const celleTotali = useMemo(() => {
+    const celleBase = activeBaseColumns.map((column) => ({
+      key: String(column.key),
+      align: column.align === "right" ? ("right" as const) : ("left" as const),
+      valore:
+        column.type === "number"
+          ? formatNumber(totaliColonne[String(column.key)] ?? null, column.decimals ?? 0)
+          : "—",
+    }));
+
+    const celleCalcolate = customColumns.map((column, index) => ({
+      key: column.id,
+      align: "right" as const,
+      valore: formatNumber(totaliColonneCalcolate[index], column.decimals),
+    }));
+
+    const tutte = [...celleBase, ...celleCalcolate];
+
+    if (tutte.length > 0) {
+      tutte[0] = { ...tutte[0], align: "left", valore: "Totale" };
+    }
+
+    return tutte;
+  }, [activeBaseColumns, customColumns, totaliColonne, totaliColonneCalcolate]);
+
   function toggleColumn(key: string) {
     setVisibleColumns((prev) => ({
       ...prev,
@@ -1235,6 +1455,24 @@ function PerformanceTable({
               ))
             )}
           </tbody>
+
+          {rows.length > 0 && celleTotali.length > 0 && (
+            <tfoot>
+              <tr className="border-t-2 border-white/20 bg-white/[0.06]">
+                {celleTotali.map((cella) => (
+                  <td
+                    key={cella.key}
+                    className={[
+                      "whitespace-nowrap px-4 py-3 text-sm font-black text-white",
+                      cella.align === "right" ? "text-right" : "text-left",
+                    ].join(" ")}
+                  >
+                    {cella.valore}
+                  </td>
+                ))}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </AppCard>
