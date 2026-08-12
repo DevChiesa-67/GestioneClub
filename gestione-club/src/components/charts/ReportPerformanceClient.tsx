@@ -562,7 +562,7 @@ const {
   percentualePresenza,
 } = useMemo(() => calcolaStatistichePresenze(presenze), [presenze]);
 
-return ( <div className="space-y-5"> <div className="grid gap-3 md:grid-cols-6">
+return ( <div className="space-y-4 sm:space-y-5"> <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 md:grid-cols-6">
 {STATI.map((stato) => {
   const attivo = statoSelezionato === stato.key;
 
@@ -587,19 +587,22 @@ return ( <div className="space-y-5"> <div className="grid gap-3 md:grid-cols-6">
       }
     >
       <AppCard
+        noPadding
         className={attivo ? "bg-zinc-800" : undefined}
       >
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs text-zinc-400">{stato.title}</p>
+        <div className="flex items-center justify-between gap-2 p-3 sm:p-5">
+          <div className="min-w-0">
+            <p className="truncate text-[11px] text-zinc-400 sm:text-xs">
+              {stato.title}
+            </p>
 
-            <p className="mt-1 text-2xl font-bold text-white">
+            <p className="mt-1 text-xl font-bold text-white sm:text-2xl">
               {totalePerStato[stato.key] ?? 0}
             </p>
           </div>
 
           <div
-            className="flex h-11 w-11 items-center justify-center rounded-full text-sm font-bold text-white"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white sm:h-11 sm:w-11 sm:text-sm"
             style={{
               backgroundColor: stato.color,
             }}
@@ -613,13 +616,13 @@ return ( <div className="space-y-5"> <div className="grid gap-3 md:grid-cols-6">
 })}
   </div>
 
-  <div className="grid gap-3 md:grid-cols-3">
+  <div className="grid grid-cols-2 gap-2.5 sm:gap-3 md:grid-cols-3">
     <AppCard>
       <p className="text-xs font-bold uppercase tracking-widest text-zinc-500">
         Percentuale presenza
       </p>
 
-      <p className="mt-2 text-3xl font-black text-white">
+      <p className="mt-2 text-2xl font-black text-white sm:text-3xl">
         {percentualePresenza}%
       </p>
 
@@ -634,17 +637,17 @@ return ( <div className="space-y-5"> <div className="grid gap-3 md:grid-cols-6">
         Rilevazioni registrate
       </p>
 
-      <p className="mt-2 text-3xl font-black text-white">
+      <p className="mt-2 text-2xl font-black text-white sm:text-3xl">
         {totaleAllenamentiPeriodo}
       </p>
     </AppCard>
 
-    <AppCard>
+    <AppCard className="col-span-2 md:col-span-1">
       <p className="text-xs font-bold uppercase tracking-widest text-zinc-500">
         Mesi disponibili
       </p>
 
-      <p className="mt-2 text-3xl font-black text-white">
+      <p className="mt-2 text-2xl font-black text-white sm:text-3xl">
         {mesiDisponibili.length}
       </p>
 
@@ -658,7 +661,7 @@ return ( <div className="space-y-5"> <div className="grid gap-3 md:grid-cols-6">
     </AppCard>
   </div>
 
-  <div className="grid gap-5 lg:grid-cols-4">
+  <div className="grid gap-4 sm:gap-5 lg:grid-cols-4">
     <AppCard className="lg:col-span-3">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-white">

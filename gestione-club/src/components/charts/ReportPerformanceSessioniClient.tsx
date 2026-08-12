@@ -839,7 +839,7 @@ function PerformanceSummary({
   }, [rows]);
 
   return (
-    <div className="grid gap-6 xl:grid-cols-2">
+    <div className="grid gap-4 sm:gap-6 xl:grid-cols-2">
       <AppCard title="Riepilogo statistiche">
         <div className="space-y-1">
           <StatRow label="Numero sessioni registrate" value={stats.numeroSessioni} />
@@ -1276,7 +1276,7 @@ function PerformanceTable({
 
       {/* PANNELLO CREA COLONNA */}
       {showCreateColumnPanel && (
-        <div className="mb-5 rounded-2xl border border-white/10 bg-zinc-950/70 p-4">
+        <div className="mb-4 rounded-2xl border border-white/10 bg-zinc-950/70 p-3 sm:mb-5 sm:p-4">
           <div className="mb-4">
             <h3 className="text-sm font-black uppercase tracking-wide text-white">
               Crea nuova colonna
@@ -1421,7 +1421,7 @@ function PerformanceTable({
 
       {/* PANNELLO NASCONDI COLONNE */}
       {showHideColumnsPanel && (
-        <div className="mb-5 rounded-2xl border border-white/10 bg-zinc-950/70 p-4">
+        <div className="mb-4 rounded-2xl border border-white/10 bg-zinc-950/70 p-3 sm:mb-5 sm:p-4">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-black uppercase tracking-wide text-white">

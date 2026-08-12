@@ -455,7 +455,7 @@ function AcwrRiskLegend({
   if (!parametri) return null;
 
   return (
-    <div className="mt-6 rounded-2xl border border-white/10 bg-zinc-950/70 p-5">
+    <div className="mt-6 rounded-2xl border border-white/10 bg-zinc-950/70 p-4 sm:p-5">
       <div className="mb-4">
         <h3 className="text-sm font-black uppercase tracking-wide text-white">
           Zone di rischio ACWR
@@ -467,37 +467,37 @@ function AcwrRiskLegend({
         </p>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-2xl border border-sky-500/20 bg-sky-500/10 p-4">
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-3 xl:grid-cols-4">
+        <div className="rounded-2xl border border-sky-500/20 bg-sky-500/10 p-3 sm:p-4">
           <p className="text-sm font-black text-sky-300">Sotto-carico</p>
           <p className="text-xs text-zinc-500">Detraining</p>
-          <div className="mt-4 text-xl font-black text-white">
+          <div className="mt-3 text-lg font-black text-white sm:mt-4 sm:text-xl">
             &lt; {formatAcwr(parametri.sotto_carico_max)}
           </div>
         </div>
 
-        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3 sm:p-4">
           <p className="text-sm font-black text-emerald-300">Zona ottimale</p>
           <p className="text-xs text-zinc-500">Carico controllato</p>
-          <div className="mt-4 text-xl font-black text-white">
+          <div className="mt-3 text-lg font-black text-white sm:mt-4 sm:text-xl">
             {formatAcwr(parametri.zona_ottimale_min)} –{" "}
             {formatAcwr(parametri.zona_ottimale_max)}
           </div>
         </div>
 
-        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-3 sm:p-4">
           <p className="text-sm font-black text-amber-300">Attenzione</p>
           <p className="text-xs text-zinc-500">Carico da monitorare</p>
-          <div className="mt-4 text-xl font-black text-white">
+          <div className="mt-3 text-lg font-black text-white sm:mt-4 sm:text-xl">
             {formatAcwr(parametri.attenzione_min)} –{" "}
             {formatAcwr(parametri.attenzione_max)}
           </div>
         </div>
 
-        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4">
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-3 sm:p-4">
           <p className="text-sm font-black text-red-300">Rischio elevato</p>
           <p className="text-xs text-zinc-500">Rischio infortunio</p>
-          <div className="mt-4 text-xl font-black text-white">
+          <div className="mt-3 text-lg font-black text-white sm:mt-4 sm:text-xl">
             &gt; {formatAcwr(parametri.rischio_elevato_min)}
           </div>
         </div>
