@@ -44,10 +44,7 @@ type Profilo = {
 type ClubTheme = {
   nome: string | null;
   colore_flag: string | null;
-};
-
-type SquadraPartitaLogo = {
-  logo_path: string | null;
+  logo_url: string | null;
 };
 
 const DEFAULT_THEME_COLOR = "#d71920";
@@ -277,23 +274,6 @@ function formatOraNotifica(createdAt: string) {
   });
 }
 
-function getLogoPublicUrl(logoPath: string | null | undefined) {
-  if (!logoPath) {
-    return null;
-  }
-
-  const cleanPath = logoPath
-    .trim()
-    .replace(/^\/+/, "")
-    .replace(/^loghi-squadre\//, "");
-
-  const { data } = supabase.storage
-    .from("loghi-squadre")
-    .getPublicUrl(cleanPath);
-
-  return data.publicUrl;
-}
-
 export function Topbar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -502,7 +482,7 @@ export function Topbar() {
        */
       const { data: clubData, error: clubError } = await supabase
         .from("club")
-        .select("nome,colore_flag")
+        .select("nome,colore_flag,logo_url")
         .eq("id", activeClubId)
         .single<ClubTheme>();
 
@@ -515,10 +495,22 @@ export function Topbar() {
 
         setThemeColor(DEFAULT_THEME_COLOR);
         setClubName("Nome Club");
+        setClubLogoUrl(null);
       } else {
         setThemeColor(clubData?.colore_flag || DEFAULT_THEME_COLOR);
 
         setClubName(clubData?.nome || "Nome Club");
+
+        /*
+         * Il logo del club è quello salvato su club.logo_url (bucket
+         * pubblico "club-loghi"), la stessa fonte usata da ClubSwitcher e
+         * dalla Sidebar desktop. In precedenza qui si leggeva invece un
+         * logo_path da squadre_partite (che è l'anagrafica delle squadre
+         * avversarie) costruendo un getPublicUrl sul bucket privato
+         * "loghi-squadre": quell'URL non è accessibile senza firma, quindi
+         * su mobile compariva sempre l'immagine rotta.
+         */
+        setClubLogoUrl(clubData?.logo_url?.trim() || null);
       }
 
       /*
@@ -592,36 +584,6 @@ export function Topbar() {
         }
       }
 
-      /*
-       * 5. Logo del club/squadra.
-       */
-      if (!selectedSquadra) {
-        setClubLogoUrl(null);
-        return;
-      }
-
-      const { data: logoData, error: logoError } = await supabase
-        .from("squadre_partite")
-        .select("logo_path")
-        .eq("club_id", activeClubId)
-        .not("logo_path", "is", null)
-        .limit(1)
-        .maybeSingle<SquadraPartitaLogo>();
-
-      if (!isMounted) {
-        return;
-      }
-
-      if (logoError) {
-        console.error("Errore caricamento logo club:", logoError);
-
-        setClubLogoUrl(null);
-        return;
-      }
-
-      const logoUrl = getLogoPublicUrl(logoData?.logo_path);
-
-      setClubLogoUrl(logoUrl);
     }
 
     void loadTopbarData();
@@ -709,6 +671,7 @@ export function Topbar() {
                         width={96}
                         height={96}
                         className="h-12 w-12 object-contain"
+                        onError={() => setClubLogoUrl(null)}
                       />
                     </div>
                   ) : (
@@ -888,6 +851,7 @@ export function Topbar() {
                   width={96}
                   height={96}
                   className="h-12 w-12 object-contain"
+                  onError={() => setClubLogoUrl(null)}
                 />
               </div>
             ) : (
