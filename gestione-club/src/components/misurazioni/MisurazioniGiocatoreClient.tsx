@@ -176,6 +176,18 @@ export default function MisurazioniGiocatoreClient({
     setStress(null);
   }
 
+  /*
+   * Scorciatoia dalla card "RPE medio (7gg)": apre direttamente il modulo
+   * con la scala RPE, saltando la scelta del tipo di compilazione. Parte
+   * dalla seduta in campo; con la freccia indietro in cima alla modale si
+   * passa a palestra o al questionario del mattino.
+   */
+  function apriFormRpe() {
+    setMessaggio(null);
+    apriStep("campo");
+    setModalAperta(true);
+  }
+
   function apriStep(nuovoStep: "campo" | "palestra" | "mattino") {
     setSeduta("");
     setRpe(null);
@@ -334,6 +346,18 @@ export default function MisurazioniGiocatoreClient({
           icon={<Gauge className="h-5 w-5" />}
           label="RPE medio (7gg)"
           value={rpeMedio7gg !== null ? `${rpeMedio7gg.toFixed(1)}/10` : "—"}
+          action={
+            <button
+              type="button"
+              onClick={apriFormRpe}
+              title="Inserisci RPE"
+              aria-label="Inserisci RPE"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white transition hover:brightness-110"
+              style={{ backgroundColor: coloreClub }}
+            >
+              <Plus className="h-5 w-5" />
+            </button>
+          }
         />
 
         <PlayerStat
@@ -980,15 +1004,22 @@ function PlayerStat({
   icon,
   label,
   value,
+  action,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  /** Pulsante opzionale in alto a destra (es. "+" per compilare l'RPE). */
+  action?: ReactNode;
 }) {
   return (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-3 sm:p-4">
-      <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-900 text-zinc-400">
-        {icon}
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-zinc-900 text-zinc-400">
+          {icon}
+        </div>
+
+        {action}
       </div>
 
       <p className="text-lg font-bold text-white sm:text-xl">{value}</p>
