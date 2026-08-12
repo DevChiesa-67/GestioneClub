@@ -46,21 +46,49 @@ export default function SelettorePartita({
   // vive spesso dentro contenitori con overflow-y-auto (es. le modali),
   // che altrimenti taglierebbero il dropdown se questo venisse
   // posizionato "absolute" dentro al proprio contenitore normale.
+  //
+  // Il posizionamento è "clampato" dentro ai bordi dello schermo: su
+  // mobile, quando il bottone è vicino al fondo (es. dentro una modale
+  // a foglio ancorata in basso), aprire sempre verso il basso spingeva
+  // il popup sotto il bordo inferiore della viewport, rendendolo
+  // invisibile/non raggiungibile. Ora si sceglie se aprire sopra o
+  // sotto in base allo spazio disponibile e si limita l'altezza a
+  // quella effettivamente libera.
   const [posizione, setPosizione] = useState<{
     top: number;
     left: number;
     width: number;
+    maxHeight: number;
   } | null>(null);
 
   function aggiornaPosizione() {
     const rect = bottoneRef.current?.getBoundingClientRect();
     if (!rect) return;
 
-    setPosizione({
-      top: rect.bottom + 8,
-      left: rect.left,
-      width: rect.width,
-    });
+    const margine = 8;
+    const altezzaPreferita = 340;
+
+    const spazioSotto = window.innerHeight - rect.bottom - margine;
+    const spazioSopra = rect.top - margine;
+
+    const apriSopra =
+      spazioSotto < Math.min(altezzaPreferita, 160) && spazioSopra > spazioSotto;
+
+    const maxHeight = Math.max(
+      120,
+      Math.min(altezzaPreferita, apriSopra ? spazioSopra : spazioSotto),
+    );
+
+    const top = apriSopra
+      ? Math.max(margine, rect.top - maxHeight - margine)
+      : rect.bottom + margine;
+
+    const left = Math.min(
+      Math.max(margine, rect.left),
+      Math.max(margine, window.innerWidth - rect.width - margine),
+    );
+
+    setPosizione({ top, left, width: rect.width, maxHeight });
   }
 
   useLayoutEffect(() => {
@@ -151,14 +179,15 @@ export default function SelettorePartita({
         createPortal(
           <div
             ref={dropdownRef}
-            className="fixed z-[9999] overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-2xl shadow-black/50"
+            className="fixed z-[9999] flex flex-col overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-2xl shadow-black/50"
             style={{
               top: posizione.top,
               left: posizione.left,
               width: posizione.width,
+              maxHeight: posizione.maxHeight,
             }}
           >
-            <div className="border-b border-zinc-800 p-2.5">
+            <div className="shrink-0 border-b border-zinc-800 p-2.5">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
                 <input
@@ -172,7 +201,7 @@ export default function SelettorePartita({
               </div>
             </div>
 
-            <div className="max-h-64 overflow-y-auto p-2">
+            <div className="min-h-0 flex-1 overflow-y-auto p-2">
               {partiteFiltrate.map((p) => (
                 <button
                   key={p.id}
