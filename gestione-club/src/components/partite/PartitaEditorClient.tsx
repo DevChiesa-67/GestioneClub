@@ -422,7 +422,7 @@ function GiocatoreSelect({
           programmaTooltip(selezionato, event.currentTarget)
         }
         onMouseLeave={nascondiTooltip}
-        className={`flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-left text-white outline-none transition hover:border-zinc-600 ${
+        className={`flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-left text-white outline-none transition hover:border-zinc-600 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-zinc-800 ${
           compact
             ? "px-1.5 py-1.5 text-[10px]"
             : "px-2 py-2 text-xs sm:px-3 sm:py-2.5 sm:text-sm"
@@ -1634,6 +1634,15 @@ function giocatoriPerPosizione(
             </h2>
           </div>
 
+          {/* Solo l'admin può modificare punteggio/statistiche: il
+              fieldset disabilita nativamente tutti gli input/select/
+              textarea al suo interno (anche quelli dentro i componenti
+              GruppoStatistiche/StatInput), senza dover passare un prop
+              disabled a ciascuno singolarmente. */}
+          <fieldset
+            disabled={!isAdmin}
+            className={!isAdmin ? "opacity-60" : undefined}
+          >
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4">
             <GruppoStatistiche icon={Trophy} titolo="Punteggio" coloreClub={coloreClub}>
               <StatInput
@@ -1785,6 +1794,7 @@ function giocatoriPerPosizione(
               "
             />
           </label>
+          </fieldset>
 
           {isAdmin && (
           <button
@@ -1914,6 +1924,15 @@ function giocatoriPerPosizione(
                 )}
               </div>
             </div>
+
+            {/* Solo l'admin può modificare le convocazioni: il fieldset
+                disabilita nativamente tutti gli input/select/button al
+                suo interno (GiocatoreSelect, numero maglia, ruolo
+                panchina, capitano/vicecapitano, aggiungi/rimuovi
+                giocatore, ecc.), a qualunque profondità nel DOM.
+                display:contents evita che il fieldset alteri il layout
+                (grid/space-y) dei figli diretti. */}
+            <fieldset disabled={!isAdmin} className="contents">
 
             {/* =================================================
                 MOBILE/TABLET: TITOLARI 1-15
@@ -2868,6 +2887,7 @@ function giocatoriPerPosizione(
                 )}
               </div>
             </div>
+            </fieldset>
           </div>
         </div>
       )}
