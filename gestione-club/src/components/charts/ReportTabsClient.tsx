@@ -251,6 +251,14 @@ export default function ReportTabsClient({
   const [openEventi, setOpenEventi] = useState(false);
   const [openSplit, setOpenSplit] = useState(false);
 
+  /*
+   * Su mobile i sei filtri impilati occupano piu' di mezzo schermo prima
+   * che si arrivi ai dati: restano chiusi di default e si aprono dal
+   * pulsante nella testata della card. Da "sm" in su sono sempre visibili
+   * (classe "sm:block"), quindi su desktop non cambia nulla.
+   */
+  const [filtriAperti, setFiltriAperti] = useState(false);
+
   const [splitSelezionati, setSplitSelezionati] = useState<string[]>(
     []
   );
@@ -670,22 +678,30 @@ export default function ReportTabsClient({
     }
   }
 
+  const numeroFiltriAttivi =
+    (dataDa ? 1 : 0) +
+    (dataA ? 1 : 0) +
+    (tipiSeduta.length > 0 ? 1 : 0) +
+    (giocatoreIds.length > 0 ? 1 : 0) +
+    (titoliSelezionati.length > 0 ? 1 : 0) +
+    (splitSelezionati.length > 0 ? 1 : 0);
+
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-4 sm:space-y-6 sm:p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm text-zinc-400">Performance</p>
-          <h1 className="text-2xl font-semibold text-white">
+          <h1 className="text-xl font-semibold text-white sm:text-2xl">
             Report performance
           </h1>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-3">
           <button
             type="button"
             onClick={handleDownloadPdf}
             disabled={generandoPdf}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:py-2"
           >
             {generandoPdf ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -697,7 +713,7 @@ export default function ReportTabsClient({
 
           <Link
             href="/performance/importa-dati"
-            className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+            className="inline-flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-90 sm:w-auto sm:py-2"
             style={{ backgroundColor: coloreFlag }}
           >
             <Upload className="h-4 w-4" />
@@ -706,8 +722,35 @@ export default function ReportTabsClient({
         </div>
       </div>
 
-      <AppCard title="Filtri report">
-        <div className="grid gap-4 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1.4fr_1fr]">
+      <AppCard
+        title="Filtri report"
+        headerAction={
+          <button
+            type="button"
+            onClick={() => setFiltriAperti((value) => !value)}
+            aria-expanded={filtriAperti}
+            className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-bold text-zinc-300 transition hover:bg-white/10 hover:text-white sm:hidden"
+          >
+            {numeroFiltriAttivi > 0 && (
+              <span
+                className="flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-black text-white"
+                style={{ backgroundColor: coloreFlag }}
+              >
+                {numeroFiltriAttivi}
+              </span>
+            )}
+
+            {filtriAperti ? "Nascondi" : "Filtri"}
+
+            <ChevronDown
+              size={14}
+              className={`transition ${filtriAperti ? "rotate-180" : ""}`}
+            />
+          </button>
+        }
+      >
+        <div className={filtriAperti ? "block" : "hidden sm:block"}>
+        <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1.4fr_1fr]">
           {/* GIOCATORE (multiselezione) */}
           <div className="relative">
             <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-zinc-500">
@@ -719,7 +762,7 @@ export default function ReportTabsClient({
               onClick={() =>
                 setOpenGiocatori((value) => !value)
               }
-              className="flex h-[52px] w-full items-center justify-between rounded-2xl border border-white/10 bg-zinc-950 px-4 text-left text-white shadow-inner outline-none transition hover:border-white/25 hover:bg-zinc-900"
+              className="flex h-12 sm:h-[52px] w-full items-center justify-between rounded-2xl border border-white/10 bg-zinc-950 px-4 text-left text-white shadow-inner outline-none transition hover:border-white/25 hover:bg-zinc-900"
             >
               <span className="flex min-w-0 items-center gap-3">
                 {giocatoriSelezionati.length === 1 ? (
@@ -833,7 +876,7 @@ export default function ReportTabsClient({
               label="Data da"
               value={dataDa}
               onChange={setDataDa}
-              wrapperClassName="h-[52px] rounded-2xl border-white/10 bg-zinc-950 focus-within:border-white/30"
+              wrapperClassName="h-12 sm:h-[52px] rounded-2xl border-white/10 bg-zinc-950 focus-within:border-white/30"
             />
           </div>
 
@@ -843,7 +886,7 @@ export default function ReportTabsClient({
               label="Data a"
               value={dataA}
               onChange={setDataA}
-              wrapperClassName="h-[52px] rounded-2xl border-white/10 bg-zinc-950 focus-within:border-white/30"
+              wrapperClassName="h-12 sm:h-[52px] rounded-2xl border-white/10 bg-zinc-950 focus-within:border-white/30"
             />
           </div>
 
@@ -853,7 +896,7 @@ export default function ReportTabsClient({
               Tipo seduta
             </label>
 
-            <div className="flex h-[52px] items-center gap-2 rounded-2xl border border-white/10 bg-zinc-950 p-1.5">
+            <div className="flex h-12 sm:h-[52px] items-center gap-2 rounded-2xl border border-white/10 bg-zinc-950 p-1.5">
               <button
                 type="button"
                 onClick={() => toggleTipoSeduta("allenamento")}
@@ -891,7 +934,7 @@ export default function ReportTabsClient({
             <button
               type="button"
               onClick={() => setOpenEventi((value) => !value)}
-              className="flex h-[52px] w-full items-center justify-between rounded-2xl border border-white/10 bg-zinc-950 px-4 text-left text-sm font-bold text-white outline-none transition hover:border-white/25 hover:bg-zinc-900"
+              className="flex h-12 sm:h-[52px] w-full items-center justify-between rounded-2xl border border-white/10 bg-zinc-950 px-4 text-left text-sm font-bold text-white outline-none transition hover:border-white/25 hover:bg-zinc-900"
             >
               <span className="truncate">
                 {titoliSelezionati.length === 0
@@ -970,7 +1013,7 @@ export default function ReportTabsClient({
               <button
                 type="button"
                 onClick={() => setOpenSplit((value) => !value)}
-                className="flex h-[52px] w-full items-center justify-between rounded-2xl border border-white/10 bg-zinc-950 px-4 text-left text-sm font-bold text-white outline-none transition hover:border-white/25 hover:bg-zinc-900"
+                className="flex h-12 sm:h-[52px] w-full items-center justify-between rounded-2xl border border-white/10 bg-zinc-950 px-4 text-left text-sm font-bold text-white outline-none transition hover:border-white/25 hover:bg-zinc-900"
               >
                 <span className="truncate">
                   {splitSelezionati.length === 0
@@ -1054,7 +1097,7 @@ export default function ReportTabsClient({
               <button
                 type="button"
                 onClick={() => setOpenSplit((value) => !value)}
-                className="flex h-[52px] w-full items-center justify-between rounded-2xl border border-white/10 bg-zinc-950 px-4 text-left text-sm font-bold text-white outline-none transition hover:border-white/25 hover:bg-zinc-900"
+                className="flex h-12 sm:h-[52px] w-full items-center justify-between rounded-2xl border border-white/10 bg-zinc-950 px-4 text-left text-sm font-bold text-white outline-none transition hover:border-white/25 hover:bg-zinc-900"
               >
                 <span className="truncate">
                   {splitSelezionati.length === 0
@@ -1125,7 +1168,7 @@ export default function ReportTabsClient({
                 Dettaglio
               </label>
 
-              <div className="flex h-[52px] items-center rounded-2xl border border-white/10 bg-zinc-950 px-4 text-sm font-semibold text-zinc-500">
+              <div className="flex h-12 sm:h-[52px] items-center rounded-2xl border border-white/10 bg-zinc-950 px-4 text-sm font-semibold text-zinc-500">
                 Tutti i dettagli
               </div>
             </div>
@@ -1152,6 +1195,7 @@ export default function ReportTabsClient({
             Azzera filtri
           </button>
         </div>
+        </div>
       </AppCard>
 
       {/* TAB */}
@@ -1165,7 +1209,7 @@ export default function ReportTabsClient({
                 key={tab.key}
                 type="button"
                 onClick={() => setActiveTab(tab.key)}
-                className="rounded-xl px-5 py-3 text-sm font-black transition"
+                className="whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-black transition sm:px-5 sm:py-3"
                 style={
                   active
                     ? {

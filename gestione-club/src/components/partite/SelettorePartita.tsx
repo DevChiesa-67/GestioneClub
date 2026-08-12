@@ -69,15 +69,35 @@ export default function SelettorePartita({
     maxHeight: number;
   } | null>(null);
 
+  // Su mobile la tastiera virtuale (aperta dal campo di ricerca, che ha
+  // autoFocus) riduce lo spazio visibile ma NON sempre window.innerHeight:
+  // usiamo la Visual Viewport API (quando disponibile) per calcolare lo
+  // spazio realmente visibile sopra/sotto il bottone, altrimenti il
+  // popup poteva finire posizionato dietro la tastiera ("basso"/non
+  // visibile) perché calcolato sull'altezza piena dello schermo.
+  function areaVisibile() {
+    const vv = window.visualViewport;
+    if (!vv) {
+      return { top: 0, left: 0, width: window.innerWidth, height: window.innerHeight };
+    }
+    return {
+      top: vv.offsetTop,
+      left: vv.offsetLeft,
+      width: vv.width,
+      height: vv.height,
+    };
+  }
+
   function aggiornaPosizione() {
     const rect = bottoneRef.current?.getBoundingClientRect();
     if (!rect) return;
 
+    const area = areaVisibile();
     const margine = 8;
     const altezzaPreferita = 340;
 
-    const spazioSotto = window.innerHeight - rect.bottom - margine;
-    const spazioSopra = rect.top - margine;
+    const spazioSotto = area.top + area.height - rect.bottom - margine;
+    const spazioSopra = rect.top - area.top - margine;
 
     const apriSopra =
       spazioSotto < Math.min(altezzaPreferita, 160) && spazioSopra > spazioSotto;
@@ -88,8 +108,8 @@ export default function SelettorePartita({
     );
 
     const left = Math.min(
-      Math.max(margine, rect.left),
-      Math.max(margine, window.innerWidth - rect.width - margine),
+      Math.max(area.left + margine, rect.left),
+      Math.max(area.left + margine, area.left + area.width - rect.width - margine),
     );
 
     if (apriSopra) {
@@ -138,10 +158,19 @@ export default function SelettorePartita({
     window.addEventListener("resize", riposiziona);
     window.addEventListener("scroll", riposiziona, true);
 
+    // La Visual Viewport API segnala l'apertura/chiusura della tastiera
+    // virtuale su mobile (che window.resize spesso non intercetta):
+    // riposiziona il popup quando cambia l'area davvero visibile.
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", riposiziona);
+    vv?.addEventListener("scroll", riposiziona);
+
     return () => {
       document.removeEventListener("mousedown", chiudiSeFuori);
       window.removeEventListener("resize", riposiziona);
       window.removeEventListener("scroll", riposiziona, true);
+      vv?.removeEventListener("resize", riposiziona);
+      vv?.removeEventListener("scroll", riposiziona);
     };
   }, [aperto]);
 
@@ -209,13 +238,19 @@ export default function SelettorePartita({
             <div className="shrink-0 border-b border-zinc-800 p-2.5">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+                {/*
+                 * Niente autoFocus: su mobile fa comparire subito la
+                 * tastiera, che riduce/sposta l'area visibile dopo che il
+                 * popup è già stato posizionato, facendolo apparire
+                 * "spinto in basso"/dietro la tastiera. L'utente può
+                 * comunque toccare il campo per cercare.
+                 */}
                 <input
                   type="text"
                   value={ricerca}
                   onChange={(e) => setRicerca(e.target.value)}
                   placeholder="Cerca squadra o data..."
                   className="min-h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 pl-9 pr-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-zinc-600"
-                  autoFocus
                 />
               </div>
             </div>
