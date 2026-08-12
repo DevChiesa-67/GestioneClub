@@ -10,6 +10,7 @@ const TIPI_PROFILO = [
   "preparatore",
   "giocatore",
   "direttore_tecnico",
+  "dirigente",
 ] as const;
 
 type TipoProfilo = (typeof TIPI_PROFILO)[number];
