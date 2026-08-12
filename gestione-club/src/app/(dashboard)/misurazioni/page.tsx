@@ -62,7 +62,16 @@ export type MisurazioneBenessereAdmin = MisurazioneBenessere & {
   } | null;
 };
 
-export default async function MisurazioniPage() {
+type PageProps = {
+  /*
+   * "rpe=1" arriva dal pulsante "+" sulla card RPE della dashboard:
+   * apre la pagina con il modulo già posizionato sulla scala RPE.
+   */
+  searchParams: Promise<{ rpe?: string }>;
+};
+
+export default async function MisurazioniPage({ searchParams }: PageProps) {
+  const { rpe } = await searchParams;
   const supabase = await createClient();
 
   const {
@@ -349,6 +358,7 @@ export default async function MisurazioniPage() {
         }}
         antropometria={antropometriaNormalizzata}
         benessere={(benessere || []) as MisurazioneBenessere[]}
+        apriRpeSubito={rpe === "1"}
       />
     );
   }

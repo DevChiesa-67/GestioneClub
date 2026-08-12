@@ -6,6 +6,9 @@
 // di altri atleti), mentre le sue compilazioni RPE/benessere sono utili e
 // riguardano solo lui.
 
+import Link from "next/link";
+import { Plus } from "lucide-react";
+
 import { createClient } from "@/lib/supabase-server";
 
 type TipoCompilazione = "campo" | "palestra" | "mattino";
@@ -94,10 +97,12 @@ export default async function DashboardRpe() {
   if (!clubId || !profiloId) {
     return (
       <div
-        className="rounded-2xl border bg-[#171717] p-6"
+        className="rounded-2xl border bg-[#171717] p-4 sm:p-6"
         style={{ borderColor: `${themeColor}33` }}
       >
-        <h2 className="text-xl font-bold text-white">RPE e benessere</h2>
+        <h2 className="text-lg font-bold text-white sm:text-xl">
+          RPE e benessere
+        </h2>
         <p className="mt-4 text-zinc-500">Nessun club attivo selezionato.</p>
       </div>
     );
@@ -123,10 +128,12 @@ export default async function DashboardRpe() {
   if (!giocatore) {
     return (
       <div
-        className="rounded-2xl border bg-[#171717] p-6"
+        className="rounded-2xl border bg-[#171717] p-4 sm:p-6"
         style={{ borderColor: `${themeColor}33` }}
       >
-        <h2 className="text-xl font-bold text-white">RPE e benessere</h2>
+        <h2 className="text-lg font-bold text-white sm:text-xl">
+          RPE e benessere
+        </h2>
         <p className="mt-4 text-zinc-500">
           Il tuo profilo non è ancora collegato a un giocatore della squadra
           attiva.
@@ -169,16 +176,28 @@ export default async function DashboardRpe() {
 
   return (
     <div
-      className="rounded-2xl border bg-[#171717] p-6"
+      className="rounded-2xl border bg-[#171717] p-4 sm:p-6"
       style={{ borderColor: `${themeColor}33` }}
     >
-      <div className="mb-5 flex items-center justify-between gap-4">
-        <h2 className="text-xl font-bold text-white">RPE e benessere</h2>
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <h2 className="min-w-0 truncate text-lg font-bold text-white sm:text-xl">
+          RPE e benessere
+        </h2>
 
-        <span
-          className="h-2.5 w-2.5 rounded-full"
+        {/*
+         * Scorciatoia per compilare subito l'RPE: porta alla pagina
+         * Misurazioni con il modulo già aperto sulla scala RPE
+         * (vedi il parametro "rpe" letto in misurazioni/page.tsx).
+         */}
+        <Link
+          href="/misurazioni?rpe=1"
+          title="Inserisci RPE"
+          aria-label="Inserisci RPE"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white transition hover:brightness-110"
           style={{ backgroundColor: themeColor }}
-        />
+        >
+          <Plus size={18} />
+        </Link>
       </div>
 
       <div className="mb-5 grid grid-cols-2 gap-3">

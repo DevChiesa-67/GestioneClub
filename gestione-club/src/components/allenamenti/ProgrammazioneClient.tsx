@@ -213,9 +213,9 @@ export default function ProgrammazioneClient({
   return (
     <>
       <div className="space-y-6">
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-3xl border border-zinc-800 bg-zinc-950/70 p-5">
-  <div className="flex h-full items-center gap-4">
+        <section className="grid grid-cols-3 gap-2.5 sm:gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="col-span-3 rounded-3xl border border-zinc-800 bg-zinc-950/70 p-4 sm:p-5 md:col-span-1">
+  <div className="flex h-full items-center gap-3 sm:gap-4">
     <div
       className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl "
       style={{
@@ -336,7 +336,7 @@ export default function ProgrammazioneClient({
 
         
 
-        <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-4 shadow-sm">
+        <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-3 shadow-sm sm:p-4">
   {fasi.length > 0 ? (
     <div className="space-y-4">
       {fasi.map((fase) => (
@@ -354,7 +354,7 @@ export default function ProgrammazioneClient({
       <button
         type="button"
         onClick={() => setOpenNuovaFase(true)}
-        className="inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+        className="inline-flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold text-white transition hover:opacity-90 sm:w-auto sm:py-2.5"
         style={{ backgroundColor: coloreClub }}
       >
         <Plus size={17} />
@@ -418,17 +418,19 @@ function StatCard({
   coloreClub: string;
 }) {
   return (
-    <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5 shadow-sm">
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-3 shadow-sm sm:rounded-3xl sm:p-5">
       <div
-        className="mb-4 flex h-10 w-10 items-center justify-center rounded-2xl text-white"
+        className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl text-white sm:mb-4 sm:h-10 sm:w-10 sm:rounded-2xl"
         style={{ backgroundColor: coloreClub }}
       >
         {icon}
       </div>
 
-      <p className="text-sm text-zinc-400">{label}</p>
+      <p className="text-[11px] leading-tight text-zinc-400 sm:text-sm">
+        {label}
+      </p>
 
-      <p className="mt-1 truncate text-xl font-bold text-white">
+      <p className="mt-0.5 truncate text-lg font-bold text-white sm:mt-1 sm:text-xl">
         {value}
       </p>
     </div>
@@ -459,28 +461,30 @@ function FaseProspetto({
   return (
     <div className="overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-900">
       <div
-        className="flex items-center justify-between gap-4 px-5 py-4 text-white"
+        className="flex flex-col gap-3 px-4 py-4 text-white sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5"
         style={{ backgroundColor: fase.colore ?? coloreClub }}
       >
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}
-          className="flex-1 text-left"
+          className="min-w-0 flex-1 text-left"
         >
-          <h3 className="text-lg font-bold">
+          <h3 className="text-base font-bold sm:text-lg">
             {fase.nome}
           </h3>
 
-          <p className="text-sm text-white/75">
+          <p className="text-xs text-white/75 sm:text-sm">
             {formatDataIT(fase.data_inizio)} → {formatDataIT(fase.data_fine)}
           </p>
 
           {fase.obiettivo && (
-            <p className="mt-2 text-sm text-white/85">{fase.obiettivo}</p>
+            <p className="mt-2 text-xs text-white/85 sm:text-sm">
+              {fase.obiettivo}
+            </p>
           )}
         </button>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center justify-end gap-2">
           {isAdmin && (
             <>
               <button
@@ -514,7 +518,7 @@ function FaseProspetto({
       </div>
 
       {open && (
-        <div className="grid gap-4 p-4 lg:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 p-3 sm:gap-4 sm:p-4 lg:grid-cols-2 xl:grid-cols-4">
           {settimaneOrdinate.length > 0 ? (
             settimaneOrdinate.map((settimana) => (
               <SettimanaCard
@@ -596,7 +600,7 @@ function SettimanaCard({
   }
 
   return (
-    <div className="flex min-h-80 flex-col rounded-3xl border border-zinc-800 bg-zinc-950 p-4 shadow-sm">
+    <div className="flex flex-col rounded-3xl border border-zinc-800 bg-zinc-950 p-4 shadow-sm sm:min-h-80">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h4 className="font-bold text-white">

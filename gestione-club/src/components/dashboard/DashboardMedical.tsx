@@ -164,13 +164,13 @@ export default async function DashboardMedical() {
 
   return (
     <div
-      className="rounded-2xl border bg-[#171717] p-6"
+      className="rounded-2xl border bg-[#171717] p-4 sm:p-6"
       style={{
         borderColor: `${themeColor}33`,
       }}
     >
-      <div className="mb-5 flex items-center justify-between gap-4">
-        <h2 className="text-xl font-bold text-white">
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <h2 className="min-w-0 text-lg font-bold text-white sm:text-xl">
           Stato infortuni e rientri previsti
         </h2>
 

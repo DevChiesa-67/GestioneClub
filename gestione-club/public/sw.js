@@ -6,6 +6,19 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+/*
+ * Handler "fetch" volutamente minimale (pass-through in rete, nessuna
+ * cache): non serve funzionalità offline, ma Chrome/Android richiede un
+ * service worker con un handler "fetch" NON no-op per considerare il
+ * sito installabile e far scattare l'evento "beforeinstallprompt" (senza
+ * questo handler la voce di menu "Scarica app" mostrava sempre le
+ * istruzioni manuali di fallback, perché il browser non emetteva mai
+ * l'evento da intercettare).
+ */
+self.addEventListener("fetch", (event) => {
+  event.respondWith(fetch(event.request));
+});
+
 self.addEventListener("push", (event) => {
   let data = {
     title: "Nuova comunicazione",

@@ -34,8 +34,8 @@ export default async function DashboardReports() {
   const themeColor = await getThemeColor();
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#171717] p-6">
-      <h2 className="mb-5 text-xl font-bold text-white">
+    <div className="rounded-2xl border border-white/10 bg-[#171717] p-4 sm:p-6">
+      <h2 className="mb-5 text-lg font-bold text-white sm:text-xl">
         Report da leggere
       </h2>
 

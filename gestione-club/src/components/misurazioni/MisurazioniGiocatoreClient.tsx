@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Activity,
   CalendarDays,
@@ -30,6 +30,11 @@ type Props = {
   giocatore: GiocatoreMisurazioni;
   antropometria: MisurazioneAntropometrica[];
   benessere: MisurazioneBenessere[];
+  /*
+   * Quando true (link "+" dalla card RPE della dashboard, /misurazioni?rpe=1)
+   * la pagina si apre con il modulo già posizionato sulla scala RPE.
+   */
+  apriRpeSubito?: boolean;
 };
 
 type Tab = "benessere" | "antropometria";
@@ -121,6 +126,7 @@ export default function MisurazioniGiocatoreClient({
   giocatore,
   antropometria,
   benessere,
+  apriRpeSubito = false,
 }: Props) {
   const [tab, setTab] = useState<Tab>("benessere");
   const [modalAperta, setModalAperta] = useState(false);
@@ -187,6 +193,17 @@ export default function MisurazioniGiocatoreClient({
     apriStep("campo");
     setModalAperta(true);
   }
+
+  /*
+   * Arrivo da /misurazioni?rpe=1 (pulsante "+" sulla card RPE della
+   * dashboard): apre il modulo una sola volta, al montaggio.
+   */
+  useEffect(() => {
+    if (!apriRpeSubito) return;
+
+    setStep("campo");
+    setModalAperta(true);
+  }, [apriRpeSubito]);
 
   function apriStep(nuovoStep: "campo" | "palestra" | "mattino") {
     setSeduta("");
