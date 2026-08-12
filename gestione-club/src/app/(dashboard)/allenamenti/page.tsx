@@ -438,7 +438,7 @@ export default function Page() {
       .from("allenamenti")
       .select("*")
       .eq("club_id", profiloData.last_club_id)
-      .order("data_allenamento", { ascending: false });
+      .order("data_allenamento", { ascending: true });
 
     if (profiloData.last_squadra_id) {
       allenamentiQuery = allenamentiQuery.eq(
@@ -1708,7 +1708,7 @@ export default function Page() {
 
                   {aperto && (
                     <div className="mt-5 grid gap-5 border-t border-zinc-800 pt-5 lg:grid-cols-[1.4fr_0.8fr]">
-                      <div className="space-y-4">
+                      <div className="min-w-0 space-y-4">
                         {allenamento.obiettivo && (
                           <div>
                             <p className="text-sm text-zinc-500">Obiettivo</p>
