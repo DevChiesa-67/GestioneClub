@@ -1,5 +1,6 @@
 import { AppCard } from "@/components/ui/AppCard";
 import { createClient } from "@/lib/supabase-server";
+import { creaSupabaseAdminOpzionale } from "@/lib/supabase-admin";
 import { CreaPartitaPopup } from "@/components/partite/CreaPartitaPopup";
 import { CreaEventoPopup } from "@/components/partite/CreaEventoPopup";
 import { PartiteTabs } from "@/components/partite/PartiteTabs";
@@ -153,6 +154,13 @@ export default async function Page() {
 
   const coloreClub = clubAttivo?.colore_flag || "#d71920";
 
+  // I loghi delle squadre vanno visti da tutti, non solo dall'admin: se lo
+  // storage bucket "loghi-squadre" ha policy di lettura più restrittive del
+  // previsto, un client service-role bypassa comunque RLS per generare lo
+  // signed URL. Se le variabili service role non sono configurate ripiega
+  // sul client legato alla sessione (comportamento precedente, admin-only).
+  const storageClient = creaSupabaseAdminOpzionale() ?? supabase;
+
   async function aggiungiLogoUrl(
     squadra: SquadraPartitaRel | null
   ): Promise<SquadraPartitaVisual | null> {
@@ -161,7 +169,7 @@ export default async function Page() {
     let logo_url: string | null = null;
 
     if (squadra.logo_path) {
-      const { data: signedLogo } = await supabase.storage
+      const { data: signedLogo } = await storageClient.storage
         .from("loghi-squadre")
         .createSignedUrl(squadra.logo_path, 60 * 60);
 

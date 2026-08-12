@@ -47,3 +47,44 @@ export const supabaseAdmin = createClient(
     },
   },
 );
+
+let contatoreAvvisiAdminOpzionale = 0;
+
+/**
+ * Come supabaseAdmin, ma non lancia se le variabili d'ambiente mancano:
+ * ritorna null e chi chiama può ripiegare sul client legato alla sessione
+ * dell'utente. Pensato per letture non sensibili (es. signed URL dei loghi
+ * squadra) dentro pagine/servizi sempre renderizzati, dove un errore di
+ * configurazione non deve far cadere l'intera pagina.
+ */
+export function creaSupabaseAdminOpzionale() {
+  const url = rimuoviSpazi(process.env.NEXT_PUBLIC_SUPABASE_URL);
+  const key = rimuoviSpazi(
+    process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
+
+  if (!url || !key) {
+    if (contatoreAvvisiAdminOpzionale < 1) {
+      contatoreAvvisiAdminOpzionale += 1;
+      console.warn(
+        "creaSupabaseAdminOpzionale: variabili service role non configurate, uso il client utente come fallback."
+      );
+    }
+
+    return null;
+  }
+
+  return createClient(url, key, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+    global: {
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+      },
+    },
+  });
+}

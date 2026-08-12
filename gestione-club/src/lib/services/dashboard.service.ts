@@ -1,6 +1,7 @@
 
 import { createClient } from "@/lib/supabase-server";
 import { comunicazioneVisibilePerProfilo } from "@/lib/comunicazioni/destinatari";
+import { creaSupabaseAdminOpzionale } from "@/lib/supabase-admin";
 
 
 
@@ -179,7 +180,14 @@ async function getLogoSignedUrl(
     .replace(/^\/+/, "")
     .replace(/^loghi-squadre\//, "");
 
-  const { data, error } = await supabase.storage
+  // I loghi squadra vanno mostrati a tutti, non solo all'admin: se le
+  // policy dello storage bucket "loghi-squadre" limitano la lettura,
+  // usiamo un client service-role (bypassa RLS) per generare comunque lo
+  // signed URL. Se le variabili service role non sono configurate,
+  // ripieghiamo sul client legato alla sessione (comportamento precedente).
+  const clientStorage = creaSupabaseAdminOpzionale() ?? supabase;
+
+  const { data, error } = await clientStorage.storage
     .from("loghi-squadre")
     .createSignedUrl(cleanPath, 60 * 60);
 
