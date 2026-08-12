@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { createClient } from "@/lib/supabase-server";
+import DashboardRpe from "./DashboardRpe";
 
 type GiocatoreDashboard = {
   id: string;
@@ -37,12 +38,13 @@ async function getDashboardContext() {
       lastClubId: null,
       lastSquadraId: null,
       themeColor: "#d71920",
+      tipoProfilo: "",
     };
   }
 
   const { data: profile } = await supabase
     .from("profili")
-    .select("last_club_id,last_squadra_id")
+    .select("last_club_id,last_squadra_id,tipo_profilo")
     .eq("auth_user_id", user.id)
     .single();
 
@@ -52,6 +54,7 @@ async function getDashboardContext() {
       lastClubId: null,
       lastSquadraId: null,
       themeColor: "#d71920",
+      tipoProfilo: "",
     };
   }
 
@@ -66,6 +69,7 @@ async function getDashboardContext() {
     lastClubId: profile.last_club_id as string,
     lastSquadraId: profile.last_squadra_id as string | null,
     themeColor: club?.colore_flag || "#d71920",
+    tipoProfilo: String(profile.tipo_profilo || "").toLowerCase(),
   };
 }
 
@@ -147,10 +151,16 @@ function isUrgentRientro(dataRientro: string | null) {
 }
 
 export default async function DashboardMedical() {
-  const [{ themeColor }, infortuni] = await Promise.all([
-    getDashboardContext(),
-    getInfortuniDashboard(),
-  ]);
+  const { themeColor, tipoProfilo } = await getDashboardContext();
+
+  // Un giocatore non deve vedere lo stato infortuni di tutta la squadra
+  // (dati sensibili di altri atleti): al suo posto mostriamo la sua card
+  // RPE/benessere.
+  if (tipoProfilo === "giocatore") {
+    return <DashboardRpe />;
+  }
+
+  const infortuni = await getInfortuniDashboard();
 
   return (
     <div

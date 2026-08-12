@@ -12,6 +12,10 @@ type Props = {
   clubId: string;
   squadraId: string | null;
   coloreFlag: string;
+  // Quando valorizzato (profilo "giocatore" collegato a un atleta), il
+  // grafico mostra solo i dati di questo giocatore invece della media/
+  // conteggio dell'intera squadra.
+  giocatoreId?: string | null;
 };
 
 type PuntoGrezzo = {
@@ -49,7 +53,8 @@ const VISTE: { key: Vista; label: string }[] = [
  */
 async function fetchPresenzeGrezze(
   clubId: string,
-  squadraId: string | null
+  squadraId: string | null,
+  giocatoreId: string | null
 ): Promise<PuntoGrezzo[]> {
   let query = supabase
     .from("presenze_allenamenti")
@@ -65,6 +70,10 @@ async function fetchPresenzeGrezze(
 
   if (squadraId) {
     query = query.eq("squadra_id", squadraId);
+  }
+
+  if (giocatoreId) {
+    query = query.eq("giocatore_id", giocatoreId);
   }
 
   const { data, error } = await query;
@@ -117,7 +126,8 @@ async function fetchPresenzeGrezze(
  */
 async function fetchAcwrGrezzo(
   clubId: string,
-  squadraId: string | null
+  squadraId: string | null,
+  giocatoreId: string | null
 ): Promise<PuntoGrezzo[]> {
   let query = supabase
     .from("catapult_acwr")
@@ -126,6 +136,10 @@ async function fetchAcwrGrezzo(
 
   if (squadraId) {
     query = query.eq("squadra_id", squadraId);
+  }
+
+  if (giocatoreId) {
+    query = query.eq("giocatore_id", giocatoreId);
   }
 
   const { data, error } = await query;
@@ -440,6 +454,7 @@ export default function DashboardAttendanceClient({
   clubId,
   squadraId,
   coloreFlag,
+  giocatoreId = null,
 }: Props) {
   const [metrica, setMetrica] = useState<Metrica>("presenze");
   const [vista, setVista] = useState<Vista>("per_seduta");
@@ -455,8 +470,8 @@ export default function DashboardAttendanceClient({
       setLoading(true);
 
       const [presenze, acwr, sedute] = await Promise.all([
-        fetchPresenzeGrezze(clubId, squadraId),
-        fetchAcwrGrezzo(clubId, squadraId),
+        fetchPresenzeGrezze(clubId, squadraId, giocatoreId),
+        fetchAcwrGrezzo(clubId, squadraId, giocatoreId),
         fetchDateSedute(clubId, squadraId),
       ]);
 
@@ -473,7 +488,7 @@ export default function DashboardAttendanceClient({
     return () => {
       cancelled = true;
     };
-  }, [clubId, squadraId]);
+  }, [clubId, squadraId, giocatoreId]);
 
   const grezzi = metrica === "presenze" ? grezziPresenze : grezziAcwr;
 
@@ -505,8 +520,12 @@ export default function DashboardAttendanceClient({
             style={{ color: coloreFlag }}
           >
             {metrica === "presenze"
-              ? "━ giocatori presenti per seduta"
-              : "━ ACWR medio squadra"}
+              ? giocatoreId
+                ? "━ le tue presenze per seduta"
+                : "━ giocatori presenti per seduta"
+              : giocatoreId
+                ? "━ il tuo ACWR"
+                : "━ ACWR medio squadra"}
           </span>
         </div>
 
@@ -579,11 +598,21 @@ export default function DashboardAttendanceClient({
                 {punti.slice(-4).map((p) => (
                   <div key={p.key} className="rounded-lg bg-black/30 p-2">
                     <p className="text-zinc-500">{p.label}</p>
-                    <p className="font-bold text-white">{p.value} presenti</p>
-                    {p.sottotitolo && (
-                      <p className="text-[10px] text-zinc-500">
-                        su {p.sottotitolo.split("/")[1]} convocati
+                    {giocatoreId ? (
+                      <p className="font-bold text-white">
+                        {p.value >= 1 ? "Presente" : "Assente"}
                       </p>
+                    ) : (
+                      <>
+                        <p className="font-bold text-white">
+                          {p.value} presenti
+                        </p>
+                        {p.sottotitolo && (
+                          <p className="text-[10px] text-zinc-500">
+                            su {p.sottotitolo.split("/")[1]} convocati
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                 ))}
