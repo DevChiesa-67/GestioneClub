@@ -13,6 +13,11 @@ export const PAGINE_GESTIONALE: PaginaGestionale[] = [
     href: "/dashboard",
   },
   {
+    key: "calendario",
+    label: "Calendario",
+    href: "/calendario",
+  },
+  {
     key: "giocatori",
     label: "Giocatori",
     href: "/giocatori",
