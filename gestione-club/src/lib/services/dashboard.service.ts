@@ -278,7 +278,11 @@ export async function getUpcomingPartite(limit = 4) {
       )
     `)
     .eq("club_id", clubId)
-    .eq("stato_partita", "programmata")
+    // "programmata" è solo lo stato iniziale: dopo aver salvato le
+    // convocazioni la partita passa a "convocazioni" pur non essendo
+    // ancora stata giocata, quindi va considerata comunque "prossima".
+    // L'unico stato che deve escluderla da qui è "giocata".
+    .neq("stato_partita", "giocata")
     .gte("data_partita", today)
     .order("data_partita", {
       ascending: true,
