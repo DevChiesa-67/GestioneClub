@@ -54,8 +54,16 @@ export default function SelettorePartita({
   // invisibile/non raggiungibile. Ora si sceglie se aprire sopra o
   // sotto in base allo spazio disponibile e si limita l'altezza a
   // quella effettivamente libera.
+  // Quando apre verso l'alto usiamo "bottom" (distanza dal fondo dello
+  // schermo) invece di "top" calcolato da un'altezza presunta: il
+  // contenuto reale (numero di risultati filtrati) spesso occupa meno
+  // spazio del massimo consentito, e ancorare con "top" lasciava un
+  // vuoto tra il popup e il bottone. Con "bottom" il popup resta
+  // sempre attaccato al bottone e cresce verso l'alto solo quanto gli
+  // serve, fino al limite di maxHeight.
   const [posizione, setPosizione] = useState<{
-    top: number;
+    top?: number;
+    bottom?: number;
     left: number;
     width: number;
     maxHeight: number;
@@ -79,16 +87,26 @@ export default function SelettorePartita({
       Math.min(altezzaPreferita, apriSopra ? spazioSopra : spazioSotto),
     );
 
-    const top = apriSopra
-      ? Math.max(margine, rect.top - maxHeight - margine)
-      : rect.bottom + margine;
-
     const left = Math.min(
       Math.max(margine, rect.left),
       Math.max(margine, window.innerWidth - rect.width - margine),
     );
 
-    setPosizione({ top, left, width: rect.width, maxHeight });
+    if (apriSopra) {
+      setPosizione({
+        bottom: window.innerHeight - rect.top + margine,
+        left,
+        width: rect.width,
+        maxHeight,
+      });
+    } else {
+      setPosizione({
+        top: rect.bottom + margine,
+        left,
+        width: rect.width,
+        maxHeight,
+      });
+    }
   }
 
   useLayoutEffect(() => {
@@ -182,6 +200,7 @@ export default function SelettorePartita({
             className="fixed z-[9999] flex flex-col overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-2xl shadow-black/50"
             style={{
               top: posizione.top,
+              bottom: posizione.bottom,
               left: posizione.left,
               width: posizione.width,
               maxHeight: posizione.maxHeight,
