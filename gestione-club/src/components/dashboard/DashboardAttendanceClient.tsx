@@ -369,8 +369,30 @@ function GraficoLineare({
     (_, i) => minY + ((maxY - minY) / (tickCount - 1)) * i
   );
 
+  /*
+   * Su mobile lo schermo è troppo stretto per comprimere il viewBox da
+   * 1000 unità: etichette e punti diventerebbero illeggibili. Diamo
+   * quindi al grafico una larghezza minima proporzionale al numero di
+   * rilevazioni e lasciamo scorrere orizzontalmente il contenitore.
+   * Da "sm" in su la larghezza minima viene azzerata e il grafico torna
+   * ad adattarsi alla card come prima.
+   */
+  const larghezzaMinimaMobile = Math.min(
+    2400,
+    Math.max(560, punti.length * 64)
+  );
+
   return (
     <div className="rounded-xl bg-black/20 p-3 sm:p-6">
+      <div className="-mx-1 overflow-x-auto overscroll-x-contain px-1 sm:mx-0 sm:overflow-x-visible sm:px-0">
+        <div
+          className="min-w-[var(--larghezza-grafico)] sm:min-w-0"
+          style={
+            {
+              "--larghezza-grafico": `${larghezzaMinimaMobile}px`,
+            } as React.CSSProperties
+          }
+        >
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className="h-[260px] w-full sm:h-[300px]"
@@ -446,6 +468,12 @@ function GraficoLineare({
           );
         })}
       </svg>
+        </div>
+      </div>
+
+      <p className="mt-2 text-center text-[10px] text-zinc-600 sm:hidden">
+        Scorri il grafico lateralmente per vedere tutte le rilevazioni.
+      </p>
     </div>
   );
 }
