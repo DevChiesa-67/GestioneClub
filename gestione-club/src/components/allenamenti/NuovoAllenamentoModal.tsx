@@ -620,7 +620,7 @@ export default function NuovoAllenamentoModal({
   // gruppo di lavori contemporanei.
   function aggiornaCampoGruppo(
     gruppoId: string,
-    campo: "sezione" | "tempo_lavoro" | "ripetizione" | "tempo_recupero",
+    campo: "sezione",
     valore: string
   ) {
     setLavori((prev) =>
@@ -863,6 +863,27 @@ if (settimanaProgrammata?.fase_id) {
       showToast({
         type: "error",
         message: "Seleziona una sezione per ogni lavoro.",
+      });
+      return;
+    }
+
+    const totaliPerGruppo = new Map<string, number>();
+    const gruppoConTotaliDiversi = lavori.find((lavoro) => {
+      if (!lavoro.contemporaneo || !lavoro.gruppo_id) return false;
+      const totale = calcolaTempoTotale(lavoro);
+      const totaleAtteso = totaliPerGruppo.get(lavoro.gruppo_id);
+      if (totaleAtteso === undefined) {
+        totaliPerGruppo.set(lavoro.gruppo_id, totale);
+        return false;
+      }
+      return totale !== totaleAtteso;
+    });
+
+    if (gruppoConTotaliDiversi) {
+      showToast({
+        type: "error",
+        message:
+          "I lavori contemporanei possono avere ripetizioni, tempi di lavoro e recuperi diversi, ma devono avere lo stesso tempo totale.",
       });
       return;
     }
@@ -1529,10 +1550,10 @@ if (settimanaProgrammata?.fase_id) {
                           Punti chiave di coaching
                         </th>
                         <th className="px-3 py-2.5 text-right font-semibold">
-                          T. lavoro
+                          Ripet.
                         </th>
                         <th className="px-3 py-2.5 text-right font-semibold">
-                          Ripet.
+                          T. lavoro
                         </th>
                         <th className="px-3 py-2.5 text-right font-semibold">
                           Recupero
@@ -1565,7 +1586,7 @@ if (settimanaProgrammata?.fase_id) {
                             | "tempo_recupero",
                           valore: string
                         ) {
-                          if (lavoro.gruppo_id) {
+                          if (lavoro.gruppo_id && campo === "sezione") {
                             aggiornaCampoGruppo(lavoro.gruppo_id, campo, valore);
                           } else {
                             aggiornaLavoro(lavoro.id, campo, valore);
@@ -1645,9 +1666,9 @@ if (settimanaProgrammata?.fase_id) {
                                 <input
                                   type="number"
                                   min={0}
-                                  value={lavoro.tempo_lavoro}
+                                  value={lavoro.ripetizione}
                                   onChange={(e) =>
-                                    aggiornaCampoRiga("tempo_lavoro", e.target.value)
+                                    aggiornaCampoRiga("ripetizione", e.target.value)
                                   }
                                   className="w-16 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-right text-white outline-none"
                                 />
@@ -1661,9 +1682,9 @@ if (settimanaProgrammata?.fase_id) {
                                 <input
                                   type="number"
                                   min={0}
-                                  value={lavoro.ripetizione}
+                                  value={lavoro.tempo_lavoro}
                                   onChange={(e) =>
-                                    aggiornaCampoRiga("ripetizione", e.target.value)
+                                    aggiornaCampoRiga("tempo_lavoro", e.target.value)
                                   }
                                   className="w-16 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-right text-white outline-none"
                                 />
@@ -1775,7 +1796,7 @@ if (settimanaProgrammata?.fase_id) {
                 <p className="text-xs text-zinc-500">
                   Immagini/video e i campi della tab Dettagli si gestiscono
                   dalla vista card. I lavori dello stesso gruppo in
-                  contemporanea condividono Tipo, Tempo lavoro, Ripetizioni e
+                  contemporanea condividono Tipo, Ripetizioni, Tempo lavoro e
                   Recupero.
                 </p>
 
@@ -2125,19 +2146,6 @@ if (settimanaProgrammata?.fase_id) {
                               </div>
 
                               <InputField
-                                label="Tempo lavoro"
-                                type="number"
-                                value={lavoro.tempo_lavoro}
-                                onChange={(value) =>
-                                  aggiornaLavoro(
-                                    lavoro.id,
-                                    "tempo_lavoro",
-                                    value
-                                  )
-                                }
-                              />
-
-                              <InputField
                                 label="Ripetizioni"
                                 type="number"
                                 value={lavoro.ripetizione}
@@ -2145,6 +2153,19 @@ if (settimanaProgrammata?.fase_id) {
                                   aggiornaLavoro(
                                     lavoro.id,
                                     "ripetizione",
+                                    value
+                                  )
+                                }
+                              />
+
+                              <InputField
+                                label="Tempo lavoro"
+                                type="number"
+                                value={lavoro.tempo_lavoro}
+                                onChange={(value) =>
+                                  aggiornaLavoro(
+                                    lavoro.id,
+                                    "tempo_lavoro",
                                     value
                                   )
                                 }
@@ -2258,59 +2279,11 @@ if (settimanaProgrammata?.fase_id) {
                           />
                         </div>
 
-                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                          <InputField
-                            label="Tempo lavoro"
-                            type="number"
-                            value={riferimento.tempo_lavoro}
-                            onChange={(value) =>
-                              aggiornaCampoGruppo(
-                                gruppoId,
-                                "tempo_lavoro",
-                                value
-                              )
-                            }
-                          />
-
-                          <InputField
-                            label="Ripetizioni"
-                            type="number"
-                            value={riferimento.ripetizione}
-                            onChange={(value) =>
-                              aggiornaCampoGruppo(
-                                gruppoId,
-                                "ripetizione",
-                                value
-                              )
-                            }
-                          />
-
-                          <InputField
-                            label="Tempo recupero"
-                            type="number"
-                            value={riferimento.tempo_recupero}
-                            onChange={(value) =>
-                              aggiornaCampoGruppo(
-                                gruppoId,
-                                "tempo_recupero",
-                                value
-                              )
-                            }
-                          />
-
-                          <div>
-                            <label className="mb-1 block text-sm text-zinc-400">
-                              Tempo totale
-                            </label>
-
-                            <div
-                              className="flex h-[42px] items-center rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-lg font-semibold"
-                              style={{ color: coloreGruppo }}
-                            >
-                              {calcolaTempoTotale(riferimento)} min
-                            </div>
-                          </div>
-                        </div>
+                        <p className="text-xs text-zinc-500">
+                          Ogni lavoro parallelo può avere ripetizioni, tempo di
+                          lavoro e recupero differenti. Il tempo totale deve
+                          essere uguale per tutti i lavori del gruppo.
+                        </p>
 
                         {membri.length === 1 && (
                           <button
@@ -2513,6 +2486,44 @@ if (settimanaProgrammata?.fase_id) {
                                 <AnteprimaMediaLavoro
                                   url={membro.immagine_lavoro}
                                 />
+                              </div>
+
+                              <div className="md:col-span-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                                <InputField
+                                  label="Ripetizioni"
+                                  type="number"
+                                  value={membro.ripetizione}
+                                  onChange={(value) =>
+                                    aggiornaLavoro(membro.id, "ripetizione", value)
+                                  }
+                                />
+                                <InputField
+                                  label="Tempo lavoro"
+                                  type="number"
+                                  value={membro.tempo_lavoro}
+                                  onChange={(value) =>
+                                    aggiornaLavoro(membro.id, "tempo_lavoro", value)
+                                  }
+                                />
+                                <InputField
+                                  label="Tempo recupero"
+                                  type="number"
+                                  value={membro.tempo_recupero}
+                                  onChange={(value) =>
+                                    aggiornaLavoro(membro.id, "tempo_recupero", value)
+                                  }
+                                />
+                                <div>
+                                  <label className="mb-1 block text-sm text-zinc-400">
+                                    Tempo totale
+                                  </label>
+                                  <div
+                                    className="flex h-[42px] items-center rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-lg font-semibold"
+                                    style={{ color: coloreGruppo }}
+                                  >
+                                    {calcolaTempoTotale(membro)} min
+                                  </div>
+                                </div>
                               </div>
                             </div>
                             )}

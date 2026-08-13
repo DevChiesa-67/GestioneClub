@@ -365,17 +365,14 @@ export default function ModificaAllenamentoClient({
   // recupero) su tutti i lavori dello stesso gruppo di contemporaneità.
   function aggiornaCampoGruppo(
     gruppoId: string,
-    campo: "sezione" | "tempo_lavoro" | "ripetizione" | "tempo_recupero",
+    campo: "sezione",
     valore: string
   ) {
     setLavori((prev) =>
       prev.map((lavoro) => {
         if (lavoro.gruppo_id !== gruppoId) return lavoro;
 
-        const aggiornato = { ...lavoro, [campo]: valore };
-        aggiornato.tempo_totale = String(calcolaTempoTotale(aggiornato));
-
-        return aggiornato;
+        return { ...lavoro, [campo]: valore };
       })
     );
   }
@@ -496,6 +493,25 @@ export default function ModificaAllenamentoClient({
 
     if (lavoriConSezioneMancante) {
       setErrore("Ogni lavoro deve avere una sezione.");
+      return;
+    }
+
+    const totaliPerGruppo = new Map<string, number>();
+    const gruppoConTotaliDiversi = lavori.find((lavoro) => {
+      if (!lavoro.contemporaneo || !lavoro.gruppo_id) return false;
+      const totale = calcolaTempoTotale(lavoro);
+      const totaleAtteso = totaliPerGruppo.get(lavoro.gruppo_id);
+      if (totaleAtteso === undefined) {
+        totaliPerGruppo.set(lavoro.gruppo_id, totale);
+        return false;
+      }
+      return totale !== totaleAtteso;
+    });
+
+    if (gruppoConTotaliDiversi) {
+      setErrore(
+        "I lavori contemporanei possono avere ripetizioni, tempi di lavoro e recuperi diversi, ma devono avere lo stesso tempo totale."
+      );
       return;
     }
 
@@ -1014,22 +1030,6 @@ export default function ModificaAllenamentoClient({
                       </div>
 
                       <div className="mt-3 grid gap-3 grid-cols-2 md:grid-cols-4">
-                        <Campo label="Tempo lavoro (min)">
-                          <input
-                            type="number"
-                            min={0}
-                            value={lavoro.tempo_lavoro}
-                            onChange={(e) =>
-                              aggiornaLavoro(
-                                lavoro.chiave,
-                                "tempo_lavoro",
-                                e.target.value
-                              )
-                            }
-                            className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
-                          />
-                        </Campo>
-
                         <Campo label="Ripetizioni">
                           <input
                             type="number"
@@ -1039,6 +1039,22 @@ export default function ModificaAllenamentoClient({
                               aggiornaLavoro(
                                 lavoro.chiave,
                                 "ripetizione",
+                                e.target.value
+                              )
+                            }
+                            className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
+                          />
+                        </Campo>
+
+                        <Campo label="Tempo lavoro (min)">
+                          <input
+                            type="number"
+                            min={0}
+                            value={lavoro.tempo_lavoro}
+                            onChange={(e) =>
+                              aggiornaLavoro(
+                                lavoro.chiave,
+                                "tempo_lavoro",
                                 e.target.value
                               )
                             }
@@ -1132,64 +1148,11 @@ export default function ModificaAllenamentoClient({
                     </Campo>
                   </div>
 
-                  <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
-                    <Campo label="Tempo lavoro (min)">
-                      <input
-                        type="number"
-                        min={0}
-                        value={riferimento.tempo_lavoro}
-                        onChange={(e) =>
-                          aggiornaCampoGruppo(
-                            gruppoId,
-                            "tempo_lavoro",
-                            e.target.value
-                          )
-                        }
-                        className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
-                      />
-                    </Campo>
-
-                    <Campo label="Ripetizioni">
-                      <input
-                        type="number"
-                        min={0}
-                        value={riferimento.ripetizione}
-                        onChange={(e) =>
-                          aggiornaCampoGruppo(
-                            gruppoId,
-                            "ripetizione",
-                            e.target.value
-                          )
-                        }
-                        className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
-                      />
-                    </Campo>
-
-                    <Campo label="Recupero (min)">
-                      <input
-                        type="number"
-                        min={0}
-                        value={riferimento.tempo_recupero}
-                        onChange={(e) =>
-                          aggiornaCampoGruppo(
-                            gruppoId,
-                            "tempo_recupero",
-                            e.target.value
-                          )
-                        }
-                        className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
-                      />
-                    </Campo>
-
-                    <Campo label="Totale (min)">
-                      <div
-                        className="flex h-11 w-full items-center rounded-xl border border-zinc-700 bg-zinc-950 px-3 text-sm font-semibold"
-                        style={{ color: coloreGruppo }}
-                      >
-                        {calcolaTempoTotale(riferimento)} min
-                      </div>
-                    </Campo>
-                  </div>
+                  <p className="text-xs text-zinc-500">
+                    Ogni lavoro parallelo può avere ripetizioni, tempo di
+                    lavoro e recupero differenti. Il tempo totale deve essere
+                    uguale per tutti i lavori del gruppo.
+                  </p>
 
                   {membri.length === 1 && (
                     <button
@@ -1363,6 +1326,62 @@ export default function ModificaAllenamentoClient({
 
                           <AnteprimaMediaLavoro url={membro.immagine_lavoro} />
                         </Campo>
+
+                        <div className="md:col-span-2 grid gap-3 grid-cols-2 md:grid-cols-4">
+                          <Campo label="Ripetizioni">
+                            <input
+                              type="number"
+                              min={0}
+                              value={membro.ripetizione}
+                              onChange={(e) =>
+                                aggiornaLavoro(
+                                  membro.chiave,
+                                  "ripetizione",
+                                  e.target.value
+                                )
+                              }
+                              className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
+                            />
+                          </Campo>
+                          <Campo label="Tempo lavoro (min)">
+                            <input
+                              type="number"
+                              min={0}
+                              value={membro.tempo_lavoro}
+                              onChange={(e) =>
+                                aggiornaLavoro(
+                                  membro.chiave,
+                                  "tempo_lavoro",
+                                  e.target.value
+                                )
+                              }
+                              className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
+                            />
+                          </Campo>
+                          <Campo label="Recupero (min)">
+                            <input
+                              type="number"
+                              min={0}
+                              value={membro.tempo_recupero}
+                              onChange={(e) =>
+                                aggiornaLavoro(
+                                  membro.chiave,
+                                  "tempo_recupero",
+                                  e.target.value
+                                )
+                              }
+                              className="h-11 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-sm text-white outline-none focus:ring-2 focus:ring-zinc-600"
+                            />
+                          </Campo>
+                          <Campo label="Totale (min)">
+                            <div
+                              className="flex h-11 w-full items-center rounded-xl border border-zinc-700 bg-zinc-900 px-3 text-sm font-semibold"
+                              style={{ color: coloreGruppo }}
+                            >
+                              {calcolaTempoTotale(membro)} min
+                            </div>
+                          </Campo>
+                        </div>
                       </div>
                       )}
                     </div>

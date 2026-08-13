@@ -84,11 +84,11 @@ export default function DettaglioLavoroModal({
         </div>
 
         <div className="mb-4 flex flex-wrap gap-3 text-sm text-zinc-400">
-          {lavoro.tempo_lavoro !== null && (
-            <span>Lavoro: {lavoro.tempo_lavoro} min</span>
-          )}
           {lavoro.ripetizione !== null && (
             <span>Ripetizioni: {lavoro.ripetizione}</span>
+          )}
+          {lavoro.tempo_lavoro !== null && (
+            <span>Lavoro: {lavoro.tempo_lavoro} min</span>
           )}
           {lavoro.tempo_recupero !== null && (
             <span>Recupero: {lavoro.tempo_recupero} min</span>

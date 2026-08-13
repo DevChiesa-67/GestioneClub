@@ -435,8 +435,8 @@ export async function generaPdfAllenamento(
     "Sezione",
     "Descrizione",
     "Obbiettivo",
-    "Tempo di Lavoro",
     "Ripetizione",
+    "Tempo di Lavoro",
     "Tempo di Recupero",
     "Tempo Totale",
   ];
@@ -503,8 +503,8 @@ export async function generaPdfAllenamento(
           orarioTesto,
           h2o ? "h2o" : capofila.descrizione || "",
           h2o ? "" : capofila.obbiettivo || "",
-          h2o ? "" : capofila.tempo_lavoro !== null ? String(capofila.tempo_lavoro) : "",
           h2o ? "" : capofila.ripetizione !== null ? String(capofila.ripetizione) : "",
+          h2o ? "" : capofila.tempo_lavoro !== null ? String(capofila.tempo_lavoro) : "",
           h2o
             ? ""
             : capofila.tempo_recupero !== null
@@ -516,9 +516,8 @@ export async function generaPdfAllenamento(
       return;
     }
 
-    // Lavori in contemporanea: le celle dei tempi (e l'orario) vengono
-    // unite verticalmente sulla prima riga del gruppo; le righe successive
-    // mostrano solo la loro descrizione/obbiettivo.
+    // Lavori in contemporanea: condividono orario e tempo totale, mentre
+    // ripetizioni, tempo di lavoro e recupero restano specifici per membro.
     righe.push({
       sezioneEffettiva,
       tipo: "dato",
@@ -527,19 +526,9 @@ export async function generaPdfAllenamento(
         { content: orarioTesto, rowSpan: membri.length },
         capofila.descrizione || "",
         capofila.obbiettivo || "",
-        {
-          content: capofila.tempo_lavoro !== null ? String(capofila.tempo_lavoro) : "",
-          rowSpan: membri.length,
-        },
-        {
-          content: capofila.ripetizione !== null ? String(capofila.ripetizione) : "",
-          rowSpan: membri.length,
-        },
-        {
-          content:
-            capofila.tempo_recupero !== null ? String(capofila.tempo_recupero) : "",
-          rowSpan: membri.length,
-        },
+        capofila.ripetizione !== null ? String(capofila.ripetizione) : "",
+        capofila.tempo_lavoro !== null ? String(capofila.tempo_lavoro) : "",
+        capofila.tempo_recupero !== null ? String(capofila.tempo_recupero) : "",
         {
           content: capofila.tempo_totale !== null ? String(capofila.tempo_totale) : "",
           rowSpan: membri.length,
@@ -552,7 +541,13 @@ export async function generaPdfAllenamento(
         sezioneEffettiva,
         tipo: "dato-continua",
         media: mediaPerLavoro.get(membro) ?? null,
-        celle: [membro.descrizione || "", membro.obbiettivo || ""],
+        celle: [
+          membro.descrizione || "",
+          membro.obbiettivo || "",
+          membro.ripetizione !== null ? String(membro.ripetizione) : "",
+          membro.tempo_lavoro !== null ? String(membro.tempo_lavoro) : "",
+          membro.tempo_recupero !== null ? String(membro.tempo_recupero) : "",
+        ],
       });
     });
   });

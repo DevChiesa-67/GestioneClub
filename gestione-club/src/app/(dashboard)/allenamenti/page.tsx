@@ -22,6 +22,7 @@ import { supabase } from "@/lib/supabase-client";
 import NuovoAllenamentoModal from "@/components/allenamenti/NuovoAllenamentoModal";
 import RegistraPresenzeModal from "@/components/allenamenti/RegistraPresenzeModal";
 import ImportaAllenamentiModal from "@/components/allenamenti/ImportaAllenamentiModal";
+import ScaricaTemplateAllenamentiModal from "@/components/allenamenti/ScaricaTemplateAllenamentiModal";
 import PdfPreviewModal from "@/components/allenamenti/PdfPreviewModal";
 import DettaglioLavoroModal from "@/components/allenamenti/DettaglioLavoroModal";
 import { generaPdfAllenamento, scaricaPdfAllenamento } from "@/lib/pdf-allenamento";
@@ -391,6 +392,7 @@ export default function Page() {
   const [openNuovoAllenamento, setOpenNuovoAllenamento] = useState(false);
   const [openRegistraPresenze, setOpenRegistraPresenze] = useState(false);
   const [openImportaExcel, setOpenImportaExcel] = useState(false);
+  const [openScaricaTemplate, setOpenScaricaTemplate] = useState(false);
   const [pdfInAnteprima, setPdfInAnteprima] = useState<{
     doc: Awaited<ReturnType<typeof generaPdfAllenamento>>["doc"];
     blobUrl: string;
@@ -876,8 +878,8 @@ export default function Page() {
                   <th className="px-3 py-2 font-semibold">Drill</th>
                   <th className="px-3 py-2 font-semibold">Consegna e organizzazione</th>
                   <th className="px-3 py-2 font-semibold">Punti chiave di coaching</th>
-                  <th className="px-3 py-2 text-right font-semibold">Tempo lavoro</th>
                   <th className="px-3 py-2 text-right font-semibold">Rip.</th>
+                  <th className="px-3 py-2 text-right font-semibold">Tempo lavoro</th>
                   <th className="px-3 py-2 text-right font-semibold">Rec.</th>
                   <th className="px-3 py-2 text-right font-semibold">Totale</th>
                 </tr>
@@ -898,10 +900,10 @@ export default function Page() {
                       <td className="px-3 py-2">{lavoro.obbiettivo || "—"}</td>
                       <td className="px-3 py-2">{lavoro.punti_chiave_coaching || "—"}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-right text-zinc-400">
-                        {lavoro.tempo_lavoro ?? "—"}
+                        {lavoro.ripetizione ?? "—"}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-right text-zinc-400">
-                        {lavoro.ripetizione ?? "—"}
+                        {lavoro.tempo_lavoro ?? "—"}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-right text-zinc-400">
                         {lavoro.tempo_recupero ?? "—"}
@@ -1085,6 +1087,16 @@ export default function Page() {
 
       <button
         type="button"
+        onClick={() => setOpenScaricaTemplate(true)}
+        className="inline-flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-black text-white transition hover:bg-white/5 active:scale-[0.98]"
+        style={{ borderColor: `${themeColor}55` }}
+      >
+        <FileDown className="h-4 w-4" />
+        Scarica template
+      </button>
+
+      <button
+        type="button"
         onClick={() => setOpenNuovoAllenamento(true)}
         className="inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-black text-white transition hover:brightness-110 active:scale-[0.98]"
         style={{
@@ -1210,6 +1222,18 @@ export default function Page() {
       {isAdmin && (
       <button
         type="button"
+        onClick={() => setOpenScaricaTemplate(true)}
+        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl border px-4 py-2.5 text-sm font-black text-white transition hover:bg-white/5 active:scale-[0.98] lg:hidden"
+        style={{ borderColor: `${themeColor}55` }}
+      >
+        <FileDown className="h-4 w-4" />
+        Scarica template
+      </button>
+      )}
+
+      {isAdmin && (
+      <button
+        type="button"
         onClick={() => setOpenNuovoAllenamento(true)}
         className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-black text-white transition hover:brightness-110 active:scale-[0.98] lg:hidden"
         style={{
@@ -1304,8 +1328,8 @@ export default function Page() {
                     <th className="px-3 py-3">Sezione</th>
                     <th className="px-3 py-3">Descrizione</th>
                     <th className="px-3 py-3">Obiettivo</th>
-                    <th className="px-3 py-3 text-right">Tempo lavoro</th>
                     <th className="px-3 py-3 text-right">Rip.</th>
+                    <th className="px-3 py-3 text-right">Tempo lavoro</th>
                     <th className="px-3 py-3 text-right">Rec.</th>
                     <th className="px-3 py-3 text-right">Totale</th>
                   </tr>
@@ -1342,10 +1366,10 @@ export default function Page() {
                             {lavoro.obbiettivo ?? "—"}
                           </td>
                           <td className="px-3 py-3 text-right">
-                            {lavoro.tempo_lavoro ?? "—"}
+                            {lavoro.ripetizione ?? "—"}
                           </td>
                           <td className="px-3 py-3 text-right">
-                            {lavoro.ripetizione ?? "—"}
+                            {lavoro.tempo_lavoro ?? "—"}
                           </td>
                           <td className="px-3 py-3 text-right">
                             {lavoro.tempo_recupero ?? "—"}
@@ -1968,15 +1992,15 @@ export default function Page() {
                               </p>
 
                               <div className="mt-3 flex flex-wrap gap-3 text-sm text-zinc-400">
-                                {lavoro.tempo_lavoro !== null && (
-                                  <span>
-                                    Lavoro: {lavoro.tempo_lavoro} min
-                                  </span>
-                                )}
-
                                 {lavoro.ripetizione !== null && (
                                   <span>
                                     Ripetizioni: {lavoro.ripetizione}
+                                  </span>
+                                )}
+
+                                {lavoro.tempo_lavoro !== null && (
+                                  <span>
+                                    Lavoro: {lavoro.tempo_lavoro} min
                                   </span>
                                 )}
 
@@ -2123,6 +2147,13 @@ export default function Page() {
             />
           </div>
         </div>
+      )}
+
+      {openScaricaTemplate && (
+        <ScaricaTemplateAllenamentiModal
+          themeColor={themeColor}
+          onClose={() => setOpenScaricaTemplate(false)}
+        />
       )}
 
       {openRegistraPresenze && (
