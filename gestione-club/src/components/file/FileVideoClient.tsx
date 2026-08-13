@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import {
   Trash2,
@@ -12,6 +13,7 @@ import {
   Plus,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
 } from "lucide-react";
 import { AppCard } from "@/components/ui/AppCard";
 import {
@@ -65,6 +67,7 @@ type Video = {
   id: string;
   titolo: string;
   video_path: string;
+  video_mime_type: string | null;
   signedUrl: string | null;
   tipo_evento: "partita" | "allenamento" | "evento";
   note: string | null;
@@ -123,6 +126,43 @@ function eventoLabel(item: Video) {
   }`;
 }
 
+function tipoEventoLabel(item: Video) {
+  if (item.tipo_evento === "partita") return "Partita";
+  if (item.tipo_evento === "allenamento") return "Allenamento";
+  return item.eventi?.tipo_evento?.nome ?? "Evento";
+}
+
+function FilePopup({ file, onClose }: { file: Video; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label={file.titolo} onClick={(event) => event.stopPropagation()} className="max-h-[92vh] w-full max-w-6xl overflow-auto rounded-3xl border border-zinc-700 bg-zinc-950 p-4 shadow-2xl sm:p-6">
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-black text-white">{file.titolo}</h2>
+            <span className="mt-2 inline-flex rounded-full border border-blue-400/30 bg-blue-400/10 px-3 py-1 text-xs font-black uppercase text-blue-300">{tipoEventoLabel(file)}</span>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full border border-zinc-700 p-2 text-zinc-300 hover:bg-zinc-800" aria-label="Chiudi"><X className="h-5 w-5" /></button>
+        </div>
+
+        {!file.signedUrl ? (
+          <p className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-amber-200">Anteprima non disponibile. Verifica le policy di lettura del bucket.</p>
+        ) : file.video_mime_type?.startsWith("video/") ? (
+          <video src={file.signedUrl} controls autoPlay className="max-h-[72vh] w-full rounded-2xl bg-black" />
+        ) : file.video_mime_type?.startsWith("image/") ? (
+          <Image src={file.signedUrl} alt={file.titolo} width={1920} height={1080} unoptimized className="max-h-[72vh] w-full rounded-2xl object-contain" />
+        ) : (
+          <iframe src={file.signedUrl} title={file.titolo} className="h-[72vh] w-full rounded-2xl bg-white" />
+        )}
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          {file.signedUrl && <a href={file.signedUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-4 py-2 text-sm font-bold text-white"><ExternalLink className="h-4 w-4" />Apri in una nuova scheda</a>}
+          {file.note && <p className="text-sm text-zinc-300">{file.note}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GiocatoriMultiSelect({
   giocatori,
   defaultSelected = [],
@@ -177,6 +217,7 @@ function GiocatoriMultiSelect({
           );
         })}
       </div>
+
     </div>
   );
 }
@@ -333,6 +374,7 @@ export default function FileVideoClient({
   persone,
   giocatori,
 }: Props) {
+  const router = useRouter();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
@@ -344,10 +386,12 @@ export default function FileVideoClient({
   const [visibilita, setVisibilita] = useState("tutti");
 
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [fileAperto, setFileAperto] = useState<Video | null>(null);
   const [editTipoValore, setEditTipoValore] = useState<string>("partita");
   const [editVisibilita, setEditVisibilita] = useState("tutti");
 
   const [isPending, startTransition] = useTransition();
+  const [errore, setErrore] = useState<string | null>(null);
 
   const { tipo: tipoEvento, tipoEventoId: tipoEventoIdSel } =
     scomponiValoreTipo(tipoValore);
@@ -368,9 +412,7 @@ export default function FileVideoClient({
 
   const videoRaggruppati = useMemo(() => {
     return video.reduce<Record<string, Video[]>>((acc, item) => {
-      const key = `${item.tipo_evento}-${
-        item.partita_id ?? item.allenamento_id ?? item.evento_id ?? item.id
-      }`;
+      const key = item.titolo.trim() || "Senza titolo";
 
       if (!acc[key]) acc[key] = [];
       acc[key].push(item);
@@ -387,9 +429,19 @@ export default function FileVideoClient({
   }
 
   function onSubmit(formData: FormData) {
+    setErrore(null);
     startTransition(async () => {
-      await creaVideoFile(formData);
-      setShowCreateForm(false);
+      try {
+        await creaVideoFile(formData);
+        setShowCreateForm(false);
+        router.refresh();
+      } catch (error) {
+        setErrore(
+          error instanceof Error
+            ? error.message
+            : "Impossibile caricare il file. Verifica la configurazione del database."
+        );
+      }
     });
   }
 
@@ -413,6 +465,7 @@ export default function FileVideoClient({
 
   return (
     <div className="space-y-5">
+      {fileAperto && <FilePopup file={fileAperto} onClose={() => setFileAperto(null)} />}
       {isAdmin && (
         <div className="flex justify-end">
           <button
@@ -421,18 +474,23 @@ export default function FileVideoClient({
             className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-zinc-950"
           >
             {showCreateForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-            {showCreateForm ? "Chiudi" : "Aggiungi Video"}
+            {showCreateForm ? "Chiudi" : "Aggiungi file"}
           </button>
         </div>
       )}
 
       {isAdmin && showCreateForm && (
         <AppCard>
+          {errore && (
+            <p className="mb-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+              {errore}
+            </p>
+          )}
           <form action={onSubmit} className="space-y-5">
             <div>
-              <h2 className="text-lg font-black text-white">Carica nuovo video</h2>
+              <h2 className="text-lg font-black text-white">Carica nuovo file</h2>
               <p className="mt-1 text-sm text-zinc-400">
-                Associa il video a una partita o a un allenamento e scegli chi può visualizzarlo.
+                Puoi associarlo a un evento e scegliere chi può visualizzarlo.
               </p>
             </div>
 
@@ -448,14 +506,20 @@ export default function FileVideoClient({
               </div>
 
               <div>
-                <label className="text-xs font-bold uppercase text-zinc-500">Video</label>
+                <label className="text-xs font-bold uppercase text-zinc-500">
+                  File (video, immagine o PDF)
+                </label>
                 <input
                   name="video"
                   type="file"
-                  accept="video/*"
+                  accept="video/*,image/*,application/pdf"
+                  multiple
                   required
                   className="mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-zinc-300 outline-none"
                 />
+                <p className="mt-2 text-xs text-zinc-500">
+                  Puoi selezionare più file contemporaneamente.
+                </p>
               </div>
 
               <div>
@@ -469,13 +533,14 @@ export default function FileVideoClient({
               </div>
 
               <div>
-                <label className="text-xs font-bold uppercase text-zinc-500">Evento associato</label>
+                <label className="text-xs font-bold uppercase text-zinc-500">
+                  Evento associato (facoltativo)
+                </label>
                 <select
                   name="evento_id"
-                  required
                   className="mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-white outline-none focus:border-zinc-600"
                 >
-                  <option value="">Seleziona evento</option>
+                  <option value="">Nessun evento associato</option>
                   {eventiAssociabili.map((evento) => (
                     <option key={evento.id} value={evento.id}>
                       {tipoEvento === "partita"
@@ -549,16 +614,16 @@ export default function FileVideoClient({
               className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-zinc-950 disabled:opacity-50 sm:w-auto"
             >
               {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Salva video
+              Salva file
             </button>
           </form>
         </AppCard>
       )}
 
-      <div className="mx-auto w-full max-w-5xl space-y-3">
+      <div className="w-full space-y-3">
         {video.length === 0 ? (
           <AppCard>
-            <p className="text-sm text-zinc-400">Nessun video disponibile.</p>
+            <p className="text-sm text-zinc-400">Nessun file disponibile.</p>
           </AppCard>
         ) : (
           Object.entries(videoRaggruppati).map(([groupKey, items]) => {
@@ -566,25 +631,54 @@ export default function FileVideoClient({
 
             return (
               <AppCard key={groupKey}>
-                <button
-                  type="button"
-                  onClick={() => toggleGroup(groupKey)}
-                  className="flex w-full items-center justify-between gap-4 text-left"
-                >
-                  <div>
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(groupKey)}
+                    className="min-w-0 flex-1 text-left"
+                  >
                     <h2 className="text-sm font-black uppercase tracking-wide text-white">
-                      {eventoLabel(items[0])}
+                      {groupKey}
                     </h2>
-                    <p className="mt-1 text-xs text-zinc-500">{items.length} video</p>
-                  </div>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {items.length} {items.length === 1 ? "file" : "file"}
+                    </p>
+                  </button>
 
-                  <div className="rounded-full border border-zinc-800 bg-zinc-950 p-2 text-zinc-400">
-                    {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                    {isAdmin && items.map((item, indice) => (
+                      <div key={item.id} className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startEditing(item)}
+                          className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-200 hover:bg-zinc-800"
+                        >
+                          <Pencil className="h-4 w-4" />
+                          Modifica{items.length > 1 ? ` ${indice + 1}` : ""}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDelete(item.id, item.video_path)}
+                          className="inline-flex items-center gap-2 rounded-xl border border-red-500/30 px-3 py-2 text-xs font-bold text-red-400 hover:bg-red-500/10"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Elimina{items.length > 1 ? ` ${indice + 1}` : ""}
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(groupKey)}
+                      className="rounded-full border border-zinc-800 bg-zinc-950 p-2 text-zinc-400"
+                      aria-label={isOpen ? "Chiudi gruppo" : "Apri gruppo"}
+                    >
+                      {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    </button>
                   </div>
-                </button>
+                </div>
 
                 {isOpen && (
-                  <div className="mt-5 grid gap-4">
+                  <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-5">
                     {items.map((item) => {
                       const selectedGiocatori =
                         item.file_video_destinatari
@@ -594,53 +688,66 @@ export default function FileVideoClient({
                       return (
                         <div
                           key={item.id}
-                          className="space-y-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-4"
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setFileAperto(item)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") setFileAperto(item);
+                          }}
+                          className="cursor-pointer space-y-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-3 transition hover:border-zinc-600"
                         >
-                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div className="flex flex-col gap-3">
                             <div>
                               <div className="flex items-center gap-2">
                                 <PlayCircle className="h-5 w-5 text-zinc-400" />
-                                <h3 className="text-lg font-black text-white">{item.titolo}</h3>
+                                <h3 className="truncate text-sm font-black text-white">{item.titolo}</h3>
                               </div>
 
                               <p className="mt-1 text-xs font-bold uppercase text-zinc-500">
                                 Visibilità: {item.visibilita}
                               </p>
+                              <span className="mt-2 inline-flex rounded-full border border-blue-400/30 bg-blue-400/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-blue-300">
+                                {tipoEventoLabel(item)}
+                              </span>
                             </div>
 
-                            {isAdmin && (
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => startEditing(item)}
-                                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-300"
-                                >
-                                  <Pencil className="h-4 w-4" />
-                                  Modifica
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => onDelete(item.id, item.video_path)}
-                                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-500/30 px-3 py-2 text-xs font-bold text-red-400"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                  Elimina
-                                </button>
-                              </div>
-                            )}
                           </div>
 
                           {editingId === item.id && isAdmin && (
-                            <form
-                              action={(formData) => {
-                                startTransition(async () => {
-                                  await aggiornaVideoFile(formData);
-                                  setEditingId(null);
-                                });
+                            <div
+                              className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm sm:p-6"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setEditingId(null);
                               }}
-                              className="space-y-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-4"
                             >
+                              <form
+                                onClick={(event) => event.stopPropagation()}
+                                action={(formData) => {
+                                  startTransition(async () => {
+                                    await aggiornaVideoFile(formData);
+                                    setEditingId(null);
+                                    router.refresh();
+                                  });
+                                }}
+                                className="max-h-[92vh] w-full max-w-3xl space-y-5 overflow-y-auto rounded-3xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl sm:p-7"
+                              >
+                              <div className="flex items-start justify-between gap-4">
+                                <div>
+                                  <p className="text-xs font-black uppercase tracking-widest text-zinc-500">
+                                    Modifica file
+                                  </p>
+                                  <h2 className="mt-1 text-xl font-black text-white">{item.titolo}</h2>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingId(null)}
+                                  className="rounded-full border border-zinc-700 p-2 text-zinc-300 hover:bg-zinc-800"
+                                  aria-label="Chiudi modifica"
+                                >
+                                  <X className="h-5 w-5" />
+                                </button>
+                              </div>
                               <input type="hidden" name="video_id" value={item.id} />
 
                               <div className="grid gap-4 md:grid-cols-2">
@@ -672,7 +779,7 @@ export default function FileVideoClient({
 
                                 <div>
                                   <label className="text-xs font-bold uppercase text-zinc-500">
-                                    Evento associato
+                                    Evento associato (facoltativo)
                                   </label>
                                   <select
                                     name="evento_id"
@@ -682,10 +789,9 @@ export default function FileVideoClient({
                                       item.evento_id ??
                                       ""
                                     }
-                                    required
                                     className="mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-white outline-none focus:border-zinc-600"
                                   >
-                                    <option value="">Seleziona evento</option>
+                                    <option value="">Nessun evento associato</option>
                                     {eventiAssociabiliEdit.map((evento) => (
                                       <option key={evento.id} value={evento.id}>
                                         {editTipoEvento === "partita"
@@ -765,7 +871,7 @@ export default function FileVideoClient({
                                 />
                               </div>
 
-                              <div className="flex flex-wrap gap-2">
+                              <div className="sticky bottom-0 -mx-5 -mb-5 flex flex-wrap gap-2 border-t border-zinc-800 bg-zinc-900/95 px-5 py-4 backdrop-blur sm:-mx-7 sm:-mb-7 sm:px-7">
                                 <button
                                   type="submit"
                                   disabled={isPending}
@@ -788,15 +894,34 @@ export default function FileVideoClient({
                                   Annulla
                                 </button>
                               </div>
-                            </form>
+                              </form>
+                            </div>
                           )}
 
-                          {item.signedUrl && (
+                          {item.signedUrl && item.video_mime_type?.startsWith("video/") && (
                             <video
                               src={item.signedUrl}
-                              controls
-                              className="w-full rounded-2xl border border-zinc-800 bg-black"
+                              muted
+                              preload="metadata"
+                              className="pointer-events-none aspect-video w-full rounded-xl border border-zinc-800 bg-black object-cover"
                             />
+                          )}
+
+                          {item.signedUrl && item.video_mime_type?.startsWith("image/") && (
+                            <Image
+                              src={item.signedUrl}
+                              alt={item.titolo}
+                              width={1600}
+                              height={900}
+                              unoptimized
+                              className="pointer-events-none aspect-video w-full rounded-xl border border-zinc-800 object-cover"
+                            />
+                          )}
+
+                          {item.signedUrl && item.video_mime_type === "application/pdf" && (
+                            <div className="flex aspect-video items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-sm font-black text-zinc-400">
+                              PDF
+                            </div>
                           )}
 
                           {item.note && (

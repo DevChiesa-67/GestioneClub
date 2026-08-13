@@ -281,16 +281,16 @@ function MedicoTab({
           <label className="block rounded-xl border border-dashed border-zinc-700 bg-zinc-950 p-4 transition hover:border-zinc-500">
             <span className="flex items-center gap-2 text-sm font-semibold text-zinc-300">
               <Paperclip className="h-4 w-4" />
-              Allega PDF o immagine
+              Allega PDF, immagine o video
             </span>
             <input
               type="file"
               name="medico_allegato"
-              accept="application/pdf,image/jpeg,image/png,image/webp"
+              accept="application/pdf,image/*,video/*"
               className="mt-3 block w-full text-sm text-zinc-400 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-800 file:px-3 file:py-2 file:font-semibold file:text-white hover:file:bg-zinc-700"
             />
             <span className="mt-2 block text-xs text-zinc-500">
-              PDF, JPG, PNG o WEBP · massimo 10 MB
+              PDF, qualsiasi immagine o video · massimo 50 MB
             </span>
           </label>
         </>

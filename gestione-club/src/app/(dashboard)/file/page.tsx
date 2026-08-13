@@ -123,6 +123,7 @@ export default async function Page() {
     id,
     titolo,
     video_path,
+    video_mime_type,
     tipo_evento,
     partita_id,
     allenamento_id,
@@ -161,7 +162,11 @@ if (profilo.last_squadra_id) {
   query = query.eq("squadra_id", profilo.last_squadra_id);
 }
 
-const { data: videoRaw } = await query;
+const { data: videoRaw, error: videoError } = await query;
+
+if (videoError) {
+  throw new Error(`Impossibile leggere i file: ${videoError.message}`);
+}
 
 const videoVisibili =
   videoRaw?.filter((video) => {
@@ -179,7 +184,7 @@ const videoVisibili =
 
 const videoConUrl = await Promise.all(
   videoVisibili.map(async (v) => {
-    const { data } = await supabase.storage
+    const { data, error } = await supabase.storage
       .from("file-video")
       .createSignedUrl(v.video_path, 60 * 60);
 
@@ -199,7 +204,7 @@ const videoConUrl = await Promise.all(
           : eventoRel.tipo_evento,
       }
     : null,
-  signedUrl: data?.signedUrl ?? null,
+  signedUrl: error ? null : data?.signedUrl ?? null,
 };
   })
 );
@@ -209,8 +214,8 @@ const videoConUrl = await Promise.all(
   return (
     <><div className="md:hidden">
       <PageHeader
-        title="File Video"
-        description="Video di partite e allenamenti condivisi con staff e giocatori."
+        title="File"
+        description="Video, immagini e PDF condivisi con staff e giocatori."
       />
     </div>
 

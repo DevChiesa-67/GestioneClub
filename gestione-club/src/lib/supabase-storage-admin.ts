@@ -28,18 +28,33 @@ export async function assicuraBucketDocumentiMedici() {
       BUCKET_DOCUMENTI_MEDICI,
       {
         public: false,
-        fileSizeLimit: 10 * 1024 * 1024,
+        fileSizeLimit: 50 * 1024 * 1024,
         allowedMimeTypes: [
           "application/pdf",
-          "image/jpeg",
-          "image/png",
-          "image/webp",
+          "image/*",
+          "video/*",
         ],
       }
     );
 
     if (creazioneError) {
       throw new Error(`Impossibile creare il bucket documenti: ${creazioneError.message}`);
+    }
+  }
+
+  if (bucket) {
+    const { error: aggiornamentoError } = await admin.storage.updateBucket(
+      BUCKET_DOCUMENTI_MEDICI,
+      {
+        public: false,
+        fileSizeLimit: 50 * 1024 * 1024,
+        allowedMimeTypes: ["application/pdf", "image/*", "video/*"],
+      }
+    );
+    if (aggiornamentoError) {
+      throw new Error(
+        `Impossibile aggiornare il bucket documenti: ${aggiornamentoError.message}`
+      );
     }
   }
 

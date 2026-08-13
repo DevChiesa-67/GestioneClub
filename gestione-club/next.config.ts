@@ -6,9 +6,9 @@ const nextConfig: NextConfig = {
     // anche l'overhead multipart, quindi resta leggermente sopra i 10 MB
     // consentiti e validati dall'action.
     serverActions: {
-      bodySizeLimit: "12mb",
+      bodySizeLimit: "55mb",
     },
-    proxyClientMaxBodySize: "12mb",
+    proxyClientMaxBodySize: "55mb",
   },
   images: {
     remotePatterns: [

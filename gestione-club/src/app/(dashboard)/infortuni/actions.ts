@@ -14,13 +14,15 @@ type StatoInfortunio =
   | "recupero"
   | "rientrato";
 
-const TIPI_DOCUMENTO_MEDICO = new Set([
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-]);
-const DIMENSIONE_MASSIMA_DOCUMENTO = 10 * 1024 * 1024;
+const DIMENSIONE_MASSIMA_DOCUMENTO = 50 * 1024 * 1024;
+
+function tipoDocumentoMedicoValido(tipo: string) {
+  return (
+    tipo === "application/pdf" ||
+    tipo.startsWith("image/") ||
+    tipo.startsWith("video/")
+  );
+}
 
 function nomeFileSicuro(nome: string) {
   return nome.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120);
@@ -157,11 +159,11 @@ export async function aggiungiValutazioneMedico(
   let storageAdmin: Awaited<ReturnType<typeof assicuraBucketDocumentiMedici>> | null = null;
 
   if (allegato instanceof File && allegato.size > 0) {
-    if (!TIPI_DOCUMENTO_MEDICO.has(allegato.type)) {
-      throw new Error("Puoi allegare soltanto PDF, JPG, PNG o WEBP.");
+    if (!tipoDocumentoMedicoValido(allegato.type)) {
+      throw new Error("Puoi allegare soltanto PDF, immagini o video.");
     }
     if (allegato.size > DIMENSIONE_MASSIMA_DOCUMENTO) {
-      throw new Error("L’allegato non può superare 10 MB.");
+      throw new Error("L’allegato non può superare 50 MB.");
     }
 
     const nomeOriginale = nomeFileSicuro(allegato.name || "documento");

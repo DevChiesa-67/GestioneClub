@@ -28,23 +28,24 @@ export async function creaVideoFile(formData: FormData) {
   const visibilita = String(formData.get("visibilita") ?? "");
   const personaId = String(formData.get("persona_id") ?? "");
   const giocatoreIds = formData.getAll("giocatore_ids").map(String);
-  const file = formData.get("video") as File | null;
+  const files = formData
+    .getAll("video")
+    .filter((valore): valore is File => valore instanceof File && valore.size > 0);
 
-  if (!file || file.size === 0) throw new Error("Video mancante");
+  if (files.length === 0) throw new Error("File mancante");
 
-  const ext = file.name.split(".").pop();
-  const videoPath = `${profilo.last_club_id}/${
-    profilo.last_squadra_id ?? "no-squadra"
-  }/${crypto.randomUUID()}.${ext}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from("file-video")
-    .upload(videoPath, file, {
-      contentType: file.type,
-      upsert: false,
-    });
-
-  if (uploadError) throw uploadError;
+  const tipiConsentiti = ["application/pdf", "image/", "video/"];
+  const fileNonValido = files.find(
+    (file) =>
+      !tipiConsentiti.some(
+        (tipo) => file.type === tipo || file.type.startsWith(tipo)
+      )
+  );
+  if (fileNonValido) {
+    throw new Error(
+      `Formato non supportato per "${fileNonValido.name}". Carica video, immagini o PDF.`
+    );
+  }
 
   if (tipoEvento === "evento" && eventoId) {
     const { data: eventoValido } = await supabase
@@ -57,50 +58,61 @@ export async function creaVideoFile(formData: FormData) {
     if (!eventoValido) throw new Error("Evento non valido");
   }
 
-  const { data: video, error: insertError } = await supabase
-    .from("file_video")
-    .insert({
-      club_id: profilo.last_club_id,
-      squadra_id: profilo.last_squadra_id,
-      titolo,
-      video_path: videoPath,
-      video_mime_type: file.type,
-      video_size: file.size,
-      tipo_evento: tipoEvento,
-      partita_id: tipoEvento === "partita" ? eventoId : null,
-      allenamento_id: tipoEvento === "allenamento" ? eventoId : null,
-      evento_id: tipoEvento === "evento" ? eventoId : null,
-      note,
-      visibilita,
-      created_by: user.id,
-    })
-    .select("id")
-    .single();
+  for (const [indice, file] of files.entries()) {
+    const ext = file.name.includes(".") ? file.name.split(".").pop() : "bin";
+    const videoPath = `${profilo.last_club_id}/${
+      profilo.last_squadra_id ?? "no-squadra"
+    }/${crypto.randomUUID()}.${ext}`;
 
-  if (insertError) throw insertError;
+    const { error: uploadError } = await supabase.storage
+      .from("file-video")
+      .upload(videoPath, file, { contentType: file.type, upsert: false });
+    if (uploadError) throw new Error(`${file.name}: ${uploadError.message}`);
 
-  if (visibilita === "persona" && personaId) {
-    const { error } = await supabase.from("file_video_destinatari").insert({
-      video_id: video.id,
-      profilo_id: personaId,
-      giocatore_id: null,
-    });
+    const titoloFile = titolo;
+    const { data: video, error: insertError } = await supabase
+      .from("file_video")
+      .insert({
+        club_id: profilo.last_club_id,
+        squadra_id: profilo.last_squadra_id,
+        titolo: titoloFile,
+        video_path: videoPath,
+        video_mime_type: file.type,
+        video_size: file.size,
+        tipo_evento: tipoEvento,
+        partita_id: tipoEvento === "partita" && eventoId ? eventoId : null,
+        allenamento_id: tipoEvento === "allenamento" && eventoId ? eventoId : null,
+        evento_id: tipoEvento === "evento" && eventoId ? eventoId : null,
+        note,
+        visibilita,
+        created_by: user.id,
+      })
+      .select("id")
+      .single();
 
-    if (error) throw error;
-  }
+    if (insertError) {
+      await supabase.storage.from("file-video").remove([videoPath]);
+      throw new Error(`File ${indice + 1} (${file.name}): ${insertError.message}`);
+    }
 
-  if (visibilita === "giocatori" && giocatoreIds.length > 0) {
-    const rows = giocatoreIds.map((giocatoreId) => ({
-      video_id: video.id,
-      profilo_id: null,
-      giocatore_id: giocatoreId,
-    }));
+    if (visibilita === "persona" && personaId) {
+      const { error } = await supabase.from("file_video_destinatari").insert({
+        video_id: video.id,
+        profilo_id: personaId,
+        giocatore_id: null,
+      });
+      if (error) throw new Error(error.message);
+    }
 
-    const { error } = await supabase
-      .from("file_video_destinatari")
-      .insert(rows);
-
-    if (error) throw error;
+    if (visibilita === "giocatori" && giocatoreIds.length > 0) {
+      const rows = giocatoreIds.map((giocatoreId) => ({
+        video_id: video.id,
+        profilo_id: null,
+        giocatore_id: giocatoreId,
+      }));
+      const { error } = await supabase.from("file_video_destinatari").insert(rows);
+      if (error) throw new Error(error.message);
+    }
   }
 
   revalidatePath("/file");
@@ -181,9 +193,9 @@ export async function aggiornaVideoFile(formData: FormData) {
     .update({
       titolo,
       tipo_evento: tipoEvento,
-      partita_id: tipoEvento === "partita" ? eventoId : null,
-      allenamento_id: tipoEvento === "allenamento" ? eventoId : null,
-      evento_id: tipoEvento === "evento" ? eventoId : null,
+      partita_id: tipoEvento === "partita" && eventoId ? eventoId : null,
+      allenamento_id: tipoEvento === "allenamento" && eventoId ? eventoId : null,
+      evento_id: tipoEvento === "evento" && eventoId ? eventoId : null,
       note,
       visibilita,
       updated_at: new Date().toISOString(),

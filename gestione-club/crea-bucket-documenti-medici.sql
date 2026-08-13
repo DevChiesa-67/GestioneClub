@@ -4,8 +4,8 @@ values (
   'documenti-medici',
   'documenti-medici',
   false,
-  10485760,
-  array['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
+  52428800,
+  array['application/pdf', 'image/*', 'video/*']
 )
 on conflict (id) do update set
   public = excluded.public,
