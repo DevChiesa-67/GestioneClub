@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
+import { ArrowLeft, ExternalLink, FileText, Loader2, Paperclip, Trash2 } from "lucide-react";
 import { AppCard } from "@/components/ui/AppCard";
 import { DateInput } from "@/components/ui/DateInput";
 import { formatDataIT } from "@/lib/date";
@@ -12,6 +12,7 @@ import {
   aggiungiValutazionePreparatore,
   aggiornaInfortunio,
   eliminaInfortunio,
+  eliminaValutazioneInfortunio,
 } from "@/app/(dashboard)/infortuni/actions";
 import { useRouter } from "next/navigation";
 
@@ -38,7 +39,7 @@ type Medico = {
   medico_data_valutazione: string;
   medico_terapia: string | null;
   medico_commento: string | null;
-  medico_link_documentazione: string[];
+  medico_link_documentazione: { url: string; nome: string }[];
 };
 
 type Fisioterapista = {
@@ -263,6 +264,9 @@ function MedicoTab({
       title="Nuova valutazione medico"
       isAdmin={isAdmin}
       action={(formData) => aggiungiValutazioneMedico(infortunioId, formData)}
+      onDelete={(id) =>
+        eliminaValutazioneInfortunio(infortunioId, id, "medico")
+      }
       fields={
         <>
           <input name="medico_nome" placeholder="Nome medico" className={input} />
@@ -274,6 +278,21 @@ function MedicoTab({
             placeholder="Link documentazione, uno per riga"
             className={textarea}
           />
+          <label className="block rounded-xl border border-dashed border-zinc-700 bg-zinc-950 p-4 transition hover:border-zinc-500">
+            <span className="flex items-center gap-2 text-sm font-semibold text-zinc-300">
+              <Paperclip className="h-4 w-4" />
+              Allega PDF o immagine
+            </span>
+            <input
+              type="file"
+              name="medico_allegato"
+              accept="application/pdf,image/jpeg,image/png,image/webp"
+              className="mt-3 block w-full text-sm text-zinc-400 file:mr-3 file:rounded-lg file:border-0 file:bg-zinc-800 file:px-3 file:py-2 file:font-semibold file:text-white hover:file:bg-zinc-700"
+            />
+            <span className="mt-2 block text-xs text-zinc-500">
+              PDF, JPG, PNG o WEBP · massimo 10 MB
+            </span>
+          </label>
         </>
       }
       items={valutazioni.map((v) => ({
@@ -303,6 +322,9 @@ function FisioterapistaTab({
       isAdmin={isAdmin}
       action={(formData) =>
         aggiungiValutazioneFisioterapista(infortunioId, formData)
+      }
+      onDelete={(id) =>
+        eliminaValutazioneInfortunio(infortunioId, id, "fisioterapista")
       }
       fields={
         <>
@@ -349,6 +371,9 @@ function PreparatoreTab({
       action={(formData) =>
         aggiungiValutazionePreparatore(infortunioId, formData)
       }
+      onDelete={(id) =>
+        eliminaValutazioneInfortunio(infortunioId, id, "preparatore")
+      }
       fields={
         <>
           <input
@@ -389,6 +414,7 @@ function LogTab({
   fields,
   items,
   action,
+  onDelete,
   isAdmin,
 }: {
   title: string;
@@ -399,16 +425,48 @@ function LogTab({
     date: string;
     body?: string | null;
     extra?: string | null;
-    links?: string[];
+    links?: { url: string; nome: string }[];
   }[];
   action: (formData: FormData) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
   isAdmin: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
+  const [erroreInvio, setErroreInvio] = useState<string | null>(null);
+  const [eliminazioneId, setEliminazioneId] = useState<string | null>(null);
 
   function handleSubmit(formData: FormData) {
     startTransition(async () => {
-      await action(formData);
+      setErroreInvio(null);
+      try {
+        await action(formData);
+      } catch (error) {
+        setErroreInvio(
+          error instanceof Error
+            ? error.message
+            : "Impossibile salvare la valutazione. Riprova."
+        );
+      }
+    });
+  }
+
+  function eliminaNota(id: string) {
+    if (!window.confirm("Eliminare questa valutazione dallo storico?")) return;
+
+    startTransition(async () => {
+      setErroreInvio(null);
+      setEliminazioneId(id);
+      try {
+        await onDelete(id);
+      } catch (error) {
+        setErroreInvio(
+          error instanceof Error
+            ? error.message
+            : "Impossibile eliminare la valutazione."
+        );
+      } finally {
+        setEliminazioneId(null);
+      }
     });
   }
 
@@ -424,6 +482,12 @@ function LogTab({
 
           <form action={handleSubmit} className="space-y-3">
             {fields}
+
+            {erroreInvio && (
+              <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+                {erroreInvio}
+              </p>
+            )}
 
             <button
               disabled={isPending}
@@ -449,7 +513,26 @@ function LogTab({
             >
               <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                 <h3 className="break-words font-semibold text-white">{item.title}</h3>
-                <span className="shrink-0 text-xs text-zinc-500 sm:text-sm">{formatDataIT(item.date)}</span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="text-xs text-zinc-500 sm:text-sm">
+                    {formatDataIT(item.date)}
+                  </span>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => eliminaNota(item.id)}
+                      disabled={isPending || eliminazioneId === item.id}
+                      title="Elimina valutazione"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition hover:bg-red-500/15 hover:text-red-400 disabled:opacity-50"
+                    >
+                      {eliminazioneId === item.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </button>
+                  )}
+                </div>
               </div>
 
               {item.extra && (
@@ -468,13 +551,15 @@ function LogTab({
                 <div className="mt-3 space-y-1">
                   {item.links.map((link) => (
                     <a
-                      key={link}
-                      href={link}
+                      key={`${link.url}-${link.nome}`}
+                      href={link.url}
                       target="_blank"
                       rel="noreferrer"
-                      className="block break-all text-sm text-emerald-400 hover:text-emerald-300"
+                      className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-emerald-400 transition hover:border-emerald-500/40 hover:text-emerald-300"
                     >
-                      {link}
+                      <FileText className="h-4 w-4 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{link.nome}</span>
+                      <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                     </a>
                   ))}
                 </div>

@@ -1,5 +1,9 @@
 import { createClient } from "@/lib/supabase-server";
 import InfortunioDetailClient from "@/components/infortuni/InfortunioDetailClient";
+import {
+  assicuraBucketDocumentiMedici,
+  BUCKET_DOCUMENTI_MEDICI,
+} from "@/lib/supabase-storage-admin";
 
 type PageProps = {
   params: Promise<{
@@ -101,10 +105,40 @@ export default async function InfortunioDetailPage({ params }: PageProps) {
       : infortunio.squadre,
   };
 
+  const medicoConAllegati = await Promise.all(
+    (medico ?? []).map(async (valutazione) => {
+      const links = await Promise.all(
+        (valutazione.medico_link_documentazione ?? []).map(async (link: string) => {
+          if (!link.startsWith("storage://")) {
+            return { url: link, nome: link };
+          }
+
+          const riferimento = link.slice("storage://".length);
+          const separatore = riferimento.lastIndexOf("::");
+          const percorso = separatore >= 0 ? riferimento.slice(0, separatore) : riferimento;
+          const nome = separatore >= 0 ? riferimento.slice(separatore + 2) : "Allegato medico";
+          const storageAdmin = await assicuraBucketDocumentiMedici();
+          const { data } = await storageAdmin.storage
+            .from(BUCKET_DOCUMENTI_MEDICI)
+            .createSignedUrl(percorso, 60 * 60);
+
+          return data?.signedUrl ? { url: data.signedUrl, nome } : null;
+        })
+      );
+
+      return {
+        ...valutazione,
+        medico_link_documentazione: links.filter(
+          (link): link is { url: string; nome: string } => Boolean(link)
+        ),
+      };
+    })
+  );
+
   return (
     <InfortunioDetailClient
       infortunio={infortunioNormalizzato}
-      medico={medico ?? []}
+      medico={medicoConAllegati}
       fisioterapista={fisioterapista ?? []}
       preparatore={preparatore ?? []}
       isAdmin={isAdmin}

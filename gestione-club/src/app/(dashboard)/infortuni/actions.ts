@@ -2,6 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase-server";
+import {
+  assicuraBucketDocumentiMedici,
+  BUCKET_DOCUMENTI_MEDICI,
+} from "@/lib/supabase-storage-admin";
 
 type StatoInfortunio =
   | "infortunato"
@@ -9,6 +13,18 @@ type StatoInfortunio =
   | "riabilitazione"
   | "recupero"
   | "rientrato";
+
+const TIPI_DOCUMENTO_MEDICO = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+const DIMENSIONE_MASSIMA_DOCUMENTO = 10 * 1024 * 1024;
+
+function nomeFileSicuro(nome: string) {
+  return nome.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-120);
+}
 
 async function getProfiloCorrente() {
   const supabase = await createClient();
@@ -136,6 +152,33 @@ export async function aggiungiValutazioneMedico(
     .map((link) => link.trim())
     .filter(Boolean);
 
+  const allegato = formData.get("medico_allegato");
+  let percorsoAllegato: string | null = null;
+  let storageAdmin: Awaited<ReturnType<typeof assicuraBucketDocumentiMedici>> | null = null;
+
+  if (allegato instanceof File && allegato.size > 0) {
+    if (!TIPI_DOCUMENTO_MEDICO.has(allegato.type)) {
+      throw new Error("Puoi allegare soltanto PDF, JPG, PNG o WEBP.");
+    }
+    if (allegato.size > DIMENSIONE_MASSIMA_DOCUMENTO) {
+      throw new Error("L’allegato non può superare 10 MB.");
+    }
+
+    const nomeOriginale = nomeFileSicuro(allegato.name || "documento");
+    percorsoAllegato = `${profilo.last_club_id}/${infortunioId}/${crypto.randomUUID()}-${nomeOriginale}`;
+    storageAdmin = await assicuraBucketDocumentiMedici();
+    const { error: uploadError } = await storageAdmin.storage
+      .from(BUCKET_DOCUMENTI_MEDICI)
+      .upload(percorsoAllegato, allegato, {
+        contentType: allegato.type,
+        cacheControl: "3600",
+        upsert: false,
+      });
+
+    if (uploadError) throw new Error(uploadError.message);
+    links.push(`storage://${percorsoAllegato}::${nomeOriginale}`);
+  }
+
   const { error } = await supabase.from("infortuni_medico_valutazioni").insert({
     infortunio_id: infortunioId,
     club_id: profilo.last_club_id,
@@ -146,7 +189,76 @@ export async function aggiungiValutazioneMedico(
     medico_link_documentazione: links,
   });
 
+  if (error) {
+    if (percorsoAllegato) {
+      await storageAdmin?.storage
+        .from(BUCKET_DOCUMENTI_MEDICI)
+        .remove([percorsoAllegato]);
+    }
+    throw new Error(error.message);
+  }
+
+  revalidatePath(`/infortuni/${infortunioId}`);
+}
+
+type TipoValutazione = "medico" | "fisioterapista" | "preparatore";
+
+const TABELLE_VALUTAZIONI: Record<TipoValutazione, string> = {
+  medico: "infortuni_medico_valutazioni",
+  fisioterapista: "infortuni_fisioterapista_valutazioni",
+  preparatore: "infortuni_preparatore_valutazioni",
+};
+
+export async function eliminaValutazioneInfortunio(
+  infortunioId: string,
+  valutazioneId: string,
+  tipo: TipoValutazione
+) {
+  const supabase = await createClient();
+  const profilo = await getProfiloCorrente();
+  assertAdmin(profilo);
+
+  const tabella = TABELLE_VALUTAZIONI[tipo];
+  if (!tabella) throw new Error("Tipo di valutazione non valido.");
+
+  let percorsiAllegati: string[] = [];
+  if (tipo === "medico") {
+    const { data: valutazione, error: letturaError } = await supabase
+      .from("infortuni_medico_valutazioni")
+      .select("medico_link_documentazione")
+      .eq("id", valutazioneId)
+      .eq("infortunio_id", infortunioId)
+      .eq("club_id", profilo.last_club_id)
+      .single();
+
+    if (letturaError) throw new Error(letturaError.message);
+    percorsiAllegati = (valutazione.medico_link_documentazione ?? [])
+      .filter((link: string) => link.startsWith("storage://"))
+      .map((link: string) => {
+        const riferimento = link.slice("storage://".length);
+        const separatore = riferimento.lastIndexOf("::");
+        return separatore >= 0 ? riferimento.slice(0, separatore) : riferimento;
+      });
+  }
+
+  const { error } = await supabase
+    .from(tabella)
+    .delete()
+    .eq("id", valutazioneId)
+    .eq("infortunio_id", infortunioId)
+    .eq("club_id", profilo.last_club_id);
+
   if (error) throw new Error(error.message);
+
+  if (percorsiAllegati.length > 0) {
+    const storageAdmin = await assicuraBucketDocumentiMedici();
+    const { error: rimozioneError } = await storageAdmin.storage
+      .from(BUCKET_DOCUMENTI_MEDICI)
+      .remove(percorsiAllegati);
+    if (rimozioneError) {
+      console.error("Allegato medico non rimosso:", rimozioneError.message);
+    }
+  }
 
   revalidatePath(`/infortuni/${infortunioId}`);
 }
