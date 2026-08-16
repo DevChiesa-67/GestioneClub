@@ -128,10 +128,9 @@ async function getContestoAdmin() {
   // quando il cookie contiene ancora un JWT valido. In quel caso verifichiamo
   // crittograficamente i claim della stessa sessione prima di negare l'azione.
   if (!authUserId) {
-    const {
-      data: { claims },
-      error: claimsError,
-    } = await supabase.auth.getClaims();
+    const { data: claimsData, error: claimsError } =
+      await supabase.auth.getClaims();
+    const claims = claimsData?.claims;
 
     if (claimsError || !claims?.sub) {
       console.error("Sessione non disponibile nella Server Action:", {
