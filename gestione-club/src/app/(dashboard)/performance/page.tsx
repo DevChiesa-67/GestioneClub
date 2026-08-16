@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase-server";
 import ReportTabsClient from "@/components/charts/ReportTabsClient";
+import { supabaseAdmin } from "@/lib/supabase-admin";
+import type { RpePerformanceRow } from "@/components/charts/ReportRpeClient";
 
 export default async function Page() {
   const supabase = await createClient();
@@ -114,7 +116,7 @@ export default async function Page() {
 
   let giocatoriQuery = supabase
     .from("giocatori")
-    .select("id, nome, cognome, foto_url")
+    .select("id, id_atleta, nome, cognome, foto_url")
     .eq("club_id", profilo.last_club_id)
     .order("cognome", { ascending: true })
     .order("nome", { ascending: true });
@@ -127,6 +129,24 @@ export default async function Page() {
   }
 
   const { data: giocatori } = await giocatoriQuery;
+  const giocatoreCollegatoId =
+    tipoProfilo === "giocatore"
+      ? (giocatori ?? []).find((giocatore) =>
+          "id_atleta" in giocatore && giocatore.id_atleta === profilo.id
+        )?.id ?? null
+      : null;
+
+  let rpeQuery = supabaseAdmin
+    .from("misurazioni_benessere")
+    .select("id, giocatore_id, data_compilazione, tipo_compilazione, seduta, rpe, minutaggio_lavoro")
+    .eq("club_id", profilo.last_club_id)
+    .in("tipo_compilazione", ["campo", "palestra"])
+    .not("rpe", "is", null)
+    .order("data_compilazione", { ascending: false });
+
+  if (profilo.last_squadra_id) rpeQuery = rpeQuery.eq("squadra_id", profilo.last_squadra_id);
+  if (giocatoreCollegatoId) rpeQuery = rpeQuery.eq("giocatore_id", giocatoreCollegatoId);
+  const { data: rpeRows } = await rpeQuery;
 
   return (
     <ReportTabsClient
@@ -135,9 +155,11 @@ export default async function Page() {
       coloreFlag={coloreFlag}
       clubLogoUrl={club?.logo_url ?? null}
       giocatori={giocatori ?? []}
+      rpeRows={(rpeRows ?? []) as unknown as RpePerformanceRow[]}
       splitOptions={splitOptions}
       sessioni={sessioniCatapult}
       tipoProfilo={tipoProfilo}
+      giocatoreId={giocatoreCollegatoId}
     />
   );
 }

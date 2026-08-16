@@ -26,6 +26,7 @@ import PerformanceDashboardChartsClient from "@/components/charts/PerformanceDas
 import ReportTestClient from "@/components/charts/ReportTestClient";
 import ConfrontoPerformanceClient from "@/components/charts/ConfrontoPerformanceClient";
 import MinutaggioPartiteClient from "@/components/charts/MinutaggioPartiteClient";
+import ReportRpeClient, { type RpePerformanceRow } from "@/components/charts/ReportRpeClient";
 import {
   generaPdfPerformance,
   generaPdfPresenze,
@@ -44,6 +45,7 @@ type TabKey =
   | "presenze"
   | "performance"
   | "acwr"
+  | "rpe_srpe"
   | "test"
   | "confronto"
   | "minutaggio_partite";
@@ -121,6 +123,7 @@ type Props = {
   sessioni: SessioneCatapult[];
   giocatoreId?: string | null;
   tipoProfilo?: string | null;
+  rpeRows: RpePerformanceRow[];
 };
 
 function chiaveSessione(sessione: SessioneCatapult) {
@@ -217,6 +220,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "presenze", label: "Presenze" },
   { key: "performance", label: "Performance" },
   { key: "acwr", label: "ACWR" },
+  { key: "rpe_srpe", label: "RPE e sRPE" },
   { key: "test", label: "Test" },
   { key: "confronto", label: "Confronto" },
   { key: "minutaggio_partite", label: "Minutaggio Partite" },
@@ -232,6 +236,7 @@ export default function ReportTabsClient({
   sessioni,
   giocatoreId: giocatoreIdIniziale = null,
   tipoProfilo = null,
+  rpeRows,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabKey>("riepilogo");
 
@@ -1256,6 +1261,15 @@ export default function ReportTabsClient({
             giocatori={giocatori}
           />
 
+          <ReportRpeClient
+            mode="charts"
+            rows={rpeRows}
+            giocatori={giocatori}
+            giocatoreIds={giocatoreIds}
+            dataDa={dataDa}
+            dataA={dataA}
+          />
+
           <PerformanceDashboardChartsClient
             clubId={clubId}
             squadraId={squadraId}
@@ -1310,6 +1324,17 @@ export default function ReportTabsClient({
           tipiSeduta={tipiSeduta}
           coloreFlag={coloreFlag}
           giocatori={giocatori}
+        />
+      )}
+
+      {activeTab === "rpe_srpe" && (
+        <ReportRpeClient
+          mode="table"
+          rows={rpeRows}
+          giocatori={giocatori}
+          giocatoreIds={giocatoreIds}
+          dataDa={dataDa}
+          dataA={dataA}
         />
       )}
 
