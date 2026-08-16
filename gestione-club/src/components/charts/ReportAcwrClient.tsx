@@ -52,6 +52,7 @@ type Props = {
   dataA?: string;
   tipiSeduta?: TipoSedutaSingolo[];
   coloreFlag: string;
+  giocatori?: Array<{ id: string; nome: string; cognome: string }>;
 };
 
 function formatDate(value: string) {
@@ -342,9 +343,11 @@ function AcwrChart({
 function AcwrTable({
   rows,
   parametri,
+  nomiGiocatori,
 }: {
   rows: AcwrRow[];
   parametri: AcwrParametriModello | null;
+  nomiGiocatori: Map<string, string>;
 }) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-white/10">
@@ -353,6 +356,9 @@ function AcwrTable({
           <tr className="bg-zinc-950">
             <th className="border-b border-white/10 px-4 py-4 text-left text-xs font-black uppercase tracking-wide text-zinc-400">
               Data
+            </th>
+            <th className="border-b border-white/10 px-4 py-4 text-left text-xs font-black uppercase tracking-wide text-zinc-400">
+              Giocatore
             </th>
             <th className="border-b border-white/10 px-4 py-4 text-right text-xs font-black uppercase tracking-wide text-zinc-400">
               Player Load
@@ -390,7 +396,7 @@ function AcwrTable({
           {rows.length === 0 ? (
             <tr>
               <td
-                colSpan={8}
+                colSpan={9}
                 className="px-6 py-16 text-center text-sm font-semibold text-zinc-500"
               >
                 Nessun dato ACWR disponibile.
@@ -404,6 +410,11 @@ function AcwrTable({
               >
                 <td className="whitespace-nowrap px-4 py-3 text-sm font-bold text-white">
                   {formatDate(row.data)}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-white">
+                  {row.giocatore_id
+                    ? nomiGiocatori.get(row.giocatore_id) ?? "Giocatore non disponibile"
+                    : "—"}
                 </td>
                 <td className="px-4 py-3 text-right text-sm font-semibold text-zinc-300">
                   {formatNumber(row.player_load_giornaliero, 0)}
@@ -546,10 +557,21 @@ export default function ReportAcwrClient({
   dataA = "",
   tipiSeduta = [],
   coloreFlag,
+  giocatori = [],
 }: Props) {
   const [rows, setRows] = useState<AcwrRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [parametri, setParametri] = useState<AcwrParametriModello | null>(null);
+  const nomiGiocatori = useMemo(
+    () =>
+      new Map(
+        giocatori.map((giocatore) => [
+          giocatore.id,
+          `${giocatore.nome} ${giocatore.cognome}`.trim(),
+        ]),
+      ),
+    [giocatori],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -763,7 +785,11 @@ export default function ReportAcwrClient({
 
   return (
     <AppCard title="ACWR">
-      <AcwrTable rows={rows} parametri={parametri} />
+      <AcwrTable
+        rows={rows}
+        parametri={parametri}
+        nomiGiocatori={nomiGiocatori}
+      />
       <AcwrRiskLegend parametri={parametri} />
     </AppCard>
   );

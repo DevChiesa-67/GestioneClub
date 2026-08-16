@@ -135,6 +135,7 @@ export default function MisurazioniGiocatoreClient({
 
   // Campo / palestra
   const [seduta, setSeduta] = useState("");
+  const [minutaggio, setMinutaggio] = useState("");
   const [rpe, setRpe] = useState<number | null>(null);
   const [fastidio, setFastidio] = useState<Fastidio | null>(null);
   const [fastidioDettaglio, setFastidioDettaglio] = useState("");
@@ -173,6 +174,7 @@ export default function MisurazioniGiocatoreClient({
   function resetForm() {
     setStep("tipo");
     setSeduta("");
+    setMinutaggio("");
     setRpe(null);
     setFastidio(null);
     setFastidioDettaglio("");
@@ -207,6 +209,7 @@ export default function MisurazioniGiocatoreClient({
 
   function apriStep(nuovoStep: "campo" | "palestra" | "mattino") {
     setSeduta("");
+    setMinutaggio("");
     setRpe(null);
     setFastidio(null);
     setFastidioDettaglio("");
@@ -238,6 +241,15 @@ export default function MisurazioniGiocatoreClient({
         return;
       }
 
+      const minuti = Number(minutaggio);
+      if (!Number.isInteger(minuti) || minuti < 1 || minuti > 600) {
+        setMessaggio({
+          tipo: "error",
+          testo: "Indica il minutaggio di lavoro (da 1 a 600 minuti).",
+        });
+        return;
+      }
+
       if (!fastidio) {
         setMessaggio({
           tipo: "error",
@@ -248,6 +260,7 @@ export default function MisurazioniGiocatoreClient({
 
       formData.set("seduta", seduta);
       formData.set("rpe", String(rpe));
+      formData.set("minutaggio_lavoro", String(minuti));
       formData.set("fastidio", fastidio);
 
       if (fastidio !== "no") {
@@ -514,7 +527,7 @@ export default function MisurazioniGiocatoreClient({
                     />
                   </div>
                 ) : (
-                  <div className="mt-4 grid grid-cols-2 gap-2">
+                  <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <WellnessValue
                       label="RPE"
                       value={
@@ -524,6 +537,27 @@ export default function MisurazioniGiocatoreClient({
                         misurazione.rpe !== null
                           ? getRpeColore(misurazione.rpe)
                           : undefined
+                      }
+                    />
+
+                    <WellnessValue
+                      label="Minutaggio"
+                      value={
+                        misurazione.minutaggio_lavoro !== null
+                          ? `${misurazione.minutaggio_lavoro} min`
+                          : "—"
+                      }
+                    />
+
+                    <WellnessValue
+                      label="sRPE"
+                      value={
+                        misurazione.rpe !== null &&
+                        misurazione.minutaggio_lavoro !== null
+                          ? String(
+                              misurazione.rpe * misurazione.minutaggio_lavoro,
+                            )
+                          : "—"
                       }
                     />
 
@@ -755,6 +789,28 @@ export default function MisurazioniGiocatoreClient({
                       ))}
                     </ul>
                   </ScalaField>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-white">
+                      Minutaggio lavoro
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={600}
+                      step={1}
+                      inputMode="numeric"
+                      value={minutaggio}
+                      onChange={(event) => setMinutaggio(event.target.value)}
+                      placeholder="Es. 90"
+                      className={inputClass}
+                    />
+                    {rpe !== null && Number(minutaggio) > 0 && (
+                      <p className="mt-2 text-xs font-semibold text-zinc-400">
+                        sRPE: {rpe * Number(minutaggio)}
+                      </p>
+                    )}
+                  </div>
 
                   <div>
                     <p className="mb-2 text-sm font-semibold text-white">

@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase-server";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 import MisurazioniAdminClient from "@/components/misurazioni/MisurazioniAdminClient";
 import MisurazioniGiocatoreClient from "@/components/misurazioni/MisurazioniGiocatoreClient";
 
@@ -42,6 +43,7 @@ export type MisurazioneBenessere = {
   tipo_compilazione: "campo" | "palestra" | "mattino";
   seduta: string | null;
   rpe: number | null;
+  minutaggio_lavoro: number | null;
   fastidio: "no" | "leggero" | "preoccupante" | null;
   fastidio_dettaglio: string | null;
   sonno: number | null;
@@ -156,7 +158,10 @@ export default async function MisurazioniPage({ searchParams }: PageProps) {
       .order("data_misurazione", { ascending: false })
       .order("created_at", { ascending: false });
 
-    let benessereQuery = supabase
+    // Il profilo è già stato verificato come admin. La lettura server-side
+    // evita che una policy RLS pensata per il self-report dei giocatori
+    // nasconda silenziosamente tutte le compilazioni allo staff amministrativo.
+    let benessereQuery = supabaseAdmin
       .from("misurazioni_benessere")
       .select(`
         id,
@@ -165,6 +170,7 @@ export default async function MisurazioniPage({ searchParams }: PageProps) {
         tipo_compilazione,
         seduta,
         rpe,
+        minutaggio_lavoro,
         fastidio,
         fastidio_dettaglio,
         sonno,
@@ -301,6 +307,7 @@ export default async function MisurazioniPage({ searchParams }: PageProps) {
           tipo_compilazione,
           seduta,
           rpe,
+          minutaggio_lavoro,
           fastidio,
           fastidio_dettaglio,
           sonno,

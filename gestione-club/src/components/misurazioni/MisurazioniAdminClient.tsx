@@ -143,9 +143,10 @@ export default function MisurazioniAdminClient({
   const [tabPrincipale, setTabPrincipale] =
     useState<TabPrincipale>("antropometria");
   const [modalAperta, setModalAperta] = useState(false);
-  const [ricerca, setRicerca] = useState("");
   const [giocatoreFiltro, setGiocatoreFiltro] =
     useState("tutti");
+  const [tipoBenessereFiltro, setTipoBenessereFiltro] =
+    useState<"tutti" | "campo" | "palestra" | "mattino">("tutti");
   const [dataDa, setDataDa] = useState("");
   const [dataA, setDataA] = useState("");
   const [salvataggio, setSalvataggio] = useState(false);
@@ -173,6 +174,7 @@ export default function MisurazioniAdminClient({
   const [stepBenessere, setStepBenessere] = useState<StepBenessere>("tipo");
   const [giocatoreIdBenessere, setGiocatoreIdBenessere] = useState("");
   const [sedutaBenessere, setSedutaBenessere] = useState("");
+  const [minutaggioBenessere, setMinutaggioBenessere] = useState("");
   const [rpeBenessere, setRpeBenessere] = useState<number | null>(null);
   const [fastidioBenessere, setFastidioBenessere] = useState<Fastidio | null>(
     null,
@@ -199,6 +201,7 @@ export default function MisurazioniAdminClient({
     setStepBenessere("tipo");
     setGiocatoreIdBenessere("");
     setSedutaBenessere("");
+    setMinutaggioBenessere("");
     setRpeBenessere(null);
     setFastidioBenessere(null);
     setFastidioDettaglioBenessere("");
@@ -210,6 +213,7 @@ export default function MisurazioniAdminClient({
 
   function apriStepBenessere(nuovoStep: "campo" | "palestra" | "mattino") {
     setSedutaBenessere("");
+    setMinutaggioBenessere("");
     setRpeBenessere(null);
     setFastidioBenessere(null);
     setFastidioDettaglioBenessere("");
@@ -259,6 +263,15 @@ export default function MisurazioniAdminClient({
         return;
       }
 
+      const minutaggio = Number(minutaggioBenessere);
+      if (!Number.isInteger(minutaggio) || minutaggio < 1 || minutaggio > 600) {
+        setMessaggioBenessere({
+          tipo: "error",
+          testo: "Indica il minutaggio di lavoro (da 1 a 600 minuti).",
+        });
+        return;
+      }
+
       if (!fastidioBenessere) {
         setMessaggioBenessere({
           tipo: "error",
@@ -269,6 +282,7 @@ export default function MisurazioniAdminClient({
 
       formData.set("seduta", sedutaBenessere);
       formData.set("rpe", String(rpeBenessere));
+      formData.set("minutaggio_lavoro", String(minutaggio));
       formData.set("fastidio", fastidioBenessere);
 
       if (fastidioBenessere !== "no") {
@@ -418,25 +432,7 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
   router.refresh();
 }
   const misurazioniFiltrate = useMemo(() => {
-    const termine = ricerca.trim().toLowerCase();
-
     return misurazioni.filter((misurazione) => {
-      const giocatore = misurazione.giocatore;
-
-      const nomeCompleto =
-        `${giocatore?.nome || ""} ${
-          giocatore?.cognome || ""
-        }`.toLowerCase();
-
-      const idAtleta = (
-        giocatore?.id_atleta || ""
-      ).toLowerCase();
-
-      const matchRicerca =
-        !termine ||
-        nomeCompleto.includes(termine) ||
-        idAtleta.includes(termine);
-
       const matchGiocatore =
         giocatoreFiltro === "tutti" ||
         misurazione.giocatore_id === giocatoreFiltro;
@@ -458,30 +454,14 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
     });
   }, [
     misurazioni,
-    ricerca,
     giocatoreFiltro,
     dataDa,
     dataA,
   ]);
 
   const benessereFiltrato = useMemo(() => {
-    const termine = ricerca.trim().toLowerCase();
 
     return benessere.filter((compilazione) => {
-      const giocatore = compilazione.giocatore;
-
-      const nomeCompleto =
-        `${giocatore?.nome || ""} ${
-          giocatore?.cognome || ""
-        }`.toLowerCase();
-
-      const idAtleta = (giocatore?.id_atleta || "").toLowerCase();
-
-      const matchRicerca =
-        !termine ||
-        nomeCompleto.includes(termine) ||
-        idAtleta.includes(termine);
-
       const matchGiocatore =
         giocatoreFiltro === "tutti" ||
         compilazione.giocatore_id === giocatoreFiltro;
@@ -492,9 +472,24 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
       const matchDataA =
         !dataA || compilazione.data_compilazione <= dataA;
 
-      return matchRicerca && matchGiocatore && matchDataDa && matchDataA;
+      const matchTipo =
+        tipoBenessereFiltro === "tutti" ||
+        compilazione.tipo_compilazione === tipoBenessereFiltro;
+
+      return (
+        matchGiocatore &&
+        matchDataDa &&
+        matchDataA &&
+        matchTipo
+      );
     });
-  }, [benessere, ricerca, giocatoreFiltro, dataDa, dataA]);
+  }, [
+    benessere,
+    giocatoreFiltro,
+    tipoBenessereFiltro,
+    dataDa,
+    dataA,
+  ]);
 
   const ultimaMisurazione =
     misurazioni.length > 0 ? misurazioni[0] : null;
@@ -733,41 +728,35 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
 
       <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <label className="relative block">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+          <GiocatoreFiltroSelect
+            giocatori={giocatori}
+            value={giocatoreFiltro}
+            onChange={setGiocatoreFiltro}
+          />
 
-            <input
-              value={ricerca}
-              onChange={(event) =>
-                setRicerca(event.target.value)
-              }
-              placeholder="Cerca atleta o ID..."
-              className="min-h-11 w-full rounded-xl border border-zinc-800 bg-zinc-900 pl-10 pr-3 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-zinc-600"
-            />
-          </label>
-
-          <label className="relative block">
-            <select
-              value={giocatoreFiltro}
-              onChange={(event) =>
-                setGiocatoreFiltro(event.target.value)
-              }
-              className="min-h-11 w-full appearance-none rounded-xl border border-zinc-800 bg-zinc-900 px-3 pr-10 text-sm text-white outline-none focus:border-zinc-600"
-            >
-              <option value="tutti">Tutti gli atleti</option>
-
-              {giocatori.map((giocatore) => (
-                <option
-                  key={giocatore.id}
-                  value={giocatore.id}
-                >
-                  {giocatore.cognome} {giocatore.nome}
-                </option>
-              ))}
-            </select>
-
-            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-          </label>
+          {tabPrincipale === "benessere" && (
+            <label className="relative block">
+              <select
+                value={tipoBenessereFiltro}
+                onChange={(event) =>
+                  setTipoBenessereFiltro(
+                    event.target.value as
+                      | "tutti"
+                      | "campo"
+                      | "palestra"
+                      | "mattino",
+                  )
+                }
+                className="min-h-11 w-full appearance-none rounded-xl border border-zinc-800 bg-zinc-900 px-3 pr-10 text-sm text-white outline-none focus:border-zinc-600"
+              >
+                <option value="tutti">Tutti i moduli</option>
+                <option value="campo">Campo</option>
+                <option value="palestra">Palestra</option>
+                <option value="mattino">Risveglio</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+            </label>
+          )}
 
           <DateInput
             label="Dal"
@@ -1047,7 +1036,7 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
           {/* Desktop */}
           <section className="hidden overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950 lg:block">
             <div className="overflow-x-auto">
-              <table className="min-w-[1150px] w-full">
+              <table className="min-w-[1300px] w-full">
                 <thead className="border-b border-zinc-800 bg-zinc-900/70">
                   <tr className="text-left text-xs font-semibold uppercase tracking-wider text-zinc-500">
                     <th className="px-4 py-4">Data</th>
@@ -1055,6 +1044,8 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
                     <th className="px-4 py-4">Tipo</th>
                     <th className="px-4 py-4">Seduta</th>
                     <th className="px-4 py-4">RPE</th>
+                    <th className="px-4 py-4">Minuti</th>
+                    <th className="px-4 py-4">sRPE</th>
                     <th className="px-4 py-4">Sonno</th>
                     <th className="px-4 py-4">Stanchezza</th>
                     <th className="px-4 py-4">Indolenzimento</th>
@@ -1105,6 +1096,19 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
                         >
                           {compilazione.rpe !== null
                             ? `${compilazione.rpe}/10`
+                            : "—"}
+                        </td>
+
+                        <td className="px-4 py-4">
+                          {compilazione.minutaggio_lavoro !== null
+                            ? `${compilazione.minutaggio_lavoro} min`
+                            : "—"}
+                        </td>
+
+                        <td className="px-4 py-4 font-semibold text-white">
+                          {compilazione.rpe !== null &&
+                          compilazione.minutaggio_lavoro !== null
+                            ? compilazione.rpe * compilazione.minutaggio_lavoro
                             : "—"}
                         </td>
 
@@ -1290,7 +1294,7 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
                         />
                       </div>
                     ) : (
-                      <div className="mt-4 grid grid-cols-2 gap-2">
+                      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                         <MobileValueColorata
                           label="RPE"
                           value={
@@ -1302,6 +1306,28 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
                             compilazione.rpe !== null
                               ? getRpeColore(compilazione.rpe)
                               : undefined
+                          }
+                        />
+
+                        <MobileValueColorata
+                          label="Minutaggio"
+                          value={
+                            compilazione.minutaggio_lavoro !== null
+                              ? `${compilazione.minutaggio_lavoro} min`
+                              : "—"
+                          }
+                        />
+
+                        <MobileValueColorata
+                          label="sRPE"
+                          value={
+                            compilazione.rpe !== null &&
+                            compilazione.minutaggio_lavoro !== null
+                              ? String(
+                                  compilazione.rpe *
+                                    compilazione.minutaggio_lavoro,
+                                )
+                              : "—"
                           }
                         />
 
@@ -1962,6 +1988,28 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
                   </ScalaField>
 
                   <div>
+                    <label className="mb-2 block text-sm font-semibold text-white">
+                      Minutaggio lavoro
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={600}
+                      step={1}
+                      inputMode="numeric"
+                      value={minutaggioBenessere}
+                      onChange={(event) => setMinutaggioBenessere(event.target.value)}
+                      placeholder="Es. 90"
+                      className={inputClass}
+                    />
+                    {rpeBenessere !== null && Number(minutaggioBenessere) > 0 && (
+                      <p className="mt-2 text-xs font-semibold text-zinc-400">
+                        sRPE: {rpeBenessere * Number(minutaggioBenessere)}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
                     <p className="mb-2 text-sm font-semibold text-white">
                       Ha qualche fastidio o dolore?
                     </p>
@@ -2304,6 +2352,136 @@ function ScalaField({
           {children}
         </div>
       </div>
+    </div>
+  );
+}
+
+function GiocatoreFiltroSelect({
+  giocatori,
+  value,
+  onChange,
+}: {
+  giocatori: GiocatoreMisurazioni[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [aperto, setAperto] = useState(false);
+  const [ricerca, setRicerca] = useState("");
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const selezionato = giocatori.find((giocatore) => giocatore.id === value);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        setAperto(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const opzioni = useMemo(() => {
+    const termine = ricerca.trim().toLowerCase();
+    if (!termine) return giocatori;
+
+    return giocatori.filter((giocatore) =>
+      `${giocatore.nome} ${giocatore.cognome}`
+        .toLowerCase()
+        .includes(termine) ||
+      `${giocatore.cognome} ${giocatore.nome}`
+        .toLowerCase()
+        .includes(termine),
+    );
+  }, [giocatori, ricerca]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setAperto((current) => !current)}
+        className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-3 text-left text-sm text-white outline-none transition hover:border-zinc-600"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          {selezionato ? (
+            <GiocatoreAvatar giocatore={selezionato} size="small" />
+          ) : (
+            <UsersRound className="h-4 w-4 shrink-0 text-zinc-500" />
+          )}
+          <span className="truncate">
+            {selezionato
+              ? `${selezionato.nome} ${selezionato.cognome}`
+              : "Tutti gli atleti"}
+          </span>
+        </div>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-zinc-500 transition ${aperto ? "rotate-180" : ""}`} />
+      </button>
+
+      {aperto && (
+        <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-40 overflow-hidden rounded-2xl border border-zinc-700 bg-zinc-950 shadow-2xl shadow-black/50">
+          <div className="border-b border-zinc-800 p-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+              <input
+                value={ricerca}
+                onChange={(event) => setRicerca(event.target.value)}
+                placeholder="Cerca nome o cognome..."
+                className="min-h-10 w-full rounded-xl border border-zinc-800 bg-zinc-900 pl-9 pr-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-zinc-600"
+                autoFocus
+              />
+            </div>
+          </div>
+
+          <div className="max-h-80 overflow-y-auto p-2">
+            <button
+              type="button"
+              onClick={() => {
+                onChange("tutti");
+                setAperto(false);
+                setRicerca("");
+              }}
+              className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left text-sm text-white transition hover:bg-zinc-900"
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800">
+                <UsersRound className="h-5 w-5 text-zinc-400" />
+              </div>
+              Tutti gli atleti
+            </button>
+
+            {opzioni.map((giocatore) => (
+              <button
+                key={giocatore.id}
+                type="button"
+                onClick={() => {
+                  onChange(giocatore.id);
+                  setAperto(false);
+                  setRicerca("");
+                }}
+                className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left transition hover:bg-zinc-900"
+                style={
+                  value === giocatore.id
+                    ? { backgroundColor: "rgba(255,255,255,0.06)" }
+                    : undefined
+                }
+              >
+                <GiocatoreAvatar giocatore={giocatore} size="medium" />
+                <p className="truncate text-sm font-semibold text-white">
+                  {giocatore.nome} {giocatore.cognome}
+                </p>
+              </button>
+            ))}
+
+            {opzioni.length === 0 && (
+              <p className="px-4 py-8 text-center text-sm text-zinc-500">
+                Nessun atleta trovato.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

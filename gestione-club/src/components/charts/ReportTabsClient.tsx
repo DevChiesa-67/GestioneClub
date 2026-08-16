@@ -1253,6 +1253,7 @@ export default function ReportTabsClient({
             dataA={dataA}
             tipiSeduta={tipiSeduta}
             coloreFlag={coloreFlag}
+            giocatori={giocatori}
           />
 
           <PerformanceDashboardChartsClient
@@ -1308,6 +1309,7 @@ export default function ReportTabsClient({
           dataA={dataA}
           tipiSeduta={tipiSeduta}
           coloreFlag={coloreFlag}
+          giocatori={giocatori}
         />
       )}
 

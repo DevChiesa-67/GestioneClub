@@ -239,8 +239,8 @@ export async function creaPostAllenamentoAction(
  * Nuovo questionario "Come va" (self-report del giocatore): sostituisce
  * il vecchio creaPostAllenamentoAction. Tre percorsi possibili, tutti
  * salvati sulla stessa tabella misurazioni_benessere:
- *   - campo:    seduta (Mattino/Sera) + RPE 1-10 + fastidio
- *   - palestra: seduta (Forza/Potenza/Richiamo) + RPE 1-10 + fastidio
+ *   - campo:    seduta + minutaggio + RPE 1-10 + fastidio
+ *   - palestra: seduta + minutaggio + RPE 1-10 + fastidio
  *   - mattino:  indice di Hooper, 4 valori 1-7 (sonno, stanchezza,
  *               indolenzimento, stress)
  */
@@ -364,6 +364,7 @@ export async function creaMisurazioneBenessereAction(
       tipo_compilazione: string;
       seduta: string | null;
       rpe: number | null;
+      minutaggio_lavoro: number | null;
       fastidio: string | null;
       fastidio_dettaglio: string | null;
       sonno: number | null;
@@ -378,6 +379,7 @@ export async function creaMisurazioneBenessereAction(
       tipo_compilazione: tipoCompilazione,
       seduta: null,
       rpe: null,
+      minutaggio_lavoro: null,
       fastidio: null,
       fastidio_dettaglio: null,
       sonno: null,
@@ -404,6 +406,17 @@ export async function creaMisurazioneBenessereAction(
         return { success: false, message: rpeRisultato.errore };
       }
 
+      const minutaggioRisultato = getScala(
+        "minutaggio_lavoro",
+        "il minutaggio di lavoro",
+        1,
+        600,
+      );
+
+      if ("errore" in minutaggioRisultato) {
+        return { success: false, message: minutaggioRisultato.errore };
+      }
+
       const fastidio = getString(formData.get("fastidio"));
 
       if (!["no", "leggero", "preoccupante"].includes(fastidio)) {
@@ -415,6 +428,7 @@ export async function creaMisurazioneBenessereAction(
 
       payload.seduta = seduta;
       payload.rpe = rpeRisultato.valore;
+      payload.minutaggio_lavoro = minutaggioRisultato.valore;
       payload.fastidio = fastidio;
       payload.fastidio_dettaglio =
         fastidio !== "no"
