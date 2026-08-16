@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -75,17 +76,38 @@ let nextId = 1;
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [mounted, setMounted] = useState(false);
+  const mountedRef = useRef(false);
+  const timerRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  );
 
   useEffect(() => {
+    mountedRef.current = true;
     setMounted(true);
+
+    const timers = timerRef.current;
+    return () => {
+      mountedRef.current = false;
+      timers.forEach((timer) => clearTimeout(timer));
+      timers.clear();
+    };
   }, []);
 
   const dismissToast = useCallback((id: number) => {
+    const timer = timerRef.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      timerRef.current.delete(id);
+    }
+
+    if (!mountedRef.current) return;
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
   }, []);
 
   const showToast = useCallback(
     (toast: ToastInput) => {
+      if (!mountedRef.current) return;
+
       const id = nextId++;
       const type = toast.type ?? "info";
       const durationMs =
@@ -94,7 +116,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       setToasts((prev) => [...prev, { ...toast, id, type }]);
 
       if (durationMs > 0) {
-        setTimeout(() => dismissToast(id), durationMs);
+        const timer = setTimeout(() => dismissToast(id), durationMs);
+        timerRef.current.set(id, timer);
       }
     },
     [dismissToast],

@@ -4,16 +4,17 @@ import { revalidatePath } from "next/cache";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase-server";
 
-const TIPI_PROFILO = [
-  "admin",
-  "allenatore",
-  "preparatore",
-  "giocatore",
-  "direttore_tecnico",
-  "dirigente",
-] as const;
-
-type TipoProfilo = (typeof TIPI_PROFILO)[number];
+/*
+ * I ruoli disponibili NON sono piu' una lista congelata qui dentro: la
+ * fonte e' l'anagrafica tipi_profili, la stessa che alimenta il menu a
+ * tendina della pagina. Prima un ruolo aggiunto all'enum del database e
+ * a tipi_profili veniva comunque rifiutato da questo file, che non lo
+ * conosceva (era il caso di "accompagnatore"). L'autorita' finale resta
+ * comunque Postgres: se il valore non e' nell'enum tipo_profilo_enum
+ * l'insert fallisce con 22P02, gestito piu' sotto con un messaggio
+ * esplicito.
+ */
+type TipoProfilo = string;
 
 type PermessoPaginaInput = {
   pagina_key: string;
@@ -39,7 +40,7 @@ type CreaTipoProfiloInput = {
 
 type TipoProfiloRecord = {
   id: string;
-  codice: TipoProfilo;
+  codice: string;
   nome: string;
   descrizione: string | null;
   protetto: boolean;
@@ -111,22 +112,6 @@ function isEmailValida(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-function isTipoProfilo(value: string): value is TipoProfilo {
-  return TIPI_PROFILO.includes(value as TipoProfilo);
-}
-
-function validaTipoProfilo(value: string | null | undefined): TipoProfilo {
-  const codice = normalizzaCodiceTipoProfilo(value);
-
-  if (!isTipoProfilo(codice)) {
-    throw new Error(
-      `Tipo profilo non valido. Valori consentiti: ${TIPI_PROFILO.join(", ")}.`
-    );
-  }
-
-  return codice;
-}
-
 async function getContestoAdmin() {
   const supabase = await createClient();
   const supabaseAdmin = createAdminClient();
@@ -136,11 +121,33 @@ async function getContestoAdmin() {
     error: userError,
   } = await supabase.auth.getUser();
 
-  if (userError || !user) {
-    throw new Error("Utente non autenticato.");
+  let authUserId = user?.id ?? "";
+  let authUserEmail = user?.email ?? "";
+
+  // getUser() interroga il servizio Auth e può fallire temporaneamente anche
+  // quando il cookie contiene ancora un JWT valido. In quel caso verifichiamo
+  // crittograficamente i claim della stessa sessione prima di negare l'azione.
+  if (!authUserId) {
+    const {
+      data: { claims },
+      error: claimsError,
+    } = await supabase.auth.getClaims();
+
+    if (claimsError || !claims?.sub) {
+      console.error("Sessione non disponibile nella Server Action:", {
+        getUser: userError?.message,
+        getClaims: claimsError?.message,
+      });
+      throw new Error(
+        "Sessione scaduta o non disponibile. Ricarica la pagina ed effettua nuovamente l'accesso."
+      );
+    }
+
+    authUserId = claims.sub;
+    authUserEmail = typeof claims.email === "string" ? claims.email : "";
   }
 
-  const emailUtente = normalizzaEmail(user.email);
+  const emailUtente = normalizzaEmail(authUserEmail);
 
   if (!emailUtente) {
     throw new Error("L'utente autenticato non possiede un indirizzo email.");
@@ -164,7 +171,7 @@ async function getContestoAdmin() {
       .select(
         "id,auth_user_id,email,last_club_id,last_squadra_id,tipo_profilo,attivo"
       )
-      .eq("auth_user_id", user.id)
+      .eq("auth_user_id", authUserId)
       .maybeSingle();
 
   if (profiloDaAuthError) {
@@ -220,7 +227,7 @@ async function getContestoAdmin() {
       await supabaseAdmin
         .from("profili")
         .update({
-          auth_user_id: user.id,
+          auth_user_id: authUserId,
           updated_at: new Date().toISOString(),
         })
         .eq("id", profilo.id)
@@ -242,8 +249,8 @@ async function getContestoAdmin() {
       throw new Error("Il profilo è stato collegato a un altro account.");
     }
 
-    profilo.auth_user_id = user.id;
-  } else if (profilo.auth_user_id !== user.id) {
+    profilo.auth_user_id = authUserId;
+  } else if (profilo.auth_user_id !== authUserId) {
     throw new Error("Il profilo risulta già collegato a un altro account.");
   }
 
@@ -251,13 +258,21 @@ async function getContestoAdmin() {
     supabaseAdmin,
     clubId: profilo.last_club_id,
     squadraId: profilo.last_squadra_id,
+    // Servono a impedire che un admin cancelli se stesso.
+    profiloCorrenteId: profilo.id,
+    authUserIdCorrente: authUserId,
   };
 }
 
 async function verificaTipoProfiloConfigurato(
   codiceTipoProfilo: string
 ): Promise<TipoProfilo> {
-  const codice = validaTipoProfilo(codiceTipoProfilo);
+  const codice = normalizzaCodiceTipoProfilo(codiceTipoProfilo);
+
+  if (!codice) {
+    throw new Error("Seleziona un tipo profilo.");
+  }
+
   const supabaseAdmin = createAdminClient();
 
   const { data, error } = await supabaseAdmin
@@ -271,9 +286,15 @@ async function verificaTipoProfiloConfigurato(
     throw new Error("Non è stato possibile verificare il tipo profilo.");
   }
 
-  // La tabella tipi_profili è opzionale come anagrafica UI.
-  // Se il record esiste, deve essere attivo; l'enum resta la fonte di verità.
-  if (data && data.attivo === false) {
+  if (!data) {
+    throw new Error(
+      `Il tipo profilo “${codice}” non è registrato in tipi_profili. ` +
+        "Aggiungilo con lo script aggiungi-tipo-profilo.sql (aggiunge il " +
+        "valore all'enum e la riga nell'anagrafica), poi riprova."
+    );
+  }
+
+  if (data.attivo === false) {
     throw new Error(`Il tipo profilo “${codice}” è disattivato.`);
   }
 
@@ -292,15 +313,13 @@ export async function creaTipoProfilo(
 
   const codice = normalizzaCodiceTipoProfilo(input.codice || input.nome);
 
-  if (!isTipoProfilo(codice)) {
-    throw new Error(
-      "Non puoi creare un nuovo ruolo dall'applicazione perché " +
-        "profili.tipo_profilo usa tipo_profilo_enum. " +
-        `Ruoli disponibili: ${TIPI_PROFILO.join(", ")}.`
-    );
-  }
-
-  throw new Error(`Il tipo profilo “${codice}” è già definito nell'enum.`);
+  throw new Error(
+    `Per aggiungere il ruolo “${codice}” serve una migrazione SQL, perché ` +
+      "profili.tipo_profilo usa tipo_profilo_enum e i valori di un enum non " +
+      "si aggiungono dall'applicazione. Usa aggiungi-tipo-profilo.sql: " +
+      "aggiunge il valore all'enum e la riga in tipi_profili, dopodiché il " +
+      "ruolo compare qui senza altre modifiche al codice."
+  );
 }
 
 /**
@@ -480,4 +499,140 @@ export async function salvaPermessiPagineTipoProfilo(input: {
 
   revalidatePath("/utenti-permessi");
   return data ?? [];
+}
+
+
+/*
+ * Elimina un utente: prima l'account di accesso su Supabase Auth, poi il
+ * profilo. In quest'ordine perche' un profilo orfano (senza login) e'
+ * recuperabile, mentre un account Auth rimasto senza profilo riuscirebbe
+ * ancora ad autenticarsi e finirebbe su un errore "Profilo utente non
+ * trovato" a ogni pagina.
+ *
+ * Il record giocatore NON viene cancellato: si scollega soltanto. Cosi'
+ * togliere l'accesso a un atleta non porta via con se' presenze,
+ * misurazioni e statistiche di quel giocatore.
+ */
+export async function eliminaUtente(profiloId: string): Promise<ActionResult> {
+  const { supabaseAdmin, clubId, profiloCorrenteId, authUserIdCorrente } =
+    await getContestoAdmin();
+
+  const id = normalizzaTesto(profiloId);
+
+  if (!id) {
+    throw new Error("Utente non valido.");
+  }
+
+  if (id === profiloCorrenteId) {
+    throw new Error("Non puoi eliminare il tuo stesso account.");
+  }
+
+  const { data: utente, error: utenteError } = await supabaseAdmin
+    .from("profili")
+    .select("id,auth_user_id,email,nome,cognome,tipo_profilo,club_id")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (utenteError) {
+    console.error("Errore recupero utente da eliminare:", utenteError);
+    throw new Error("Non è stato possibile recuperare l'utente.");
+  }
+
+  if (!utente) {
+    throw new Error("Utente non trovato.");
+  }
+
+  // club_id e' un array: l'utente va eliminato solo se appartiene al club
+  // su cui l'admin sta operando.
+  const clubUtente = Array.isArray(utente.club_id)
+    ? utente.club_id
+    : [utente.club_id].filter(Boolean);
+
+  if (!clubUtente.includes(clubId)) {
+    throw new Error("L'utente non appartiene al club attivo.");
+  }
+
+  if (utente.auth_user_id === authUserIdCorrente) {
+    throw new Error("Non puoi eliminare il tuo stesso account.");
+  }
+
+  /*
+   * Un club senza amministratori non sarebbe piu' gestibile da nessuno:
+   * l'ultimo admin non si puo' eliminare.
+   */
+  if (String(utente.tipo_profilo || "").toLowerCase() === "admin") {
+    const { count, error: contaError } = await supabaseAdmin
+      .from("profili")
+      .select("id", { count: "exact", head: true })
+      .eq("tipo_profilo", "admin")
+      .eq("attivo", true)
+      .contains("club_id", [clubId]);
+
+    if (contaError) {
+      console.error("Errore conteggio amministratori:", contaError);
+      throw new Error("Non è stato possibile verificare gli amministratori.");
+    }
+
+    if ((count ?? 0) <= 1) {
+      throw new Error(
+        "Questo è l'ultimo amministratore del club: assegna il ruolo admin a un altro utente prima di eliminarlo."
+      );
+    }
+  }
+
+  // Scollega l'eventuale scheda giocatore, senza cancellarla.
+  const { error: scollegaError } = await supabaseAdmin
+    .from("giocatori")
+    .update({ id_atleta: null })
+    .eq("id_atleta", id);
+
+  if (scollegaError) {
+    console.error("Errore scollegamento giocatore:", scollegaError);
+    throw new Error(
+      "Non è stato possibile scollegare la scheda giocatore associata."
+    );
+  }
+
+  if (utente.auth_user_id) {
+    const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(
+      utente.auth_user_id
+    );
+
+    /*
+     * Se l'account su Auth non esiste piu' (cancellato a mano dal
+     * pannello Supabase) proseguiamo: l'obiettivo e' comunque che alla
+     * fine non resti nulla.
+     */
+    if (authError && !/not found/i.test(authError.message)) {
+      console.error("Errore eliminazione account Auth:", authError);
+      throw new Error(
+        `Non è stato possibile eliminare l'account di accesso: ${authError.message}`
+      );
+    }
+  }
+
+  const { error: deleteError } = await supabaseAdmin
+    .from("profili")
+    .delete()
+    .eq("id", id);
+
+  if (deleteError) {
+    console.error("Errore eliminazione profilo:", deleteError);
+    throw new Error(
+      `L'account di accesso è stato eliminato, ma il profilo no: ${deleteError.message}`
+    );
+  }
+
+  revalidatePath("/utenti-permessi");
+  revalidatePath("/utenti");
+
+  const nome =
+    [utente.nome, utente.cognome].filter(Boolean).join(" ") ||
+    utente.email ||
+    "Utente";
+
+  return {
+    success: true,
+    message: `${nome} è stato eliminato, insieme al suo accesso.`,
+  };
 }

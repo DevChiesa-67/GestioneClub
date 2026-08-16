@@ -1,10 +1,12 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   creaAccountUtente,
   creaTipoProfilo,
   eliminaTipoProfilo,
+  eliminaUtente,
   salvaPermessiPagineTipoProfilo,
 } from "@/app/(dashboard)/utenti-permessi/actions";
 import { AppCard } from "@/components/ui/AppCard";
@@ -79,6 +81,13 @@ export default function UtentiPermessiClient({
   tipiProfilo = [],
 }: Props) {
   const { showToast } = useToast();
+  const router = useRouter();
+
+  const [utenteDaEliminare, setUtenteDaEliminare] =
+    useState<Utente | null>(null);
+
+  const [eliminandoUtenteId, setEliminandoUtenteId] =
+    useState<string | null>(null);
 
   const [localPermessiPagine, setLocalPermessiPagine] =
     useState<PermessoPagina[]>(permessiPagine);
@@ -166,6 +175,37 @@ export default function UtentiPermessiClient({
 
     return risultato;
   }, [tipiProfiloAttivi, utenti]);
+
+  async function confermaEliminaUtente() {
+    if (!utenteDaEliminare) return;
+
+    setEliminandoUtenteId(utenteDaEliminare.id);
+
+    try {
+      const esito = await eliminaUtente(utenteDaEliminare.id);
+
+      showToast({
+        type: "success",
+        message: esito.message,
+      });
+
+      setUtenteDaEliminare(null);
+
+      // La lista arriva dal server component: la ricarichiamo invece di
+      // tenere una copia locale che potrebbe divergere.
+      router.refresh();
+    } catch (error) {
+      showToast({
+        type: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Non è stato possibile eliminare l'utente.",
+      });
+    } finally {
+      setEliminandoUtenteId(null);
+    }
+  }
 
   function getNomeTipoProfilo(codice: string) {
     return (
@@ -635,8 +675,8 @@ export default function UtentiPermessiClient({
             codiceTipoProfilo.toLowerCase() === "admin";
 
           const isEditing =
-            editingTipoProfilo === codiceTipoProfilo ||
-            tipoIsAdmin;
+            !tipoIsAdmin &&
+            editingTipoProfilo === codiceTipoProfilo;
 
           const hasPagineChanges =
             dirtyPagineTipi.has(codiceTipoProfilo);
@@ -698,22 +738,44 @@ export default function UtentiPermessiClient({
                   {listaUtenti.map((utente) => (
                     <div
                       key={utente.id}
-                      className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3"
+                      className="flex items-start justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3"
                     >
-                      <p className="text-sm font-medium text-white">
-                        {[
-                          utente.nome,
-                          utente.cognome,
-                        ]
-                          .filter(Boolean)
-                          .join(" ") ||
-                          "Utente senza nome"}
-                      </p>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-white">
+                          {[
+                            utente.nome,
+                            utente.cognome,
+                          ]
+                            .filter(Boolean)
+                            .join(" ") ||
+                            "Utente senza nome"}
+                        </p>
 
-                      <p className="mt-1 truncate text-xs text-zinc-500">
-                        {utente.email ||
-                          "Email non disponibile"}
-                      </p>
+                        <p className="mt-1 truncate text-xs text-zinc-500">
+                          {utente.email ||
+                            "Email non disponibile"}
+                        </p>
+                      </div>
+
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setUtenteDaEliminare(utente)
+                          }
+                          disabled={
+                            eliminandoUtenteId === utente.id
+                          }
+                          title="Elimina utente e accesso"
+                          className="shrink-0 rounded-lg border border-red-500/30 p-2 text-red-400 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:border-zinc-800 disabled:text-zinc-700"
+                        >
+                          {eliminandoUtenteId === utente.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1167,6 +1229,66 @@ export default function UtentiPermessiClient({
                 {isPending
                   ? "Creazione..."
                   : "Aggiungi utente"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {utenteDaEliminare && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-red-500/30 bg-zinc-950 p-5 shadow-2xl">
+            <h3 className="text-lg font-semibold text-white">
+              Eliminare questo utente?
+            </h3>
+
+            <p className="mt-3 text-sm text-zinc-400">
+              <span className="font-semibold text-white">
+                {[
+                  utenteDaEliminare.nome,
+                  utenteDaEliminare.cognome,
+                ]
+                  .filter(Boolean)
+                  .join(" ") || "Utente senza nome"}
+              </span>
+
+              {utenteDaEliminare.email
+                ? ` (${utenteDaEliminare.email})`
+                : ""}{" "}
+              perderà il profilo e l&apos;account di accesso su Supabase.
+              Non potrà più entrare nel gestionale.
+            </p>
+
+            <p className="mt-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 text-xs text-zinc-400">
+              L&apos;eventuale scheda giocatore collegata NON viene
+              eliminata: viene solo scollegata, quindi presenze,
+              misurazioni e statistiche restano al loro posto.
+            </p>
+
+            <p className="mt-3 text-xs text-zinc-500">
+              L&apos;operazione non è reversibile.
+            </p>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setUtenteDaEliminare(null)}
+                disabled={Boolean(eliminandoUtenteId)}
+                className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-900 disabled:opacity-60"
+              >
+                Annulla
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void confermaEliminaUtente()}
+                disabled={Boolean(eliminandoUtenteId)}
+                className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {eliminandoUtenteId && (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
+                Elimina definitivamente
               </button>
             </div>
           </div>
