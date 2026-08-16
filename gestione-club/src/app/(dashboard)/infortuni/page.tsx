@@ -35,7 +35,10 @@ export default async function InfortuniPage() {
     giocatoriQuery = giocatoriQuery.eq("squadra_id", profilo.last_squadra_id);
   }
 
-  const [{ data: infortuni }, { data: giocatori }] = await Promise.all([
+  const [
+    { data: infortuni, error: infortuniError },
+    { data: giocatori, error: giocatoriError },
+  ] = await Promise.all([
     supabase
       .from("infortuni")
       .select(`
@@ -59,6 +62,28 @@ export default async function InfortuniPage() {
 
     giocatoriQuery,
   ]);
+
+  /*
+   * Senza questi log un errore sulla query (relazione FK non trovata,
+   * policy RLS, tabella mancante) si manifestava come una lista
+   * semplicemente vuota, indistinguibile dal "non ci sono infortuni".
+   */
+  if (infortuniError) {
+    console.error("Errore caricamento infortuni:", {
+      clubId: profilo.last_club_id,
+      code: infortuniError.code,
+      message: infortuniError.message,
+      details: infortuniError.details,
+      hint: infortuniError.hint,
+    });
+  }
+
+  if (giocatoriError) {
+    console.error("Errore caricamento giocatori (infortuni):", {
+      code: giocatoriError.code,
+      message: giocatoriError.message,
+    });
+  }
 
   /*
    * Le relazioni FK singole (giocatore_id, squadra_id) vengono

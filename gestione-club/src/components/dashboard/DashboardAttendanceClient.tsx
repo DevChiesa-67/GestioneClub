@@ -9,7 +9,7 @@ import {
   caricaPresenzeGiornaliere,
 } from "@/lib/presenze/presenze-giornaliere";
 
-type Metrica = "presenze" | "acwr";
+type Metrica = "presenze" | "acwr" | "rpe" | "srpe";
 type Vista = "mese_attuale" | "per_mese" | "per_settimana" | "per_seduta" | "stagione";
 
 type Props = {
@@ -20,6 +20,8 @@ type Props = {
   // grafico mostra solo i dati di questo giocatore invece della media/
   // conteggio dell'intera squadra.
   giocatoreId?: string | null;
+  rpeGrezzi: PuntoGrezzo[];
+  srpeGrezzi: PuntoGrezzo[];
 };
 
 type PuntoGrezzo = {
@@ -437,6 +439,8 @@ export default function DashboardAttendanceClient({
   squadraId,
   coloreFlag,
   giocatoreId = null,
+  rpeGrezzi,
+  srpeGrezzi,
 }: Props) {
   const [metrica, setMetrica] = useState<Metrica>("presenze");
   const [vista, setVista] = useState<Vista>("per_seduta");
@@ -472,7 +476,14 @@ export default function DashboardAttendanceClient({
     };
   }, [clubId, squadraId, giocatoreId]);
 
-  const grezzi = metrica === "presenze" ? grezziPresenze : grezziAcwr;
+  const grezzi =
+    metrica === "presenze"
+      ? grezziPresenze
+      : metrica === "acwr"
+        ? grezziAcwr
+        : metrica === "rpe"
+          ? rpeGrezzi
+          : srpeGrezzi;
 
   const punti = useMemo(
     () => costruisciPunti(grezzi, vista, dateSedute),
@@ -495,6 +506,8 @@ export default function DashboardAttendanceClient({
           >
             <option value="presenze">Presenze</option>
             <option value="acwr">ACWR</option>
+            <option value="rpe">RPE medio</option>
+            <option value="srpe">sRPE medio</option>
           </select>
 
           <span
@@ -505,9 +518,17 @@ export default function DashboardAttendanceClient({
               ? giocatoreId
                 ? "━ le tue presenze per seduta"
                 : "━ giocatori presenti per seduta"
-              : giocatoreId
-                ? "━ il tuo ACWR"
-                : "━ ACWR medio squadra"}
+              : metrica === "acwr"
+                ? giocatoreId
+                  ? "━ il tuo ACWR"
+                  : "━ ACWR medio squadra"
+                : metrica === "rpe"
+                  ? giocatoreId
+                    ? "━ il tuo RPE medio"
+                    : "━ RPE medio squadra"
+                  : giocatoreId
+                    ? "━ il tuo sRPE medio"
+                    : "━ sRPE medio squadra"}
           </span>
         </div>
 
@@ -553,7 +574,11 @@ export default function DashboardAttendanceClient({
                 <p className="text-xs text-zinc-500">
                   {metrica === "presenze"
                     ? "Sedute registrate"
-                    : "Giorni con dato ACWR"}
+                    : metrica === "acwr"
+                      ? "Giorni con dato ACWR"
+                      : metrica === "rpe"
+                        ? "Giorni con dato RPE"
+                        : "Giorni con dato sRPE"}
                 </p>
                 <p className="text-xl font-black text-white">{grezzi.length}</p>
               </div>
@@ -562,11 +587,19 @@ export default function DashboardAttendanceClient({
 
           <GraficoLineare
             punti={punti}
-            coloreFlag={coloreFlag}
+            coloreFlag={
+              metrica === "rpe"
+                ? "#38bdf8"
+                : metrica === "srpe"
+                  ? "#f97316"
+                  : coloreFlag
+            }
             unita=""
             decimali={
               metrica === "acwr"
                 ? 2
+                : metrica === "rpe"
+                  ? 1
                 : vista === "mese_attuale" || vista === "per_seduta"
                   ? 0
                   : 1

@@ -501,20 +501,38 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
     benessere.length > 0 ? benessere[0] : null;
 
   const rpeMedioSquadra7gg = useMemo(() => {
-    const settePriodni = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const oggi = getToday();
+    const inizioPeriodo = new Date(`${oggi}T12:00:00`);
+    inizioPeriodo.setDate(inizioPeriodo.getDate() - 6);
+    const inizioPeriodoIso = [
+      inizioPeriodo.getFullYear(),
+      String(inizioPeriodo.getMonth() + 1).padStart(2, "0"),
+      String(inizioPeriodo.getDate()).padStart(2, "0"),
+    ].join("-");
 
     const valori = benessere
       .filter(
         (m) =>
           m.rpe !== null &&
-          new Date(`${m.data_compilazione}T12:00:00`).getTime() >=
-            settePriodni,
+          m.data_compilazione >= inizioPeriodoIso &&
+          m.data_compilazione <= oggi,
       )
       .map((m) => m.rpe as number);
 
     if (valori.length === 0) return null;
 
     return valori.reduce((somma, v) => somma + v, 0) / valori.length;
+  }, [benessere]);
+
+  const rpeMedioSquadraOggi = useMemo(() => {
+    const oggi = getToday();
+    const valori = benessere
+      .filter((m) => m.rpe !== null && m.data_compilazione === oggi)
+      .map((m) => m.rpe as number);
+
+    if (valori.length === 0) return null;
+
+    return valori.reduce((somma, valore) => somma + valore, 0) / valori.length;
   }, [benessere]);
 
   async function handleSubmit(
@@ -691,7 +709,7 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
         <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatCard
             icon={<HeartPulse className="h-5 w-5" />}
-            label="Compilazioni"
+            label="Misurazioni"
             value={String(benessere.length)}
           />
 
@@ -706,9 +724,13 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
           />
 
           <StatCard
-            icon={<UserRound className="h-5 w-5" />}
-            label="Atleti attivi"
-            value={String(giocatori.length)}
+            icon={<Gauge className="h-5 w-5" />}
+            label="RPE giornaliero (oggi)"
+            value={
+              rpeMedioSquadraOggi !== null
+                ? `${rpeMedioSquadraOggi.toFixed(1)}/10`
+                : "—"
+            }
           />
 
           <StatCard

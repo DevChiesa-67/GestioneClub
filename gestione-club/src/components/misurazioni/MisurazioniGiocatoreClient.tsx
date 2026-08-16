@@ -155,14 +155,21 @@ export default function MisurazioniGiocatoreClient({
   const ultimoBenessere = benessere.length > 0 ? benessere[0] : null;
 
   const rpeMedio7gg = useMemo(() => {
-    const settePriodni = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const oggi = getToday();
+    const inizioPeriodo = new Date(`${oggi}T12:00:00`);
+    inizioPeriodo.setDate(inizioPeriodo.getDate() - 6);
+    const inizioPeriodoIso = [
+      inizioPeriodo.getFullYear(),
+      String(inizioPeriodo.getMonth() + 1).padStart(2, "0"),
+      String(inizioPeriodo.getDate()).padStart(2, "0"),
+    ].join("-");
 
     const valori = benessere
       .filter(
         (m) =>
           m.rpe !== null &&
-          new Date(`${m.data_compilazione}T12:00:00`).getTime() >=
-            settePriodni,
+          m.data_compilazione >= inizioPeriodoIso &&
+          m.data_compilazione <= oggi,
       )
       .map((m) => m.rpe as number);
 

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase-server";
 import DashboardAttendanceClient from "@/components/dashboard/DashboardAttendanceClient";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 async function getContesto() {
   const supabase = await createClient();
@@ -80,12 +81,64 @@ export default async function DashboardAttendance() {
     );
   }
 
+  let rpeQuery = supabaseAdmin
+    .from("misurazioni_benessere")
+    .select("data_compilazione, rpe, minutaggio_lavoro")
+    .eq("club_id", clubId)
+    .in("tipo_compilazione", ["campo", "palestra"])
+    .not("rpe", "is", null)
+    .order("data_compilazione", { ascending: true });
+
+  if (squadraId) {
+    rpeQuery = rpeQuery.eq("squadra_id", squadraId);
+  }
+
+  if (giocatoreId) {
+    rpeQuery = rpeQuery.eq("giocatore_id", giocatoreId);
+  }
+
+  const { data: misurazioniRpe } = await rpeQuery;
+  const raggruppate = new Map<
+    string,
+    { rpe: number[]; srpe: number[] }
+  >();
+
+  for (const misurazione of misurazioniRpe ?? []) {
+    const gruppo = raggruppate.get(misurazione.data_compilazione) ?? {
+      rpe: [],
+      srpe: [],
+    };
+    const rpe = Number(misurazione.rpe);
+    gruppo.rpe.push(rpe);
+
+    if (misurazione.minutaggio_lavoro !== null) {
+      gruppo.srpe.push(rpe * Number(misurazione.minutaggio_lavoro));
+    }
+
+    raggruppate.set(misurazione.data_compilazione, gruppo);
+  }
+
+  const rpeGrezzi = Array.from(raggruppate.entries()).map(([data, valori]) => ({
+    data,
+    valore: valori.rpe.reduce((somma, valore) => somma + valore, 0) / valori.rpe.length,
+  }));
+  const srpeGrezzi = Array.from(raggruppate.entries())
+    .filter(([, valori]) => valori.srpe.length > 0)
+    .map(([data, valori]) => ({
+      data,
+      valore:
+        valori.srpe.reduce((somma, valore) => somma + valore, 0) /
+        valori.srpe.length,
+    }));
+
   return (
     <DashboardAttendanceClient
       clubId={clubId}
       squadraId={squadraId}
       coloreFlag={coloreFlag}
       giocatoreId={giocatoreId}
+      rpeGrezzi={rpeGrezzi}
+      srpeGrezzi={srpeGrezzi}
     />
   );
 }

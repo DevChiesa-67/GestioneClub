@@ -1,4 +1,7 @@
+import Link from "next/link";
+
 import { createClient } from "@/lib/supabase-server";
+import { AppCard } from "@/components/ui/AppCard";
 import InfortunioDetailClient from "@/components/infortuni/InfortunioDetailClient";
 import {
   assicuraBucketDocumentiMedici,
@@ -36,10 +39,10 @@ export default async function InfortunioDetailPage({ params }: PageProps) {
   const isAdmin = String(profilo.tipo_profilo || "").toLowerCase() === "admin";
 
   const [
-    { data: infortunio },
-    { data: medico },
-    { data: fisioterapista },
-    { data: preparatore },
+    { data: infortunio, error: infortunioError },
+    { data: medico, error: medicoError },
+    { data: fisioterapista, error: fisioterapistaError },
+    { data: preparatore, error: preparatoreError },
   ] = await Promise.all([
     supabase
       .from("infortuni")
@@ -61,7 +64,7 @@ export default async function InfortunioDetailPage({ params }: PageProps) {
       `)
       .eq("id", id)
       .eq("club_id", profilo.last_club_id)
-      .single(),
+      .maybeSingle(),
 
     supabase
       .from("infortuni_medico_valutazioni")
@@ -85,8 +88,68 @@ export default async function InfortunioDetailPage({ params }: PageProps) {
       .order("preparatore_data_valutazione", { ascending: false }),
   ]);
 
+  /*
+   * Le tre schede di valutazione sono facoltative: se la loro tabella non
+   * esiste ancora, o RLS le nasconde, la pagina deve comunque aprirsi.
+   * Logghiamo pero' l'errore, perche' prima veniva scartato in silenzio e
+   * rendeva impossibile capire cosa non andasse.
+   */
+  for (const [nome, errore] of [
+    ["valutazioni medico", medicoError],
+    ["valutazioni fisioterapista", fisioterapistaError],
+    ["valutazioni preparatore", preparatoreError],
+  ] as const) {
+    if (errore) {
+      console.error(`Errore caricamento ${nome} (infortunio ${id}):`, {
+        code: errore.code,
+        message: errore.message,
+        details: errore.details,
+        hint: errore.hint,
+      });
+    }
+  }
+
+  if (infortunioError) {
+    console.error("Errore caricamento infortunio:", {
+      id,
+      clubId: profilo.last_club_id,
+      code: infortunioError.code,
+      message: infortunioError.message,
+      details: infortunioError.details,
+      hint: infortunioError.hint,
+    });
+  }
+
   if (!infortunio) {
-    throw new Error("Infortunio non trovato.");
+    /*
+     * Niente eccezione: un id inesistente, un infortunio di un altro club
+     * o una policy RLS che lo nasconde sono situazioni normali, non un
+     * crash dell'applicazione. Mostriamo cosa e' successo e come uscirne.
+     */
+    const motivo = infortunioError
+      ? `Il database ha risposto: ${infortunioError.message}` +
+        (infortunioError.code ? ` (codice ${infortunioError.code})` : "")
+      : "L'infortunio non esiste, appartiene a un altro club, oppure non sei autorizzato a vederlo.";
+
+    return (
+      <AppCard>
+        <h1 className="text-xl font-bold text-white">Infortunio non trovato</h1>
+
+        <p className="mt-3 text-sm text-zinc-400">{motivo}</p>
+
+        <p className="mt-2 text-xs text-zinc-600">
+          Identificativo cercato: <span className="font-mono">{id}</span> nel
+          club attivo.
+        </p>
+
+        <Link
+          href="/infortuni"
+          className="mt-5 inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-zinc-900 hover:text-white"
+        >
+          Torna agli infortuni
+        </Link>
+      </AppCard>
+    );
   }
 
   /*
