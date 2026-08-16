@@ -52,7 +52,11 @@ type Props = {
   dataA?: string;
   tipiSeduta?: TipoSedutaSingolo[];
   coloreFlag: string;
-  giocatori?: Array<{ id: string; nome: string; cognome: string }>;
+  giocatori?: Array<{
+    id: string;
+    nome: string | null;
+    cognome: string | null;
+  }>;
 };
 
 function formatDate(value: string) {
@@ -565,10 +569,16 @@ export default function ReportAcwrClient({
   const nomiGiocatori = useMemo(
     () =>
       new Map(
-        giocatori.map((giocatore) => [
-          giocatore.id,
-          `${giocatore.nome} ${giocatore.cognome}`.trim(),
-        ]),
+        giocatori.map((giocatore) => {
+          const nomeCompleto = `${giocatore.nome ?? ""} ${
+            giocatore.cognome ?? ""
+          }`.trim();
+
+          return [
+            giocatore.id,
+            nomeCompleto || "Giocatore senza nome",
+          ];
+        }),
       ),
     [giocatori],
   );
