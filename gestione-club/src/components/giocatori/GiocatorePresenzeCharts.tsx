@@ -42,7 +42,7 @@ const LABEL_STATO: Record<StatoPresenzaDb, string> = {
 const COLORI: Record<StatoPresenzaDb, string> = {
   presente_entrambe: "#16a34a",
   presente_mattina: "#facc15",
-  presente_pomeriggio: "#facc15",
+  presente_pomeriggio: "#f97316",
   infortunato: "#38bdf8",
   assenza_giustificata: "#f87171",
   assenza_ingiustificata: "#991b1b",

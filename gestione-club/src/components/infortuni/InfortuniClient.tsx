@@ -83,10 +83,15 @@ giocatori,
 isAdmin,
 }: Props) {
 const [search, setSearch] = useState("");
+const [visualizzazione, setVisualizzazione] = useState<"attivi" | "tutti">("attivi");
 const [open, setOpen] = useState(false);
 const [isPending, startTransition] = useTransition();
 
 const filtered = infortuni.filter((item) => {
+if (visualizzazione === "attivi" && item.stato.toLowerCase() === "rientrato") {
+return false;
+}
+
 const nome = `${item.giocatori?.nome ?? ""} ${
       item.giocatori?.cognome ?? ""
     } ${item.tipo_infortunio}`.toLowerCase();
@@ -220,16 +225,30 @@ Infortuni </h1>
 
   {/* ELENCO */}
   <AppCard>
-    {/* SEARCH */}
-    <div className="mb-4 flex min-h-11 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2">
-      <Search className="h-4 w-4 shrink-0 text-zinc-500" />
+    {/* FILTRI */}
+    <div className="mb-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_260px]">
+      <div className="flex min-h-11 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2">
+        <Search className="h-4 w-4 shrink-0 text-zinc-500" />
 
-      <input
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-        placeholder="Cerca giocatore o tipo infortunio..."
-        className="min-w-0 w-full bg-transparent text-base text-white outline-none placeholder:text-zinc-500 sm:text-sm"
-      />
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Cerca giocatore o tipo infortunio..."
+          className="min-w-0 w-full bg-transparent text-base text-white outline-none placeholder:text-zinc-500 sm:text-sm"
+        />
+      </div>
+
+      <select
+        aria-label="Filtra infortuni"
+        value={visualizzazione}
+        onChange={(event) =>
+          setVisualizzazione(event.target.value as "attivi" | "tutti")
+        }
+        className="min-h-11 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-base text-white outline-none transition focus:border-zinc-600 sm:text-sm"
+      >
+        <option value="attivi">Infortuni non rientrati</option>
+        <option value="tutti">Tutti gli infortuni</option>
+      </select>
     </div>
 
     {/* MOBILE */}
@@ -321,7 +340,9 @@ Infortuni </h1>
         <div className="rounded-xl border border-zinc-800 px-4 py-10 text-center text-zinc-500">
           <HeartPulse className="mx-auto mb-2 h-8 w-8" />
           <p className="text-sm">
-            Nessun infortunio attivo trovato.
+            {visualizzazione === "attivi"
+              ? "Nessun infortunio non rientrato trovato."
+              : "Nessun infortunio trovato."}
           </p>
         </div>
       )}
@@ -395,7 +416,9 @@ Infortuni </h1>
                 className="px-4 py-10 text-center text-zinc-500"
               >
                 <HeartPulse className="mx-auto mb-2 h-8 w-8" />
-                Nessun infortunio attivo trovato.
+                {visualizzazione === "attivi"
+                  ? "Nessun infortunio non rientrato trovato."
+                  : "Nessun infortunio trovato."}
               </td>
             </tr>
           )}

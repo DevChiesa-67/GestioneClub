@@ -182,7 +182,7 @@ const STATI_PRESENZA: {
 const COLORE_STATO: Record<StatoPresenza, string> = {
   P: "bg-green-600 border-green-500 text-white",
   PM: "bg-yellow-400 border-yellow-300 text-black",
-  PP: "bg-yellow-400 border-yellow-300 text-black",
+  PP: "bg-orange-500 border-orange-400 text-white",
   I: "bg-sky-500 border-sky-400 text-white",
   AG: "bg-red-400 border-red-300 text-white",
   AI: "bg-red-800 border-red-700 text-white",

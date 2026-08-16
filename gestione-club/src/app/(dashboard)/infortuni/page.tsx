@@ -55,7 +55,6 @@ export default async function InfortuniPage() {
         )
       `)
       .eq("club_id", profilo.last_club_id)
-      .neq("stato", "rientrato")
       .order("data_infortunio", { ascending: false }),
 
     giocatoriQuery,

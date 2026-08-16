@@ -77,7 +77,7 @@ color: "#facc15",
 key: "presente_pomeriggio",
 label: "PP",
 title: "Presente pomeriggio",
-color: "#facc15",
+color: "#f97316",
 },
 {
 key: "infortunato",

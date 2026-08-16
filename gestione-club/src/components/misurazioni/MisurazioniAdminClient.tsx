@@ -446,7 +446,6 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
         misurazione.data_misurazione <= dataA;
 
       return (
-        matchRicerca &&
         matchGiocatore &&
         matchDataDa &&
         matchDataA
