@@ -388,7 +388,7 @@ export default function ReportTabsClient({
     );
   }, [sessioniSelezionate]);
 
-  // presenze_allenamenti non ha session_title: come approssimazione
+  // presenze_giornaliere non ha session_title: come approssimazione
   // per quella tabella filtriamo per le date delle sessioni Catapult
   // selezionate.
   const sessioniSelezionateDate = useMemo(() => {

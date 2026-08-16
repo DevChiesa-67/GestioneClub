@@ -80,25 +80,12 @@ export async function creaTipoTest(input: CreaTipoTestInput) {
 export async function caricaGiocatoriPresenti(dataTest: string) {
   const { supabase, profilo } = await getProfiloCorrente();
 
-  const { data: allenamenti, error: allenamentiError } = await supabase
-    .from("allenamenti")
-    .select("id")
-    .eq("club_id", profilo.last_club_id)
-    .eq("squadra_id", profilo.last_squadra_id)
-    .eq("data_allenamento", dataTest);
-
-  if (allenamentiError) {
-    throw new Error(allenamentiError.message);
-  }
-
-  const allenamentoIds = (allenamenti ?? []).map((a) => a.id);
-
-  if (allenamentoIds.length === 0) {
-    return [];
-  }
-
+  /*
+   * Le presenze sono giornaliere: basta filtrare per data, non serve piu'
+   * passare dagli id delle sedute di quel giorno.
+   */
   const { data, error } = await supabase
-    .from("presenze_allenamenti")
+    .from("presenze_giornaliere")
     .select(`
       id,
       stato,
@@ -112,7 +99,7 @@ export async function caricaGiocatoriPresenti(dataTest: string) {
     `)
     .eq("club_id", profilo.last_club_id)
     .eq("squadra_id", profilo.last_squadra_id)
-    .in("allenamento_id", allenamentoIds)
+    .eq("data", dataTest)
     .in("stato", ["presente_entrambe", "presente_mattina", "presente_pomeriggio"])
     .order("giocatore_id", { ascending: true });
 

@@ -13,9 +13,8 @@ type StatoPresenzaDb =
 type PresenzaGiocatore = {
   id: string;
   stato: StatoPresenzaDb;
-  allenamenti: {
-    data_allenamento: string;
-  } | null;
+  /** Giornata in formato ISO YYYY-MM-DD (le presenze sono per giornata). */
+  data: string | null;
 };
 
 type FiltroPeriodo = "globale" | string;
@@ -190,14 +189,14 @@ export function GiocatorePresenzeCharts({
   const [filtroStato, setFiltroStato] = useState<FiltroStato>("tutte");
 
   const presenzeConData = useMemo(() => {
-    return presenze.filter((p) => p.allenamenti?.data_allenamento);
+    return presenze.filter((p) => p.data);
   }, [presenze]);
 
   const mesiDisponibili = useMemo(() => {
     const mesi = new Set<string>();
 
     presenzeConData.forEach((presenza) => {
-      const data = presenza.allenamenti?.data_allenamento;
+      const data = presenza.data;
       if (data) mesi.add(data.slice(0, 7));
     });
 
@@ -208,7 +207,7 @@ export function GiocatorePresenzeCharts({
     if (periodo === "globale") return presenzeConData;
 
     return presenzeConData.filter((presenza) => {
-      const data = presenza.allenamenti?.data_allenamento;
+      const data = presenza.data;
       return data?.startsWith(periodo);
     });
   }, [presenzeConData, periodo]);
@@ -222,7 +221,7 @@ export function GiocatorePresenzeCharts({
   const datiGrafico = useMemo(() => {
     const grouped = presenzeFiltrate.reduce<Record<string, number>>(
       (acc, presenza) => {
-        const data = presenza.allenamenti?.data_allenamento;
+        const data = presenza.data;
         if (!data) return acc;
 
         const key = getPeriodoKey(data, periodo);

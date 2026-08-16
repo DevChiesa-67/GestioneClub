@@ -129,12 +129,10 @@ export default async function GiocatoreDetailPage({
       importanza_giocatore,
       note,
       attivo,
-      presenze_allenamenti (
+      presenze_giornaliere (
         id,
         stato,
-        allenamenti (
-          data_allenamento
-        )
+        data
       )
     `)
     .eq("id", id)
@@ -176,16 +174,10 @@ export default async function GiocatoreDetailPage({
   }
 
   /*
-   * Supabase può tipizzare la relazione allenamenti come oggetto oppure array.
-   * La normalizziamo per GiocatorePresenzeCharts.
+   * Le presenze ora sono giornaliere: la data e' una colonna della riga,
+   * niente relazione annidata da normalizzare.
    */
-  const presenzeNormalizzate =
-    giocatore.presenze_allenamenti?.map((presenza) => ({
-      ...presenza,
-      allenamenti: Array.isArray(presenza.allenamenti)
-        ? presenza.allenamenti[0] ?? { data_allenamento: "" }
-        : presenza.allenamenti,
-    })) ?? [];
+  const presenzeNormalizzate = giocatore.presenze_giornaliere ?? [];
 
   return (
     <div className="space-y-6 pb-8">

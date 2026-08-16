@@ -252,14 +252,14 @@ export async function eliminaAllenamento(
       return { success: false, message: "Allenamento non trovato." };
     }
 
-    const { error: presenzeError } = await supabase
-      .from("presenze_allenamenti")
-      .delete()
-      .eq("allenamento_id", allenamentoId);
-
-    if (presenzeError) {
-      return { success: false, message: presenzeError.message };
-    }
+    /*
+     * Le presenze NON si cancellano piu' insieme alla seduta: da quando
+     * vivono in presenze_giornaliere appartengono alla giornata, e la
+     * stessa giornata puo' avere un'altra seduta (mattutina/serale).
+     * Cancellarle qui farebbe sparire anche le presenze dell'altra
+     * seduta. Se serve azzerare una giornata lo si fa dalla pagina
+     * Allenamenti, giocatore per giocatore.
+     */
 
     const { error: lavoriError } = await supabase
       .from("lavori_allenamento")

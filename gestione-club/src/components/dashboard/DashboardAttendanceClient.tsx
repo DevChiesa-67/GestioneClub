@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase-client";
+import {
+  aggregaPresenzePerGiorno,
+  caricaPresenzeGiornaliere,
+} from "@/lib/presenze/presenze-giornaliere";
 
 type Metrica = "presenze" | "acwr";
 type Vista = "mese_attuale" | "per_mese" | "per_settimana" | "per_seduta" | "stagione";
@@ -32,23 +36,17 @@ type PuntoGrafico = {
   sottotitolo?: string;
 };
 
-const STATI_PRESENTE = [
-  "presente_mattina",
-  "presente_pomeriggio",
-  "presente_entrambe",
-];
-
 const VISTE: { key: Vista; label: string }[] = [
   { key: "mese_attuale", label: "Mese attuale" },
   { key: "per_mese", label: "Vista per mese" },
   { key: "per_settimana", label: "Vista settimana" },
-  { key: "per_seduta", label: "Vista seduta" },
+  { key: "per_seduta", label: "Vista giornata" },
   { key: "stagione", label: "Stagione" },
 ];
 
 /*
- * Carica una riga grezza (percentuale presenza) per ciascuna seduta con
- * presenze registrate, senza limiti di data: l'aggregazione per vista
+ * Carica una riga grezza (percentuale presenza) per ciascuna GIORNATA di
+ * allenamento, senza limiti di data: l'aggregazione per vista
  * (mese/settimana/stagione) avviene poi lato client su questi dati.
  */
 async function fetchPresenzeGrezze(
@@ -56,68 +54,24 @@ async function fetchPresenzeGrezze(
   squadraId: string | null,
   giocatoreId: string | null
 ): Promise<PuntoGrezzo[]> {
-  let query = supabase
-    .from("presenze_allenamenti")
-    .select(
-      `
-        stato,
-        allenamento:allenamenti!presenze_allenamenti_allenamento_id_fkey (
-          data_allenamento
-        )
-      `
-    )
-    .eq("club_id", clubId);
+  /*
+   * Presenze per giornata: una riga per (giocatore, giorno), con le
+   * assenze mai registrate dedotte dalla rosa attiva. Prima si contava
+   * una riga per seduta, quindi nelle giornate con doppia seduta ogni
+   * giocatore pesava due volte e le percentuali erano gonfiate.
+   */
+  const presenze = await caricaPresenzeGiornaliere(supabase, {
+    clubId,
+    squadraId,
+    giocatoreIds: giocatoreId ? [giocatoreId] : undefined,
+  });
 
-  if (squadraId) {
-    query = query.eq("squadra_id", squadraId);
-  }
-
-  if (giocatoreId) {
-    query = query.eq("giocatore_id", giocatoreId);
-  }
-
-  const { data, error } = await query;
-
-  if (error || !data) {
-    console.error("Errore caricamento presenze dashboard:", error);
-    return [];
-  }
-
-  type Allenamento = { data_allenamento: string };
-  type Riga = {
-    stato: string;
-    allenamento: Allenamento | Allenamento[] | null;
-  };
-
-  const grouped = new Map<string, { presenti: number; totale: number }>();
-
-  for (const riga of data as unknown as Riga[]) {
-    const allenamento = Array.isArray(riga.allenamento)
-      ? riga.allenamento[0]
-      : riga.allenamento;
-
-    const dataSeduta = allenamento?.data_allenamento;
-
-    if (!dataSeduta) continue;
-
-    const current = grouped.get(dataSeduta) ?? { presenti: 0, totale: 0 };
-    current.totale += 1;
-
-    if (STATI_PRESENTE.includes(riga.stato)) {
-      current.presenti += 1;
-    }
-
-    grouped.set(dataSeduta, current);
-  }
-
-  return Array.from(grouped.entries())
-    .map(([data, v]) => ({
-      data,
-      valore: v.presenti,
-      presenti: v.presenti,
-      totale: v.totale,
-    }))
-    .sort((a, b) => a.data.localeCompare(b.data));
+  return aggregaPresenzePerGiorno(presenze).map((punto) => ({
+    data: punto.data,
+    valore: punto.presenti,
+    presenti: punto.presenti,
+    totale: punto.totale,
+  }));
 }
 
 /*
@@ -249,7 +203,7 @@ function aggregaPerChiave(
       key: chiave,
       label: etichettaFn(chiave),
       value: v.conteggio > 0 ? v.somma / v.conteggio : 0,
-      sottotitolo: `${v.conteggio} sedut${v.conteggio === 1 ? "a" : "e"}`,
+      sottotitolo: `${v.conteggio} giornat${v.conteggio === 1 ? "a" : "e"}`,
     }));
 }
 

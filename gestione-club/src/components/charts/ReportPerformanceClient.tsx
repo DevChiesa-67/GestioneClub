@@ -8,6 +8,10 @@ import {
   risolviTipiSeduta,
   type TipoSedutaSingolo,
 } from "@/lib/performance/catapult-filtri";
+import {
+  caricaPresenzeGiornaliere,
+  isPresente,
+} from "@/lib/presenze/presenze-giornaliere";
 
 export type StatoPresenzaDb =
 | "presente_mattina"
@@ -19,16 +23,18 @@ export type StatoPresenzaDb =
 
 type TipoSeduta = "tutte" | "allenamento" | "partita";
 
+/*
+ * Una riga per (giocatore, giornata). Le assenze non registrate vengono
+ * dedotte dalla rosa attiva e arrivano qui con registrata = false: sono
+ * quelle che tengono onesto il denominatore della percentuale.
+ */
 export type PresenzaRow = {
 id: string;
 stato: StatoPresenzaDb;
 giocatore_id: string;
 squadra_id: string | null;
-allenamento_id: string;
-allenamento: {
-id: string;
-data_allenamento: string;
-} | null;
+data: string;
+registrata: boolean;
 };
 
 type Props = {
@@ -135,7 +141,8 @@ const statiDaMostrare = statoAttivo
 : STATI;
 
 return (
-<div className="flex h-80 items-end gap-3 overflow-x-auto">
+<>
+<div className="-mx-3 flex h-80 min-w-0 items-end gap-3 overflow-x-auto overscroll-x-contain px-3 [touch-action:pan-x_pan-y] sm:-mx-5 sm:px-5">
 {dati.length === 0 && ( <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">
 Nessun dato disponibile. </div>
 )}
@@ -188,6 +195,12 @@ Nessun dato disponibile. </div>
   })}
 </div>
 
+{dati.length > 3 && (
+  <p className="mt-1 text-center text-[10px] text-zinc-600 sm:hidden">
+    Scorri lateralmente per vedere tutte le giornate.
+  </p>
+)}
+</>
 
 );
 }
@@ -305,7 +318,7 @@ background: `conic-gradient(${gradient})`,
 }
 
 /**
- * Interroga presenze_allenamenti con lo stesso set di filtri usato dalla
+ * Interroga presenze_giornaliere con lo stesso set di filtri usato dalla
  * tab Presenze (giocatori, periodo, tipo seduta, eventi) e ritorna le
  * righe filtrate. Estratta come funzione a sé in modo da poter essere
  * richiamata anche fuori dal ciclo di vita di questo componente, ad
@@ -324,7 +337,7 @@ export async function fetchPresenzeRows(params: {
 }): Promise<PresenzaRow[]> {
   const tipiSedutaEffettivi = params.tipiSeduta ?? [];
 
-  // Questa fonte legge presenze_allenamenti: nessun filtro (o
+  // Questa fonte legge presenze_giornaliere: nessun filtro (o
   // "allenamento" incluso) mostra i dati, "solo partita" selezionato
   // non ritorna nulla perché le presenze partita hanno una sorgente
   // diversa.
@@ -333,63 +346,30 @@ export async function fetchPresenzeRows(params: {
 
   if (soloPartita) return [];
 
-  let query = supabase
-    .from("presenze_allenamenti")
-    .select(
-      `
-        id,
-        stato,
-        giocatore_id,
-        squadra_id,
-        allenamento_id,
-        allenamento:allenamenti!presenze_allenamenti_allenamento_id_fkey (
-          id,
-          data_allenamento
-        )
-      `
-    )
-    .eq("club_id", params.clubId);
-
-  if (params.squadraId) {
-    query = query.eq("squadra_id", params.squadraId);
-  }
-
   const filtroGiocatori =
     params.giocatoreIds && params.giocatoreIds.length > 0
       ? params.giocatoreIds
       : params.giocatoreId
         ? [params.giocatoreId]
-        : null;
+        : undefined;
 
-  if (filtroGiocatori) {
-    query = query.in("giocatore_id", filtroGiocatori);
-  }
-
-  const { data, error } = await query;
-
-  if (error) {
-    console.error("Errore presenze_allenamenti:", error);
-    return [];
-  }
+  const presenze = await caricaPresenzeGiornaliere(supabase, {
+    clubId: params.clubId,
+    squadraId: params.squadraId,
+    giocatoreIds: filtroGiocatori,
+    dataDa: params.dataDa || undefined,
+    dataA: params.dataA || undefined,
+  });
 
   const eventoDate = params.eventoDate ?? [];
 
-  return ((data ?? []) as unknown as PresenzaRow[]).filter((row) => {
-    const dataAllenamento = row.allenamento?.data_allenamento;
+  // Filtro evento (le sessioni Catapult selezionate): resta approssimato
+  // per data, perche' le presenze non hanno un riferimento a
+  // session_title. Con le presenze giornaliere pero' l'approssimazione e'
+  // ora coerente con il modello dei dati.
+  if (eventoDate.length === 0) return presenze;
 
-    if (!dataAllenamento) return false;
-    if (params.dataDa && dataAllenamento < params.dataDa) return false;
-    if (params.dataA && dataAllenamento > params.dataA) return false;
-
-    // Filtro evento (le sessioni Catapult selezionate): approssimato per
-    // data, dato che presenze_allenamenti non ha un riferimento a
-    // session_title.
-    if (eventoDate.length > 0 && !eventoDate.includes(dataAllenamento)) {
-      return false;
-    }
-
-    return true;
-  });
+  return presenze.filter((riga) => eventoDate.includes(riga.data));
 }
 
 export type StatistichePresenze = {
@@ -425,7 +405,7 @@ export function calcolaStatistichePresenze(
   const grouped = presenze.reduce<
     Record<string, { totale: number; perStato: Record<StatoPresenzaDb, number> }>
   >((acc, presenza) => {
-    const data = presenza.allenamento?.data_allenamento;
+    const data = presenza.data;
     if (!data) return acc;
 
     if (!acc[data]) {
@@ -456,19 +436,18 @@ export function calcolaStatistichePresenze(
 
   const mesi = new Set<string>();
   presenze.forEach((presenza) => {
-    const data = presenza.allenamento?.data_allenamento;
-    if (data) mesi.add(data.slice(0, 7));
+    if (presenza.data) mesi.add(presenza.data.slice(0, 7));
   });
   const mesiDisponibili = Array.from(mesi).sort();
 
-  const totalePresenze = presenze.filter((p) =>
-    [
-      "presente_mattina",
-      "presente_pomeriggio",
-      "presente_entrambe",
-    ].includes(p.stato)
-  ).length;
+  const totalePresenze = presenze.filter((p) => isPresente(p.stato)).length;
 
+  /*
+   * Il denominatore e' rosa attiva x giornate di allenamento: le righe
+   * dedotte (assenze mai registrate) sono gia' incluse in "presenze",
+   * quindi la percentuale resta veritiera anche senza pre-inserire le
+   * assenze nel database.
+   */
   const totaleRilevazioni = presenze.length;
 
   const percentualePresenza =
@@ -661,8 +640,8 @@ return ( <div className="space-y-4 sm:space-y-5"> <div className="grid grid-cols
     </AppCard>
   </div>
 
-  <div className="grid gap-4 sm:gap-5 lg:grid-cols-4">
-    <AppCard className="lg:col-span-3">
+  <div className="grid min-w-0 gap-4 sm:gap-5 lg:grid-cols-4">
+    <AppCard className="min-w-0 lg:col-span-3">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-white">
           Andamento presenze allenamenti

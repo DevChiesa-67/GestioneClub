@@ -106,12 +106,19 @@ type Giocatore = {
   foto_url: string | null;
 };
 
+/*
+ * Una presenza appartiene alla GIORNATA, non alla singola seduta: se in
+ * un giorno ci sono seduta mattutina e serale la riga resta una sola, e
+ * lo stato ("presente_mattina", "presente_entrambe"...) dice a quali
+ * sedute il giocatore ha partecipato. E' cosi' che si evita il doppio
+ * conteggio nelle statistiche.
+ */
 type Presenza = {
   id: string;
-  allenamento_id: string;
   giocatore_id: string;
   club_id: string;
   squadra_id: string | null;
+  data: string;
   stato: StatoPresenzaDb;
 };
 
@@ -559,6 +566,16 @@ export default function Page() {
 
     const idsAllenamenti = allenamentiData?.map((a) => a.id) || [];
 
+    // Le presenze si caricano per giornata: le sedute servono solo a
+    // sapere quali giorni interessano.
+    const giorniAllenamenti = Array.from(
+      new Set(
+        (allenamentiData || [])
+          .map((a) => a.data_allenamento)
+          .filter((data): data is string => Boolean(data)),
+      ),
+    );
+
     let lavoriData: Lavoro[] = [];
     let presenzeData: Presenza[] = [];
 
@@ -573,9 +590,9 @@ export default function Page() {
           .in("allenamento_id", idsAllenamenti)
           .order("ordine", { ascending: true }),
         supabase
-          .from("presenze_allenamenti")
+          .from("presenze_giornaliere")
           .select("*")
-          .in("allenamento_id", idsAllenamenti),
+          .in("data", giorniAllenamenti),
       ]);
 
       if (lavoriError) {
@@ -627,19 +644,19 @@ export default function Page() {
     if (!statoDb) return;
 
     const payload = {
-      allenamento_id: allenamento.id,
       giocatore_id: giocatoreId,
       club_id: profilo.last_club_id,
       squadra_id: profilo.last_squadra_id || allenamento.squadra_id,
+      data: allenamento.data_allenamento,
       stato: statoDb,
       registrato_da: userId,
       updated_at: new Date().toISOString(),
     };
 
     const { data, error } = await supabase
-      .from("presenze_allenamenti")
+      .from("presenze_giornaliere")
       .upsert(payload, {
-        onConflict: "allenamento_id,giocatore_id",
+        onConflict: "club_id,giocatore_id,data",
       })
       .select("*")
       .single();
@@ -653,7 +670,7 @@ export default function Page() {
       const senzaVecchia = current.filter(
         (presenza) =>
           !(
-            presenza.allenamento_id === allenamento.id &&
+            presenza.data === allenamento.data_allenamento &&
             presenza.giocatore_id === giocatoreId
           ),
       );
@@ -665,10 +682,14 @@ export default function Page() {
   async function eliminaPresenza(allenamentoId: string, giocatoreId: string) {
     if (!isAdmin) return;
 
+    const data = dataDiAllenamento(allenamentoId);
+
+    if (!data) return;
+
     const { error } = await supabase
-      .from("presenze_allenamenti")
+      .from("presenze_giornaliere")
       .delete()
-      .eq("allenamento_id", allenamentoId)
+      .eq("data", data)
       .eq("giocatore_id", giocatoreId);
 
     if (error) {
@@ -679,10 +700,7 @@ export default function Page() {
     setPresenze((current) =>
       current.filter(
         (presenza) =>
-          !(
-            presenza.allenamento_id === allenamentoId &&
-            presenza.giocatore_id === giocatoreId
-          ),
+          !(presenza.data === data && presenza.giocatore_id === giocatoreId),
       ),
     );
   }
@@ -943,22 +961,43 @@ export default function Page() {
     return sommaTempoTotaleDeduplicato(lavoriPerAllenamento(allenamentoId));
   };
 
+  /*
+   * Le presenze sono per giornata: dalla seduta si risale alla sua data e
+   * si cerca la riga di quel giorno. Due sedute nello stesso giorno
+   * mostrano quindi la stessa presenza, che e' il comportamento voluto.
+   */
+  // Dichiarata come function (non const) perche' eliminaPresenza, definita
+  // piu' in alto nel componente, la usa: le function declaration sono
+  // hoistate, una const resterebbe in temporal dead zone.
+  function dataDiAllenamento(allenamentoId: string): string | null {
+    return (
+      allenamenti.find((a) => a.id === allenamentoId)?.data_allenamento ?? null
+    );
+  }
+
   const statoGiocatore = (
     allenamentoId: string,
     giocatoreId: string,
   ): StatoPresenza | undefined => {
+    const data = dataDiAllenamento(allenamentoId);
+
+    if (!data) return undefined;
+
     const statoDb = presenze.find(
       (presenza) =>
-        presenza.allenamento_id === allenamentoId &&
-        presenza.giocatore_id === giocatoreId,
+        presenza.data === data && presenza.giocatore_id === giocatoreId,
     )?.stato;
 
     return STATI_PRESENZA.find((stato) => stato.db === statoDb)?.sigla;
   };
 
   const presentiAllenamento = (allenamentoId: string) => {
+    const data = dataDiAllenamento(allenamentoId);
+
+    if (!data) return 0;
+
     return presenze.filter((presenza) => {
-      if (presenza.allenamento_id !== allenamentoId) return false;
+      if (presenza.data !== data) return false;
 
       return [
         "presente_mattina",

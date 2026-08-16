@@ -2,6 +2,10 @@
 import { createClient } from "@/lib/supabase-server";
 import { comunicazioneVisibilePerProfilo } from "@/lib/comunicazioni/destinatari";
 import { creaSupabaseAdminOpzionale } from "@/lib/supabase-admin";
+import {
+  aggregaPresenzePerGiorno,
+  caricaPresenzeGiornaliere,
+} from "@/lib/presenze/presenze-giornaliere";
 
 
 
@@ -626,32 +630,12 @@ export type DashboardAttendancePoint = {
   percentuale: number;
 };
 
-type StatoPresenzaDb =
-  | "presente_mattina"
-  | "presente_pomeriggio"
-  | "presente_entrambe"
-  | "infortunato"
-  | "assenza_giustificata"
-  | "assenza_ingiustificata";
-
-type PresenzaDashboardRow = {
-  stato: StatoPresenzaDb;
-  allenamento: {
-    data_allenamento: string;
-  } | null;
-};
-
-const STATI_PRESENTE: StatoPresenzaDb[] = [
-  "presente_mattina",
-  "presente_pomeriggio",
-  "presente_entrambe",
-];
-
 /*
- * Andamento delle presenze alle sedute (allenamenti), mostrato nella
- * dashboard al posto dell'ACWR medio squadra: percentuale di giocatori
- * presenti per ciascuna seduta registrata negli ultimi 60 giorni,
- * limitata alle ultime 10 sedute per leggibilità del grafico.
+ * Andamento delle presenze, mostrato nella dashboard al posto dell'ACWR
+ * medio squadra: percentuale di giocatori presenti per ciascuna GIORNATA
+ * di allenamento degli ultimi 60 giorni, limitata alle ultime 10 per
+ * leggibilità del grafico. I tipi e la lista degli stati "presente"
+ * vivono ora in src/lib/presenze/presenze-giornaliere.ts.
  */
 export async function getDashboardAttendanceData(): Promise<DashboardAttendancePoint[]> {
   const supabase = await createClient();
@@ -675,55 +659,16 @@ export async function getDashboardAttendanceData(): Promise<DashboardAttendanceP
   sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
   const startDate = sixtyDaysAgo.toISOString().slice(0, 10);
 
-  let query = supabase
-    .from("presenze_allenamenti")
-    .select(
-      `
-        stato,
-        allenamento:allenamenti!presenze_allenamenti_allenamento_id_fkey (
-          data_allenamento
-        )
-      `
-    )
-    .eq("club_id", profilo.last_club_id);
+  /*
+   * Presenze per giornata (una riga per giocatore/giorno, assenze dedotte
+   * dalla rosa attiva): prima si contava una riga per seduta, quindi nelle
+   * giornate con doppia seduta ogni giocatore pesava due volte.
+   */
+  const presenze = await caricaPresenzeGiornaliere(supabase, {
+    clubId: profilo.last_club_id,
+    squadraId: profilo.last_squadra_id ?? null,
+    dataDa: startDate,
+  });
 
-  if (profilo.last_squadra_id) {
-    query = query.eq("squadra_id", profilo.last_squadra_id);
-  }
-
-  const { data, error } = await query;
-
-  if (error || !data) {
-    console.error("Errore caricamento presenze dashboard:", error);
-    return [];
-  }
-
-  const grouped = new Map<string, { presenti: number; totale: number }>();
-
-  for (const row of (data as unknown as PresenzaDashboardRow[])) {
-    const dataSeduta = row.allenamento?.data_allenamento;
-
-    if (!dataSeduta || dataSeduta < startDate) continue;
-
-    const current = grouped.get(dataSeduta) ?? { presenti: 0, totale: 0 };
-
-    current.totale += 1;
-
-    if (STATI_PRESENTE.includes(row.stato)) {
-      current.presenti += 1;
-    }
-
-    grouped.set(dataSeduta, current);
-  }
-
-  return Array.from(grouped.entries())
-    .map(([data, value]) => ({
-      data,
-      presenti: value.presenti,
-      totale: value.totale,
-      percentuale:
-        value.totale > 0 ? Math.round((value.presenti / value.totale) * 100) : 0,
-    }))
-    .sort((a, b) => a.data.localeCompare(b.data))
-    .slice(-10);
+  return aggregaPresenzePerGiorno(presenze).slice(-10);
 }

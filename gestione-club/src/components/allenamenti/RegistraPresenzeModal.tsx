@@ -2,7 +2,9 @@
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
-import { X } from "lucide-react";
+import { Clock, Dumbbell, X } from "lucide-react";
+
+import { DateInput } from "@/components/ui/DateInput";
 
 export type StatoPresenza = "PM" | "PP" | "P" | "I" | "AG" | "AI";
 
@@ -76,14 +78,37 @@ export default function RegistraPresenzeModal({
   eliminaPresenza,
   onClose,
 }: Props) {
-  const [allenamentoId, setAllenamentoId] = useState<string>(
-    allenamenti[0]?.id ?? "",
+  /*
+   * Le presenze sono per GIORNATA: si sceglie una data e a fianco si
+   * vedono gli allenamenti individuati in quel giorno. Gli stati
+   * PM/PP/P dicono poi a quali sedute il giocatore ha partecipato.
+   */
+  const dateConSeduta = useMemo(
+    () =>
+      Array.from(
+        new Set(allenamenti.map((item) => item.data_allenamento)),
+      ).sort((a, b) => b.localeCompare(a)),
+    [allenamenti],
   );
 
-  const allenamentoSelezionato = useMemo(
-    () => allenamenti.find((item) => item.id === allenamentoId) ?? null,
-    [allenamenti, allenamentoId],
+  const [data, setData] = useState<string>(dateConSeduta[0] ?? "");
+
+  const allenamentiDelGiorno = useMemo(
+    () =>
+      allenamenti
+        .filter((item) => item.data_allenamento === data)
+        .sort((a, b) =>
+          (a.ora_inizio ?? "").localeCompare(b.ora_inizio ?? ""),
+        ),
+    [allenamenti, data],
   );
+
+  /*
+   * salvaPresenza ha bisogno di un allenamento per ricavare club, squadra
+   * e data: essendo la presenza giornaliera ne basta uno qualsiasi del
+   * giorno, il primo in ordine di orario.
+   */
+  const allenamentoRiferimento = allenamentiDelGiorno[0] ?? null;
 
   return (
     <div
@@ -94,7 +119,7 @@ export default function RegistraPresenzeModal({
         <div>
           <h2 className="text-xl font-bold text-white">Registra presenze</h2>
           <p className="text-sm text-zinc-400">
-            Seleziona la seduta e segna le presenze dei giocatori.
+            Scegli la data e segna le presenze della giornata.
           </p>
         </div>
 
@@ -106,41 +131,114 @@ export default function RegistraPresenzeModal({
         </button>
       </div>
 
-      <div className="border-b border-zinc-800 p-5">
-        <label className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-zinc-500">
-          Seduta
-        </label>
+      <div className="space-y-4 border-b border-zinc-800 p-4 sm:p-5">
+        <div className="grid gap-4 sm:grid-cols-[minmax(0,220px)_minmax(0,1fr)] sm:items-start">
+          <div className="min-w-0">
+            <label className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-zinc-500">
+              Data
+            </label>
 
-        {allenamenti.length === 0 ? (
-          <p className="text-sm text-zinc-400">
-            Nessuna seduta disponibile per la squadra selezionata.
-          </p>
-        ) : (
-          <select
-            value={allenamentoId}
-            onChange={(event) => setAllenamentoId(event.target.value)}
-            className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm font-semibold text-white focus:outline-none"
-          >
-            {allenamenti.map((allenamento) => (
-              <option key={allenamento.id} value={allenamento.id}>
-                {allenamento.titolo || "Seduta"} —{" "}
-                {formattaData(allenamento.data_allenamento)}
-              </option>
-            ))}
-          </select>
+            <DateInput
+              value={data}
+              onChange={setData}
+              inputClassName="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm font-semibold text-white focus:outline-none"
+            />
+          </div>
+
+          <div className="min-w-0">
+            <label className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-zinc-500">
+              Allenamenti individuati
+              {data ? ` il ${formattaData(data)}` : ""}
+            </label>
+
+            {allenamentiDelGiorno.length === 0 ? (
+              <p className="text-sm text-zinc-500">
+                {data
+                  ? "Nessun allenamento registrato in questa data."
+                  : "Scegli una data per vedere le sedute di quel giorno."}
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {allenamentiDelGiorno.map((allenamento) => {
+                  const orario = [allenamento.ora_inizio, allenamento.ora_fine]
+                    .filter(Boolean)
+                    .map((valore) => (valore as string).slice(0, 5))
+                    .join(" - ");
+
+                  return (
+                    <span
+                      key={allenamento.id}
+                      className="flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold text-white"
+                      style={{
+                        borderColor: `${themeColor}55`,
+                        backgroundColor: `${themeColor}1a`,
+                      }}
+                    >
+                      <Dumbbell className="h-3.5 w-3.5 shrink-0" />
+
+                      <span className="truncate">
+                        {allenamento.tipo_allenamento ||
+                          allenamento.titolo ||
+                          "Seduta"}
+                      </span>
+
+                      {orario && (
+                        <span className="flex items-center gap-1 text-zinc-400">
+                          <Clock className="h-3 w-3 shrink-0" />
+                          {orario}
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {dateConSeduta.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-zinc-600">Ultime sedute:</span>
+
+            {dateConSeduta.slice(0, 5).map((giorno) => {
+              const attiva = giorno === data;
+
+              return (
+                <button
+                  key={giorno}
+                  type="button"
+                  onClick={() => setData(giorno)}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-bold transition ${
+                    attiva
+                      ? "text-white"
+                      : "bg-zinc-900 text-zinc-400 hover:text-white"
+                  }`}
+                  style={attiva ? { backgroundColor: themeColor } : undefined}
+                >
+                  {formattaData(giorno)}
+                </button>
+              );
+            })}
+          </div>
         )}
+
+        <p className="text-xs text-zinc-600">
+          Le presenze valgono per l&apos;intera giornata: usa PM, PP o P per
+          indicare a quali sedute il giocatore ha partecipato.
+        </p>
       </div>
 
       <div className="max-h-[60vh] space-y-3 overflow-y-auto p-5">
-        {!allenamentoSelezionato ? (
+        {!allenamentoRiferimento ? (
           <p className="text-zinc-400">
-            Seleziona una seduta per registrare le presenze.
+            Scegli una data in cui la squadra si e&apos; allenata per
+            registrare le presenze.
           </p>
         ) : (
           <>
             {giocatori.map((giocatore) => {
               const statoAttivo = statoGiocatore(
-                allenamentoSelezionato.id,
+                allenamentoRiferimento.id,
                 giocatore.id,
               );
 
@@ -193,14 +291,14 @@ export default function RegistraPresenzeModal({
                             onClick={() => {
                               if (active) {
                                 eliminaPresenza(
-                                  allenamentoSelezionato.id,
+                                  allenamentoRiferimento.id,
                                   giocatore.id,
                                 );
                                 return;
                               }
 
                               salvaPresenza(
-                                allenamentoSelezionato,
+                                allenamentoRiferimento,
                                 giocatore.id,
                                 stato.sigla,
                               );
