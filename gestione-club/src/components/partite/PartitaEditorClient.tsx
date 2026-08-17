@@ -104,8 +104,10 @@ type Statistiche = {
   punti_incontro_persi: number;
   touche_vinte: number;
   touche_perse: number;
+  touche_totali: number;
   mischie_vinte: number;
   mischie_perse: number;
+  mischie_totali: number;
   placcaggi_efficaci: number;
   placcaggi_non_efficaci: number;
   note: string | null;
@@ -544,15 +546,17 @@ function StatInput({
   value,
   onChange,
   tone = "neutro",
+  fullWidth = false,
 }: {
   label: string;
   value: number;
   onChange: (value: number) => void;
   tone?: keyof typeof TONE_CLASSES;
+  fullWidth?: boolean;
 }) {
   return (
     <label
-      className={`block min-w-0 rounded-xl border px-3 py-2 transition ${TONE_CLASSES[tone]}`}
+      className={`block min-w-0 rounded-xl border px-3 py-2 transition ${fullWidth ? "col-span-2" : ""} ${TONE_CLASSES[tone]}`}
     >
       <span
         className={`block truncate text-[11px] font-bold uppercase tracking-wide ${TONE_LABEL_CLASSES[tone]}`}
@@ -702,12 +706,20 @@ export default function PartitaEditorClient({
       statistiche?.touche_perse ??
       0,
 
+    touche_totali:
+      statistiche?.touche_totali ??
+      0,
+
     mischie_vinte:
       statistiche?.mischie_vinte ??
       0,
 
     mischie_perse:
       statistiche?.mischie_perse ??
+      0,
+
+    mischie_totali:
+      statistiche?.mischie_totali ??
       0,
 
     placcaggi_efficaci:
@@ -1732,6 +1744,13 @@ function giocatoriPerPosizione(
                 value={stats.touche_perse}
                 onChange={(v) => setStats((prev) => ({ ...prev, touche_perse: v }))}
               />
+              <StatInput
+                label="Touche Totali"
+                tone="neutro"
+                fullWidth
+                value={stats.touche_totali}
+                onChange={(v) => setStats((prev) => ({ ...prev, touche_totali: v }))}
+              />
             </GruppoStatistiche>
 
             <GruppoStatistiche icon={Repeat} titolo="Mischie" coloreClub={coloreClub}>
@@ -1746,6 +1765,13 @@ function giocatoriPerPosizione(
                 tone="negativo"
                 value={stats.mischie_perse}
                 onChange={(v) => setStats((prev) => ({ ...prev, mischie_perse: v }))}
+              />
+              <StatInput
+                label="Mischie Totali"
+                tone="neutro"
+                fullWidth
+                value={stats.mischie_totali}
+                onChange={(v) => setStats((prev) => ({ ...prev, mischie_totali: v }))}
               />
             </GruppoStatistiche>
 

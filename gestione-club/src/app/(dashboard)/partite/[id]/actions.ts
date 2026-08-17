@@ -17,8 +17,10 @@ type SalvaStatisticheInput = {
   punti_incontro_persi: number;
   touche_vinte: number;
   touche_perse: number;
+  touche_totali: number;
   mischie_vinte: number;
   mischie_perse: number;
+  mischie_totali: number;
   placcaggi_efficaci: number;
   placcaggi_non_efficaci: number;
   note?: string | null;
@@ -133,8 +135,10 @@ export async function salvaStatistichePartita(input: SalvaStatisticheInput) {
         punti_incontro_persi: input.punti_incontro_persi,
         touche_vinte: input.touche_vinte,
         touche_perse: input.touche_perse,
+        touche_totali: input.touche_totali,
         mischie_vinte: input.mischie_vinte,
         mischie_perse: input.mischie_perse,
+        mischie_totali: input.mischie_totali,
         placcaggi_efficaci: input.placcaggi_efficaci,
         placcaggi_non_efficaci: input.placcaggi_non_efficaci,
         note: input.note ?? null,
