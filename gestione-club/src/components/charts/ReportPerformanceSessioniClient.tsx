@@ -103,6 +103,12 @@ type CustomColumn = {
   label: string;
   formula: string;
   decimals: number;
+  /*
+   * Unita' di misura appesa al valore, es. "%". Facoltativa e assente
+   * sulle colonne salvate prima di questa funzione, quindi va sempre
+   * letta con un fallback a stringa vuota.
+   */
+  suffisso?: string;
 };
 
 // Sottoinsieme curato (i 15 parametri più usati): usato per il PDF, dove
@@ -944,6 +950,7 @@ function chiavePreferenzeColonne(clubId: string) {
 function PerformanceTable({
   rows,
   clubId,
+  tipoProfilo,
 }: {
   rows: PerformanceRow[];
   clubId: string;
@@ -1015,6 +1022,7 @@ function PerformanceTable({
   const [newLabel, setNewLabel] = useState("");
   const [newFormula, setNewFormula] = useState("");
   const [newDecimals, setNewDecimals] = useState(2);
+  const [newSuffisso, setNewSuffisso] = useState("");
 
   // Ordine delle colonne base (trascinabile dall'utente) e colonne
   // "pinnate" (restano ferme durante lo scroll orizzontale della tabella,
@@ -1251,9 +1259,20 @@ function PerformanceTable({
         .map((row) => safeCalculateFormula(row, column.formula))
         .filter((valore): valore is number => valore !== null);
 
-      return valori.length > 0
-        ? valori.reduce((somma, valore) => somma + valore, 0)
-        : null;
+      if (valori.length === 0) return null;
+
+      const somma = valori.reduce((acc, valore) => acc + valore, 0);
+
+      /*
+       * Sommare delle percentuali non significa niente (tre righe al 50%
+       * non fanno 150%): per le colonne con suffisso "%" il totale di
+       * fondo tabella e' la media.
+       */
+      if (column.suffisso?.trim() === "%") {
+        return somma / valori.length;
+      }
+
+      return somma;
     });
   }, [rows, customColumns]);
 
@@ -1276,7 +1295,11 @@ function PerformanceTable({
       key: column.id,
       align: "right" as const,
       pinnata: false,
-      valore: formatNumber(totaliColonneCalcolate[index], column.decimals),
+      valore: formatValoreCalcolato(
+        totaliColonneCalcolate[index],
+        column.decimals,
+        column.suffisso
+      ),
     }));
 
     const tutte = [...celleBase, ...celleCalcolate];
@@ -1317,6 +1340,23 @@ function PerformanceTable({
     );
   }
 
+  /*
+   * Valore di una colonna calcolata con la sua unita' di misura: il
+   * suffisso e' attaccato al numero (12,5%) e non separato da spazio,
+   * come si scrive normalmente una percentuale.
+   */
+  function formatValoreCalcolato(
+    valore: number | null,
+    decimals: number,
+    suffisso?: string
+  ): string {
+    const testo = formatNumber(valore, decimals);
+
+    if (!suffisso || testo === "—") return testo;
+
+    return `${testo}${suffisso}`;
+  }
+
   function addCustomColumn() {
     const label = newLabel.trim();
     const formula = newFormula.trim();
@@ -1330,12 +1370,14 @@ function PerformanceTable({
         label,
         formula,
         decimals: newDecimals,
+        suffisso: newSuffisso.trim() || undefined,
       },
     ]);
 
     setNewLabel("");
     setNewFormula("");
     setNewDecimals(2);
+    setNewSuffisso("");
     setShowCreateColumnPanel(false);
   }
 
@@ -1400,7 +1442,7 @@ function PerformanceTable({
             </p>
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-[1fr_1.5fr_120px_auto]">
+          <div className="grid gap-3 lg:grid-cols-[1fr_1.5fr_100px_160px_auto]">
             <div>
               <label className="mb-1.5 block text-xs font-bold text-zinc-400">
                 Nome colonna
@@ -1447,6 +1489,45 @@ function PerformanceTable({
                 }
                 className="w-full rounded-xl border border-white/10 bg-zinc-900 px-3 py-2.5 text-sm font-semibold text-white outline-none transition focus:border-white/30"
               />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-zinc-400">
+                Unità
+              </label>
+
+              <div className="flex gap-2">
+                <input
+                  value={newSuffisso}
+                  onChange={(event) =>
+                    setNewSuffisso(event.target.value.slice(0, 6))
+                  }
+                  placeholder="es. %"
+                  className="w-full rounded-xl border border-white/10 bg-zinc-900 px-3 py-2.5 text-sm font-semibold text-white outline-none transition focus:border-white/30"
+                />
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setNewSuffisso((corrente) =>
+                      corrente.trim() === "%" ? "" : "%"
+                    )
+                  }
+                  title="Percentuale"
+                  className={[
+                    "shrink-0 rounded-xl border px-3 text-sm font-black transition",
+                    newSuffisso.trim() === "%"
+                      ? "border-white bg-white text-zinc-950"
+                      : "border-white/10 bg-white/5 text-white hover:bg-white/10",
+                  ].join(" ")}
+                >
+                  %
+                </button>
+              </div>
+
+              <p className="mt-1 text-[10px] text-zinc-600">
+                Appesa al valore: 12,5%. Con % il totale è la media.
+              </p>
             </div>
 
             <div className="flex items-end">
@@ -1626,6 +1707,12 @@ function PerformanceTable({
               >
                 <span>{column.label}</span>
 
+                {column.suffisso && (
+                  <span className="rounded bg-white/10 px-1.5 text-[10px] text-zinc-300">
+                    {column.suffisso}
+                  </span>
+                )}
+
                 <span className="text-zinc-500">
                   {column.formula}
                 </span>
@@ -1793,12 +1880,10 @@ function PerformanceTable({
                       key={column.id}
                       className="whitespace-nowrap px-4 py-3 text-right text-sm font-black text-white"
                     >
-                      {formatNumber(
-                        safeCalculateFormula(
-                          row,
-                          column.formula
-                        ),
-                        column.decimals
+                      {formatValoreCalcolato(
+                        safeCalculateFormula(row, column.formula),
+                        column.decimals,
+                        column.suffisso
                       )}
                     </td>
                   ))}

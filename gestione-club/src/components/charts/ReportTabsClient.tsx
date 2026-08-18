@@ -26,7 +26,6 @@ import PerformanceDashboardChartsClient from "@/components/charts/PerformanceDas
 import ReportTestClient from "@/components/charts/ReportTestClient";
 import ConfrontoPerformanceClient from "@/components/charts/ConfrontoPerformanceClient";
 import MinutaggioPartiteClient from "@/components/charts/MinutaggioPartiteClient";
-import ReportRpeClient, { type RpePerformanceRow } from "@/components/charts/ReportRpeClient";
 import {
   generaPdfPerformance,
   generaPdfPresenze,
@@ -45,7 +44,6 @@ type TabKey =
   | "presenze"
   | "performance"
   | "acwr"
-  | "rpe_srpe"
   | "test"
   | "confronto"
   | "minutaggio_partite";
@@ -123,7 +121,6 @@ type Props = {
   sessioni: SessioneCatapult[];
   giocatoreId?: string | null;
   tipoProfilo?: string | null;
-  rpeRows: RpePerformanceRow[];
 };
 
 function chiaveSessione(sessione: SessioneCatapult) {
@@ -220,7 +217,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "presenze", label: "Presenze" },
   { key: "performance", label: "Performance" },
   { key: "acwr", label: "ACWR" },
-  { key: "rpe_srpe", label: "RPE e sRPE" },
   { key: "test", label: "Test" },
   { key: "confronto", label: "Confronto" },
   { key: "minutaggio_partite", label: "Minutaggio Partite" },
@@ -236,7 +232,6 @@ export default function ReportTabsClient({
   sessioni,
   giocatoreId: giocatoreIdIniziale = null,
   tipoProfilo = null,
-  rpeRows,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabKey>("riepilogo");
 
@@ -542,34 +537,6 @@ export default function ReportTabsClient({
       return { label, totale: voce.totale, percentuale };
     });
 
-    /*
-     * Elenco delle assenze giustificate del periodo, con il motivo scritto
-     * nel popup di Registra presenze. Solo le righe davvero registrate: le
-     * assenze dedotte dalla rosa (registrata = false) sono ingiustificate
-     * per definizione e non hanno nessun motivo da stampare.
-     */
-    const nomiGiocatori = new Map(
-      giocatori.map((giocatore) => [giocatore.id, nomeCompleto(giocatore)])
-    );
-
-    const assenzeGiustificate = presenzeRows
-      .filter(
-        (riga) => riga.stato === "assenza_giustificata" && riga.registrata
-      )
-      .sort(
-        (a, b) =>
-          a.data.localeCompare(b.data) ||
-          (nomiGiocatori.get(a.giocatore_id) ?? "").localeCompare(
-            nomiGiocatori.get(b.giocatore_id) ?? ""
-          )
-      )
-      .map((riga) => ({
-        data: formatDataIT(riga.data),
-        giocatore:
-          nomiGiocatori.get(riga.giocatore_id) ?? "Giocatore non in rosa",
-        motivo: riga.giustificazione,
-      }));
-
     const titolo = statoInfo
       ? `ANDAMENTO PRESENZE — ${statoInfo.title.toUpperCase()}`
       : "ANDAMENTO PRESENZE";
@@ -586,8 +553,7 @@ export default function ReportTabsClient({
       distribuzione,
       legenda,
       { logo_url: clubLogoUrl },
-      `presenze-${new Date().toISOString().slice(0, 10)}.pdf`,
-      assenzeGiustificate
+      `presenze-${new Date().toISOString().slice(0, 10)}.pdf`
     );
   }
 
@@ -1287,16 +1253,6 @@ export default function ReportTabsClient({
             dataA={dataA}
             tipiSeduta={tipiSeduta}
             coloreFlag={coloreFlag}
-            giocatori={giocatori}
-          />
-
-          <ReportRpeClient
-            mode="charts"
-            rows={rpeRows}
-            giocatori={giocatori}
-            giocatoreIds={giocatoreIds}
-            dataDa={dataDa}
-            dataA={dataA}
           />
 
           <PerformanceDashboardChartsClient
@@ -1339,6 +1295,7 @@ export default function ReportTabsClient({
           tipiSeduta={tipiSeduta}
           sessionTitles={sessionTitlesFiltro}
           splitSelezionati={splitSelezionati}
+          tipoProfilo={tipoProfilo}
         />
       )}
 
@@ -1352,18 +1309,6 @@ export default function ReportTabsClient({
           dataA={dataA}
           tipiSeduta={tipiSeduta}
           coloreFlag={coloreFlag}
-          giocatori={giocatori}
-        />
-      )}
-
-      {activeTab === "rpe_srpe" && (
-        <ReportRpeClient
-          mode="table"
-          rows={rpeRows}
-          giocatori={giocatori}
-          giocatoreIds={giocatoreIds}
-          dataDa={dataDa}
-          dataA={dataA}
         />
       )}
 
