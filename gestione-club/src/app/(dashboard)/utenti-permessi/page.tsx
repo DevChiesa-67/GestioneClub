@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase-server";
 import { AppCard } from "@/components/ui/AppCard";
 import UtentiPermessiClient from "@/components/utenti/UtentiPermessiClient";
 import { PAGINE_GESTIONALE } from "@/lib/permessi/pagine-gestionale";
+import { COLONNE_REPORT_CATAPULT } from "@/lib/performance/colonne-report-catapult";
 
 export default async function UtentiPermessiPage() {
   const supabase = await createClient();
@@ -54,6 +55,7 @@ export default async function UtentiPermessiPage() {
     { data: utentiData, error: utentiError },
     { data: permessiPagineData, error: permessiPagineError },
     { data: tipiProfiloData, error: tipiProfiloError },
+    { data: permessiColonneData, error: permessiColonneError },
   ] = await Promise.all([
     supabase
       .from("profili")
@@ -91,6 +93,11 @@ export default async function UtentiPermessiPage() {
         attivo
       `)
       .order("nome"),
+
+    supabase
+      .from("permessi_colonne_catapult")
+      .select("tipo_profilo, colonna_key, can_view")
+      .eq("club_id", clubId),
   ]);
 
   if (utentiError) {
@@ -103,6 +110,18 @@ export default async function UtentiPermessiPage() {
 
   if (tipiProfiloError) {
     console.error("Errore caricamento tipi profilo:", tipiProfiloError);
+  }
+
+  /*
+   * La tabella dei permessi colonne potrebbe non esistere ancora (script
+   * crea-permessi-colonne-catapult.sql non eseguito): in quel caso la
+   * pagina deve funzionare lo stesso, semplicemente senza restrizioni.
+   */
+  if (permessiColonneError) {
+    console.error(
+      "Errore caricamento permessi colonne Catapult:",
+      permessiColonneError
+    );
   }
 
   const tipiProfilo = tipiProfiloData ?? [];
@@ -131,6 +150,8 @@ export default async function UtentiPermessiPage() {
           label: pagina.label,
         }))}
         tipiProfilo={tipiProfilo}
+        colonneCatapult={COLONNE_REPORT_CATAPULT}
+        permessiColonne={permessiColonneData ?? []}
       />
     </div>
   );

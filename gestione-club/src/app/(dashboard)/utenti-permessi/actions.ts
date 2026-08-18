@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase-server";
+import { TIPO_PROFILO_TUTTI } from "@/lib/performance/colonne-report-catapult";
 
 /*
  * I ruoli disponibili NON sono piu' una lista congelata qui dentro: la
@@ -121,32 +122,11 @@ async function getContestoAdmin() {
     error: userError,
   } = await supabase.auth.getUser();
 
-  let authUserId = user?.id ?? "";
-  let authUserEmail = user?.email ?? "";
-
-  // getUser() interroga il servizio Auth e può fallire temporaneamente anche
-  // quando il cookie contiene ancora un JWT valido. In quel caso verifichiamo
-  // crittograficamente i claim della stessa sessione prima di negare l'azione.
-  if (!authUserId) {
-    const { data: claimsData, error: claimsError } =
-      await supabase.auth.getClaims();
-    const claims = claimsData?.claims;
-
-    if (claimsError || !claims?.sub) {
-      console.error("Sessione non disponibile nella Server Action:", {
-        getUser: userError?.message,
-        getClaims: claimsError?.message,
-      });
-      throw new Error(
-        "Sessione scaduta o non disponibile. Ricarica la pagina ed effettua nuovamente l'accesso."
-      );
-    }
-
-    authUserId = claims.sub;
-    authUserEmail = typeof claims.email === "string" ? claims.email : "";
+  if (userError || !user) {
+    throw new Error("Utente non autenticato.");
   }
 
-  const emailUtente = normalizzaEmail(authUserEmail);
+  const emailUtente = normalizzaEmail(user.email);
 
   if (!emailUtente) {
     throw new Error("L'utente autenticato non possiede un indirizzo email.");
@@ -170,7 +150,7 @@ async function getContestoAdmin() {
       .select(
         "id,auth_user_id,email,last_club_id,last_squadra_id,tipo_profilo,attivo"
       )
-      .eq("auth_user_id", authUserId)
+      .eq("auth_user_id", user.id)
       .maybeSingle();
 
   if (profiloDaAuthError) {
@@ -226,7 +206,7 @@ async function getContestoAdmin() {
       await supabaseAdmin
         .from("profili")
         .update({
-          auth_user_id: authUserId,
+          auth_user_id: user.id,
           updated_at: new Date().toISOString(),
         })
         .eq("id", profilo.id)
@@ -248,8 +228,8 @@ async function getContestoAdmin() {
       throw new Error("Il profilo è stato collegato a un altro account.");
     }
 
-    profilo.auth_user_id = authUserId;
-  } else if (profilo.auth_user_id !== authUserId) {
+    profilo.auth_user_id = user.id;
+  } else if (profilo.auth_user_id !== user.id) {
     throw new Error("Il profilo risulta già collegato a un altro account.");
   }
 
@@ -259,7 +239,7 @@ async function getContestoAdmin() {
     squadraId: profilo.last_squadra_id,
     // Servono a impedire che un admin cancelli se stesso.
     profiloCorrenteId: profilo.id,
-    authUserIdCorrente: authUserId,
+    authUserIdCorrente: user.id,
   };
 }
 
@@ -634,4 +614,106 @@ export async function eliminaUtente(profiloId: string): Promise<ActionResult> {
     success: true,
     message: `${nome} è stato eliminato, insieme al suo accesso.`,
   };
+}
+
+
+type PermessoColonnaInput = {
+  colonna_key: string;
+  can_view: boolean;
+};
+
+/*
+ * Colonne del report Performance visibili a un tipo profilo.
+ *
+ * Convenzione (vedi crea-permessi-colonne-catapult.sql): un tipo profilo
+ * SENZA righe vede tutte le colonne. Quindi "consenti tutto" si esprime
+ * cancellando le righe, non salvandone una per colonna: cosi' l'elenco
+ * resta pulito e un domani, se venissero aggiunti nuovi parametri
+ * Catapult, chi non ha restrizioni li vedrebbe subito.
+ */
+export async function salvaPermessiColonneCatapult(input: {
+  tipoProfilo: string;
+  colonne: PermessoColonnaInput[];
+  /** true = nessuna restrizione: rimuove ogni riga per questo profilo. */
+  senzaRestrizioni?: boolean;
+}) {
+  const { supabaseAdmin, clubId } = await getContestoAdmin();
+
+  /*
+   * TIPO_PROFILO_TUTTI non e' un ruolo reale: e' il contenitore della
+   * configurazione comune, quindi salta la verifica su tipi_profili.
+   */
+  const tipoProfilo =
+    input.tipoProfilo === TIPO_PROFILO_TUTTI
+      ? TIPO_PROFILO_TUTTI
+      : await verificaTipoProfiloConfigurato(input.tipoProfilo);
+
+  if (tipoProfilo === "admin") {
+    throw new Error(
+      "L'amministratore vede sempre tutte le colonne: non è configurabile."
+    );
+  }
+
+  if (input.senzaRestrizioni) {
+    const { error } = await supabaseAdmin
+      .from("permessi_colonne_catapult")
+      .delete()
+      .eq("club_id", clubId)
+      .eq("tipo_profilo", tipoProfilo);
+
+    if (error) {
+      console.error("Errore rimozione permessi colonne:", error);
+      throw new Error(error.message);
+    }
+
+    revalidatePath("/utenti-permessi");
+    revalidatePath("/performance");
+
+    return [];
+  }
+
+  if (!Array.isArray(input.colonne) || input.colonne.length === 0) {
+    throw new Error("Elenco delle colonne non valido.");
+  }
+
+  const now = new Date().toISOString();
+
+  const payload = input.colonne
+    .filter(
+      (colonna) =>
+        typeof colonna.colonna_key === "string" &&
+        colonna.colonna_key.trim().length > 0
+    )
+    .map((colonna) => ({
+      club_id: clubId,
+      tipo_profilo: tipoProfilo,
+      colonna_key: colonna.colonna_key.trim(),
+      can_view: Boolean(colonna.can_view),
+      updated_at: now,
+    }));
+
+  const { data, error } = await supabaseAdmin
+    .from("permessi_colonne_catapult")
+    .upsert(payload, { onConflict: "club_id,tipo_profilo,colonna_key" })
+    .select("tipo_profilo,colonna_key,can_view");
+
+  if (error) {
+    console.error("Errore salvataggio permessi colonne Catapult:", {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      clubId,
+      tipoProfilo,
+    });
+
+    throw new Error(
+      error.message || "Errore durante il salvataggio delle colonne visibili."
+    );
+  }
+
+  revalidatePath("/utenti-permessi");
+  revalidatePath("/performance");
+
+  return data ?? [];
 }

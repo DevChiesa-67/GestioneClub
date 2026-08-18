@@ -9,18 +9,15 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  EyeOff,
-  GripVertical,
-  Loader2,
-  Pin,
-  Plus,
-  Sigma,
-  Trash2,
-} from "lucide-react";
+import { EyeOff, GripVertical, Loader2, Pin, Plus, Trash2 } from "lucide-react";
 
 import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
+import {
+  colonneConsentitePerProfilo,
+  TIPO_PROFILO_TUTTI,
+  type PermessoColonna,
+} from "@/lib/performance/colonne-report-catapult";
 import {
   tagsPerTipiSeduta,
   filtroTagIlike,
@@ -107,43 +104,6 @@ type CustomColumn = {
   formula: string;
   decimals: number;
 };
-
-/*
- * Colonne calcolate fornite dal gestionale invece che create a mano
- * dall'utente. Hanno un id con questo prefisso (non un uuid) per due
- * motivi: si riconoscono a colpo d'occhio nelle preferenze salvate, e
- * quando se ne aggiunge una nuova qui compare anche a chi ha gia' delle
- * preferenze in localStorage (vedi uniscoColonnePreset).
- *
- * Restano eliminabili come le altre: l'id finisce in presetRimossi e non
- * viene piu' reinserito.
- */
-const PREFISSO_PRESET = "preset:";
-
-const COLONNE_CALCOLATE_PRESET: CustomColumn[] = [
-  {
-    id: `${PREFISSO_PRESET}distanza-power-5-10-su-distanza-totale`,
-    label: "Distanza 5-10 w/kg / Distanza totale",
-    // distance_power_5_10 = "Distanza 5-10 w/kg" (zone di potenza),
-    // distance = distanza totale in metri (catapult_data.distance_metres,
-    // rinominata in PerformanceRow).
-    formula: "distance_power_5_10 / distance",
-    decimals: 3,
-  },
-];
-
-function uniscoColonnePreset(
-  salvate: CustomColumn[],
-  rimossi: string[]
-): CustomColumn[] {
-  const idGiaPresenti = new Set(salvate.map((colonna) => colonna.id));
-
-  const mancanti = COLONNE_CALCOLATE_PRESET.filter(
-    (preset) => !idGiaPresenti.has(preset.id) && !rimossi.includes(preset.id)
-  );
-
-  return [...mancanti, ...salvate];
-}
 
 // Sottoinsieme curato (i 15 parametri più usati): usato per il PDF, dove
 // includere tutti i ~90 parametri Catapult di BASE_COLUMNS renderebbe la
@@ -554,6 +514,48 @@ export type ParametroPubblicato = {
   aggregazione_catapult: "media" | "somma" | "min" | "max" | "ultima";
 };
 
+/*
+ * Colonne del report che il tipo profilo corrente puo' vedere.
+ *
+ * Ritorna null quando non c'e' restrizione (admin, oppure tipo profilo
+ * senza righe configurate): null significa "tutte", diverso da un
+ * insieme vuoto che significa "nessuna". Se la tabella non esiste ancora
+ * (script non eseguito) trattiamo il caso come "nessuna restrizione",
+ * cosi' il report continua a funzionare come prima.
+ */
+export async function fetchColonneConsentite(
+  clubId: string,
+  tipoProfilo: string | null
+): Promise<Set<string> | null> {
+  const isAdmin = String(tipoProfilo || "").toLowerCase() === "admin";
+
+  if (isAdmin || !clubId || !tipoProfilo) return null;
+
+  // Servono entrambe: la configurazione del profilo (se esiste) e quella
+  // comune, che fa da default. La precedenza la decide
+  // colonneConsentitePerProfilo.
+  const { data, error } = await supabase
+    .from("permessi_colonne_catapult")
+    .select("tipo_profilo, colonna_key, can_view")
+    .eq("club_id", clubId)
+    .in("tipo_profilo", [tipoProfilo, TIPO_PROFILO_TUTTI]);
+
+  if (error) {
+    console.error("Errore caricamento colonne consentite:", {
+      code: error.code,
+      message: error.message,
+    });
+
+    return null;
+  }
+
+  return colonneConsentitePerProfilo(
+    (data ?? []) as PermessoColonna[],
+    tipoProfilo,
+    isAdmin
+  );
+}
+
 export async function fetchParametriPubblicati(
   clubId: string,
   tipoProfilo: string | null
@@ -945,9 +947,62 @@ function PerformanceTable({
 }: {
   rows: PerformanceRow[];
   clubId: string;
+  tipoProfilo?: string | null;
 }) {
+  /*
+   * Nascondere colonne e creare colonne calcolate sono operazioni da
+   * amministratore: la scelta di cosa e' visibile la fa l'admin da
+   * Utenti e permessi, non il singolo utente dal report.
+   */
+  const isAdmin = String(tipoProfilo || "").toLowerCase() === "admin";
+
   const [showCreateColumnPanel, setShowCreateColumnPanel] = useState(false);
   const [showHideColumnsPanel, setShowHideColumnsPanel] = useState(false);
+
+  /*
+   * Colonne consentite al tipo profilo di chi guarda (configurate in
+   * Utenti e permessi). null = nessuna restrizione. Finche' il caricamento
+   * non e' finito restiamo su null, cioe' mostriamo tutto: e' lo stato
+   * corretto per l'admin, che e' anche il caso piu' frequente.
+   */
+  const [colonneConsentite, setColonneConsentite] = useState<Set<
+    string
+  > | null>(null);
+
+  useEffect(() => {
+    let annullato = false;
+
+    async function carica() {
+      const consentite = await fetchColonneConsentite(
+        clubId,
+        tipoProfilo ?? null
+      );
+
+      if (!annullato) setColonneConsentite(consentite);
+    }
+
+    void carica();
+
+    return () => {
+      annullato = true;
+    };
+  }, [clubId, tipoProfilo]);
+
+  /*
+   * BASE_COLUMNS filtrate dai permessi: da qui in giu' il componente
+   * lavora solo su queste, cosi' una colonna non consentita non compare
+   * ne' in tabella, ne' nel pannello "mostra/nascondi", ne' tra le
+   * variabili utilizzabili nelle colonne calcolate.
+   */
+  const colonneDisponibili = useMemo(
+    () =>
+      colonneConsentite === null
+        ? BASE_COLUMNS
+        : BASE_COLUMNS.filter((column) =>
+            colonneConsentite.has(String(column.key))
+          ),
+    [colonneConsentite]
+  );
 
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>(
     () =>
@@ -956,14 +1011,7 @@ function PerformanceTable({
       )
   );
 
-  const [customColumns, setCustomColumns] = useState<CustomColumn[]>(
-    COLONNE_CALCOLATE_PRESET
-  );
-
-  // Preset che l'utente ha eliminato: memorizzati per non farli
-  // ricomparire al ricaricamento della pagina.
-  const [presetRimossi, setPresetRimossi] = useState<string[]>([]);
-
+  const [customColumns, setCustomColumns] = useState<CustomColumn[]>([]);
   const [newLabel, setNewLabel] = useState("");
   const [newFormula, setNewFormula] = useState("");
   const [newDecimals, setNewDecimals] = useState(2);
@@ -973,8 +1021,8 @@ function PerformanceTable({
   // sempre nella posizione più a sinistra, nell'ordine in cui sono state
   // pinnate).
   const chiaviBaseDefault = useMemo(
-    () => BASE_COLUMNS.map((column) => String(column.key)),
-    []
+    () => colonneDisponibili.map((column) => String(column.key)),
+    [colonneDisponibili]
   );
 
   const [ordineColonne, setOrdineColonne] = useState<string[]>(chiaviBaseDefault);
@@ -1004,7 +1052,6 @@ function PerformanceTable({
         const salvate = JSON.parse(raw) as {
           visibleColumns?: Record<string, boolean>;
           customColumns?: CustomColumn[];
-          presetRimossi?: string[];
           ordineColonne?: string[];
           colonnePinnate?: string[];
         };
@@ -1013,18 +1060,9 @@ function PerformanceTable({
           setVisibleColumns((prev) => ({ ...prev, ...salvate.visibleColumns }));
         }
 
-        const rimossi = Array.isArray(salvate.presetRimossi)
-          ? salvate.presetRimossi
-          : [];
-
-        setPresetRimossi(rimossi);
-
-        setCustomColumns(
-          uniscoColonnePreset(
-            Array.isArray(salvate.customColumns) ? salvate.customColumns : [],
-            rimossi
-          )
-        );
+        if (Array.isArray(salvate.customColumns)) {
+          setCustomColumns(salvate.customColumns);
+        }
 
         // Filtra su chiaviBaseDefault e aggiunge in coda le colonne non
         // ancora presenti nell'ordine salvato (es. nuovi parametri
@@ -1052,8 +1090,6 @@ function PerformanceTable({
         );
       } else {
         setOrdineColonne(chiaviBaseDefault);
-        setCustomColumns(COLONNE_CALCOLATE_PRESET);
-        setPresetRimossi([]);
       }
     } catch (error) {
       console.error("Errore caricamento preferenze colonne Performance:", error);
@@ -1071,7 +1107,6 @@ function PerformanceTable({
         JSON.stringify({
           visibleColumns,
           customColumns,
-          presetRimossi,
           ordineColonne,
           colonnePinnate,
         })
@@ -1084,14 +1119,23 @@ function PerformanceTable({
     clubId,
     visibleColumns,
     customColumns,
-    presetRimossi,
     ordineColonne,
     colonnePinnate,
   ]);
 
+  /*
+   * Costruita sulle sole colonne consentite: e' questo che rende
+   * effettivo il filtro anche quando l'ordine delle colonne era gia'
+   * stato fissato (all'avvio, o ripristinato dalle preferenze salvate)
+   * prima che arrivassero i permessi. Una chiave non consentita non
+   * viene trovata nella mappa e sparisce da activeBaseColumns.
+   */
   const mappaColonne = useMemo(
-    () => new Map(BASE_COLUMNS.map((column) => [String(column.key), column])),
-    []
+    () =>
+      new Map(
+        colonneDisponibili.map((column) => [String(column.key), column])
+      ),
+    [colonneDisponibili]
   );
 
   // Colonne base visibili, ordinate secondo il drag&drop dell'utente, con
@@ -1201,28 +1245,17 @@ function PerformanceTable({
     [rows, activeBaseColumns]
   );
 
-  /*
-   * Totale delle colonne calcolate: la formula viene applicata alla riga
-   * dei totali, non sommando i risultati riga per riga. Sommare i valori
-   * di una formula ha senso solo se e' una somma di campi; per un
-   * rapporto (es. distanza 5-10 w/kg / distanza totale) darebbe un
-   * numero senza significato, mentre applicarla agli aggregati produce
-   * il rapporto sull'intero periodo. L'aggregazione usa tutte le colonne
-   * numeriche, non solo quelle visibili, altrimenti nascondere un campo
-   * usato in una formula ne azzererebbe il totale.
-   */
-  const totaliTuttiICampi = useMemo(
-    () => aggregaValoriNumerici(rows, NUMERIC_FIELDS),
-    [rows]
-  );
-
   const totaliColonneCalcolate = useMemo(() => {
-    const rigaTotali = totaliTuttiICampi as unknown as PerformanceRow;
+    return customColumns.map((column) => {
+      const valori = rows
+        .map((row) => safeCalculateFormula(row, column.formula))
+        .filter((valore): valore is number => valore !== null);
 
-    return customColumns.map((column) =>
-      safeCalculateFormula(rigaTotali, column.formula)
-    );
-  }, [totaliTuttiICampi, customColumns]);
+      return valori.length > 0
+        ? valori.reduce((somma, valore) => somma + valore, 0)
+        : null;
+    });
+  }, [rows, customColumns]);
 
   // Celle della riga di riepilogo, in ordine colonne base + colonne
   // calcolate: la primissima cella diventa l'etichetta "Totale" (a
@@ -1310,18 +1343,12 @@ function PerformanceTable({
     setCustomColumns((prev) =>
       prev.filter((column) => column.id !== id)
     );
-
-    // Una colonna preset eliminata non deve ricomparire al reload.
-    if (id.startsWith(PREFISSO_PRESET)) {
-      setPresetRimossi((prev) =>
-        prev.includes(id) ? prev : [...prev, id]
-      );
-    }
   }
 
   return (
     <AppCard title="Performance">
-      {/* PULSANTI AZIONE */}
+      {/* PULSANTI AZIONE (solo admin) */}
+      {isAdmin && (
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <button
           type="button"
@@ -1357,9 +1384,10 @@ function PerformanceTable({
           Nascondi Colonne
         </button>
       </div>
+      )}
 
       {/* PANNELLO CREA COLONNA */}
-      {showCreateColumnPanel && (
+      {isAdmin && showCreateColumnPanel && (
         <div className="mb-4 rounded-2xl border border-white/10 bg-zinc-950/70 p-3 sm:mb-5 sm:p-4">
           <div className="mb-4">
             <h3 className="text-sm font-black uppercase tracking-wide text-white">
@@ -1504,7 +1532,7 @@ function PerformanceTable({
       )}
 
       {/* PANNELLO NASCONDI COLONNE */}
-      {showHideColumnsPanel && (
+      {isAdmin && showHideColumnsPanel && (
         <div className="mb-4 rounded-2xl border border-white/10 bg-zinc-950/70 p-3 sm:mb-5 sm:p-4">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -1548,7 +1576,7 @@ function PerformanceTable({
           </div>
 
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {BASE_COLUMNS.map((column) => {
+            {colonneDisponibili.map((column) => {
               const key = String(column.key);
               const active = visibleColumns[key];
 
@@ -1586,8 +1614,7 @@ function PerformanceTable({
       {/* COLONNE PERSONALIZZATE CREATE */}
       {customColumns.length > 0 && (
         <div className="mb-5 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-          <p className="mb-3 inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wide text-zinc-500">
-            <Sigma size={13} className="text-amber-300/90" aria-hidden />
+          <p className="mb-3 text-xs font-black uppercase tracking-wide text-zinc-500">
             Colonne calcolate
           </p>
 
@@ -1595,10 +1622,8 @@ function PerformanceTable({
             {customColumns.map((column) => (
               <div
                 key={column.id}
-                className="inline-flex items-center gap-2 rounded-full border border-amber-300/25 bg-amber-300/10 px-3 py-1.5 text-xs font-bold text-white"
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-bold text-white"
               >
-                <Sigma size={13} className="text-amber-300/90" aria-hidden />
-
                 <span>{column.label}</span>
 
                 <span className="text-zinc-500">
@@ -1689,22 +1714,12 @@ function PerformanceTable({
                 );
               })}
 
-              {/*
-                Le colonne calcolate non esistono su catapult_data: sono
-                formule applicate alle altre colonne. La sigma le
-                distingue a colpo d'occhio dai dati grezzi.
-              */}
               {customColumns.map((column) => (
                 <th
                   key={column.id}
-                  title={`Colonna calcolata: ${column.formula}`}
-                  className="whitespace-nowrap border-b border-white/10 px-4 py-4 text-right text-xs font-black uppercase tracking-wide text-amber-300/90"
+                  className="whitespace-nowrap border-b border-white/10 px-4 py-4 text-right text-xs font-black uppercase tracking-wide text-zinc-400"
                 >
-                  <span className="inline-flex items-center gap-1.5">
-                    <Sigma size={12} aria-hidden />
-                    {column.label}
-                    <span className="sr-only"> (colonna calcolata)</span>
-                  </span>
+                  {column.label}
                 </th>
               ))}
             </tr>
@@ -1776,7 +1791,7 @@ function PerformanceTable({
                   {customColumns.map((column) => (
                     <td
                       key={column.id}
-                      className="whitespace-nowrap px-4 py-3 text-right text-sm font-black text-amber-100"
+                      className="whitespace-nowrap px-4 py-3 text-right text-sm font-black text-white"
                     >
                       {formatNumber(
                         safeCalculateFormula(
@@ -1915,6 +1930,12 @@ export default function ReportPerformanceSessioniClient({
     );
   }
 
-  return <PerformanceTable rows={rows} clubId={clubId} />;
+  return (
+    <PerformanceTable
+      rows={rows}
+      clubId={clubId}
+      tipoProfilo={tipoProfilo}
+    />
+  );
 }
 

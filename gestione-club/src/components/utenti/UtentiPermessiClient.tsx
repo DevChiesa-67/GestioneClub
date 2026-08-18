@@ -7,8 +7,13 @@ import {
   creaTipoProfilo,
   eliminaTipoProfilo,
   eliminaUtente,
+  salvaPermessiColonneCatapult,
   salvaPermessiPagineTipoProfilo,
 } from "@/app/(dashboard)/utenti-permessi/actions";
+import {
+  TIPO_PROFILO_TUTTI,
+  type ColonnaReport,
+} from "@/lib/performance/colonne-report-catapult";
 import { AppCard } from "@/components/ui/AppCard";
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -52,6 +57,12 @@ type TipoProfilo = {
   attivo: boolean;
 };
 
+type PermessoColonnaCatapult = {
+  tipo_profilo: string;
+  colonna_key: string;
+  can_view: boolean;
+};
+
 type Props = {
   clubId: string;
   currentUserId: string;
@@ -60,6 +71,8 @@ type Props = {
   permessiPagine: PermessoPagina[];
   pagine: PaginaPermesso[];
   tipiProfilo: TipoProfilo[];
+  colonneCatapult: ColonnaReport[];
+  permessiColonne: PermessoColonnaCatapult[];
 };
 
 function normalizzaCodiceTipoProfilo(value: string) {
@@ -79,6 +92,8 @@ export default function UtentiPermessiClient({
   permessiPagine = [],
   pagine = [],
   tipiProfilo = [],
+  colonneCatapult = [],
+  permessiColonne = [],
 }: Props) {
   const { showToast } = useToast();
   const router = useRouter();
@@ -88,6 +103,158 @@ export default function UtentiPermessiClient({
 
   const [eliminandoUtenteId, setEliminandoUtenteId] =
     useState<string | null>(null);
+
+  /*
+   * Colonne del report Performance visibili per tipo profilo.
+   * Un tipo profilo SENZA righe non ha restrizioni: vede tutto. Per
+   * questo lo stato distingue "nessuna riga" (Set assente) da "insieme
+   * vuoto" (nessuna colonna visibile).
+   */
+  const [colonnePerProfilo, setColonnePerProfilo] = useState<
+    Record<string, Set<string>>
+  >(() => {
+    const iniziale: Record<string, Set<string>> = {};
+
+    for (const permesso of permessiColonne) {
+      if (!iniziale[permesso.tipo_profilo]) {
+        iniziale[permesso.tipo_profilo] = new Set();
+      }
+
+      if (permesso.can_view) {
+        iniziale[permesso.tipo_profilo].add(permesso.colonna_key);
+      }
+    }
+
+    return iniziale;
+  });
+
+  const [colonneAperte, setColonneAperte] = useState<string | null>(null);
+  const [filtroColonne, setFiltroColonne] = useState("");
+
+  const [salvandoColonne, setSalvandoColonne] = useState<string | null>(null);
+
+  const [colonneDirty, setColonneDirty] = useState<Set<string>>(new Set());
+
+  const colonnePerCategoria = useMemo(() => {
+    const gruppi = new Map<string, ColonnaReport[]>();
+
+    const termine = filtroColonne.trim().toLowerCase();
+
+    for (const colonna of colonneCatapult) {
+      if (
+        termine &&
+        !colonna.label.toLowerCase().includes(termine) &&
+        !colonna.key.toLowerCase().includes(termine)
+      ) {
+        continue;
+      }
+
+      const elenco = gruppi.get(colonna.categoria) ?? [];
+      elenco.push(colonna);
+      gruppi.set(colonna.categoria, elenco);
+    }
+
+    return Array.from(gruppi.entries());
+  }, [colonneCatapult, filtroColonne]);
+
+  function haRestrizioniColonne(codice: string) {
+    return colonnePerProfilo[codice] !== undefined;
+  }
+
+  function colonnaVisibile(codice: string, chiave: string) {
+    const set = colonnePerProfilo[codice];
+
+    // Nessuna restrizione configurata = tutte visibili.
+    if (!set) return true;
+
+    return set.has(chiave);
+  }
+
+  function toggleColonna(codice: string, chiave: string) {
+    setColonnePerProfilo((corrente) => {
+      const attuale = corrente[codice];
+
+      /*
+       * Prima modifica su un profilo senza restrizioni: si parte da
+       * "tutte visibili" e si toglie quella cliccata, che e' il gesto
+       * che l'admin si aspetta.
+       */
+      const base = attuale
+        ? new Set(attuale)
+        : new Set(colonneCatapult.map((colonna) => colonna.key));
+
+      if (base.has(chiave)) {
+        base.delete(chiave);
+      } else {
+        base.add(chiave);
+      }
+
+      return { ...corrente, [codice]: base };
+    });
+
+    setColonneDirty((corrente) => new Set(corrente).add(codice));
+  }
+
+  function impostaTutteLeColonne(codice: string, visibili: boolean) {
+    setColonnePerProfilo((corrente) => ({
+      ...corrente,
+      [codice]: visibili
+        ? new Set(colonneCatapult.map((colonna) => colonna.key))
+        : new Set<string>(),
+    }));
+
+    setColonneDirty((corrente) => new Set(corrente).add(codice));
+  }
+
+  async function salvaColonne(codice: string, senzaRestrizioni = false) {
+    setSalvandoColonne(codice);
+
+    try {
+      await salvaPermessiColonneCatapult({
+        tipoProfilo: codice,
+        senzaRestrizioni,
+        colonne: senzaRestrizioni
+          ? []
+          : colonneCatapult.map((colonna) => ({
+              colonna_key: colonna.key,
+              can_view: colonnaVisibile(codice, colonna.key),
+            })),
+      });
+
+      if (senzaRestrizioni) {
+        setColonnePerProfilo((corrente) => {
+          const prossimo = { ...corrente };
+          delete prossimo[codice];
+          return prossimo;
+        });
+      }
+
+      setColonneDirty((corrente) => {
+        const prossimo = new Set(corrente);
+        prossimo.delete(codice);
+        return prossimo;
+      });
+
+      showToast({
+        type: "success",
+        message: senzaRestrizioni
+          ? "Restrizione rimossa: questo profilo vede tutte le colonne."
+          : "Colonne del report aggiornate.",
+      });
+    } catch (error) {
+      console.error("Errore salvataggio colonne Catapult:", error);
+
+      showToast({
+        type: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Non è stato possibile salvare le colonne visibili.",
+      });
+    } finally {
+      setSalvandoColonne(null);
+    }
+  }
 
   const [localPermessiPagine, setLocalPermessiPagine] =
     useState<PermessoPagina[]>(permessiPagine);
@@ -195,6 +362,8 @@ export default function UtentiPermessiClient({
       // tenere una copia locale che potrebbe divergere.
       router.refresh();
     } catch (error) {
+      console.error("Errore eliminazione utente:", error);
+
       showToast({
         type: "error",
         message:
@@ -633,6 +802,189 @@ export default function UtentiPermessiClient({
     }
   }
 
+  /*
+   * Pannello di selezione delle colonne. E' una funzione che ritorna JSX
+   * (non un componente) perche' non contiene hook e deve leggere stato e
+   * handler del componente: cosi' lo stesso pannello serve sia la
+   * configurazione comune sia quelle per singolo tipo profilo, senza
+   * duplicare centoquaranta righe di interfaccia.
+   */
+  function pannelloColonne(codice: string) {
+    return (
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4">
+        <button
+          type="button"
+          onClick={() =>
+            setColonneAperte((corrente) =>
+              corrente === codice
+                ? null
+                : codice
+            )
+          }
+          className="flex w-full items-start justify-between gap-3 text-left"
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white">
+              {codice === TIPO_PROFILO_TUTTI
+                ? "Colonne visibili a tutti"
+                : "Colonne del report Performance"}
+            </p>
+
+            <p className="mt-1 text-xs text-zinc-500">
+              {haRestrizioniColonne(codice)
+                ? `${
+                    colonneCatapult.filter((colonna) =>
+                      colonnaVisibile(codice, colonna.key)
+                    ).length
+                  } di ${colonneCatapult.length} colonne visibili`
+                : codice === TIPO_PROFILO_TUTTI
+                  ? `Nessuna scelta comune: tutti vedono tutte le ${colonneCatapult.length} colonne`
+                  : "Segue l'impostazione comune"}
+            </p>
+          </div>
+
+          <span className="shrink-0 rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-bold text-zinc-400">
+            {colonneAperte === codice
+              ? "Chiudi"
+              : "Configura"}
+          </span>
+        </button>
+
+        {colonneAperte === codice && (
+          <div className="mt-4 space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={filtroColonne}
+                onChange={(event) =>
+                  setFiltroColonne(event.target.value)
+                }
+                placeholder="Cerca colonna..."
+                className="min-h-10 flex-1 rounded-xl border border-zinc-800 bg-zinc-950 px-3 text-sm text-white outline-none transition focus:border-zinc-600"
+              />
+
+              <button
+                type="button"
+                onClick={() =>
+                  impostaTutteLeColonne(
+                    codice,
+                    true
+                  )
+                }
+                className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-300 transition hover:bg-zinc-900 hover:text-white"
+              >
+                Seleziona tutte
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  impostaTutteLeColonne(
+                    codice,
+                    false
+                  )
+                }
+                className="rounded-lg border border-zinc-700 px-3 py-2 text-xs font-bold text-zinc-300 transition hover:bg-zinc-900 hover:text-white"
+              >
+                Deseleziona tutte
+              </button>
+            </div>
+
+            <div className="max-h-96 space-y-4 overflow-y-auto pr-1">
+              {colonnePerCategoria.map(
+                ([categoria, colonne]) => (
+                  <div key={categoria}>
+                    <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-zinc-500">
+                      {categoria}
+                    </p>
+
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {colonne.map((colonna) => {
+                        const visibile = colonnaVisibile(
+                          codice,
+                          colonna.key
+                        );
+
+                        return (
+                          <button
+                            key={colonna.key}
+                            type="button"
+                            onClick={() =>
+                              toggleColonna(
+                                codice,
+                                colonna.key
+                              )
+                            }
+                            className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-xs font-semibold transition ${
+                              visibile
+                                ? "border-emerald-500/40 bg-emerald-500/10 text-white"
+                                : "border-zinc-800 bg-zinc-950 text-zinc-500 hover:text-zinc-300"
+                            }`}
+                            title={colonna.key}
+                          >
+                            <span className="truncate">
+                              {colonna.label}
+                            </span>
+
+                            <span className="shrink-0 text-[10px]">
+                              {visibile ? "visibile" : "nascosta"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )
+              )}
+
+              {colonnePerCategoria.length === 0 && (
+                <p className="text-sm text-zinc-500">
+                  Nessuna colonna corrisponde alla ricerca.
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-zinc-800 pt-4">
+              {haRestrizioniColonne(codice) && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void salvaColonne(codice, true)
+                  }
+                  disabled={
+                    salvandoColonne === codice
+                  }
+                  className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-900 disabled:opacity-50"
+                >
+                  Rimuovi restrizione
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() =>
+                  void salvaColonne(codice)
+                }
+                disabled={
+                  salvandoColonne === codice ||
+                  !colonneDirty.has(codice)
+                }
+                className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {salvandoColonne === codice && (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                )}
+
+                {salvandoColonne === codice
+                  ? "Salvataggio..."
+                  : "Salva colonne visibili"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap justify-end gap-3">
@@ -669,14 +1021,33 @@ export default function UtentiPermessiClient({
         </AppCard>
       )}
 
+      {isAdmin && (
+        <AppCard>
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-white">
+              Colonne del report Performance
+            </h2>
+
+            <p className="mt-1 text-sm text-zinc-400">
+              Quello che imposti qui vale per tutti i tipi profilo. Se poi
+              un ruolo deve vedere qualcosa di diverso, configuralo nella
+              sua scheda qui sotto: quella scelta ha la precedenza su
+              questa.
+            </p>
+          </div>
+
+          {pannelloColonne(TIPO_PROFILO_TUTTI)}
+        </AppCard>
+      )}
+
       {Object.entries(tipiConUtenti).map(
         ([codiceTipoProfilo, listaUtenti]) => {
           const tipoIsAdmin =
             codiceTipoProfilo.toLowerCase() === "admin";
 
           const isEditing =
-            !tipoIsAdmin &&
-            editingTipoProfilo === codiceTipoProfilo;
+            editingTipoProfilo === codiceTipoProfilo ||
+            tipoIsAdmin;
 
           const hasPagineChanges =
             dirtyPagineTipi.has(codiceTipoProfilo);
@@ -876,6 +1247,13 @@ export default function UtentiPermessiClient({
                       </div>
                     )}
                   </div>
+
+                  {/* COLONNE DEL REPORT PERFORMANCE (CATAPULT) */}
+                  {!tipoIsAdmin && (
+                    <div className="mt-6">
+                      {pannelloColonne(codiceTipoProfilo)}
+                    </div>
+                  )}
                 </>
               )}
             </AppCard>
