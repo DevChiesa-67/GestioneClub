@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
-import { Clock, Dumbbell, X } from "lucide-react";
+import { Clock, Dumbbell, Pencil, X } from "lucide-react";
 
 import { DateInput } from "@/components/ui/DateInput";
 
@@ -57,7 +57,16 @@ type Props = {
     allenamento: AllenamentoOpzione,
     giocatoreId: string,
     stato: StatoPresenza,
+    giustificazione?: string | null,
   ) => void | Promise<void>;
+  /**
+   * Motivo gia' salvato per l'assenza giustificata di quel giocatore in
+   * quella giornata, per riaprire il popup in modifica invece che vuoto.
+   */
+  giustificazioneGiocatore: (
+    allenamentoId: string,
+    giocatoreId: string,
+  ) => string | null;
   eliminaPresenza: (
     allenamentoId: string,
     giocatoreId: string,
@@ -75,6 +84,7 @@ export default function RegistraPresenzeModal({
   coloreStato,
   statoGiocatore,
   salvaPresenza,
+  giustificazioneGiocatore,
   eliminaPresenza,
   onClose,
 }: Props) {
@@ -110,9 +120,55 @@ export default function RegistraPresenzeModal({
    */
   const allenamentoRiferimento = allenamentiDelGiorno[0] ?? null;
 
+  /*
+   * Assenza giustificata: prima di salvare si chiede il motivo. Il popup
+   * si apre sia segnando "AG" sia cliccando la matita accanto a
+   * un'assenza gia' registrata, per correggere il testo senza dover
+   * togliere e rimettere lo stato.
+   */
+  const [giustificazioneAperta, setGiustificazioneAperta] = useState<{
+    giocatore: Giocatore;
+    testo: string;
+  } | null>(null);
+
+  const [salvandoGiustificazione, setSalvandoGiustificazione] =
+    useState(false);
+
+  function apriGiustificazione(giocatore: Giocatore) {
+    if (!allenamentoRiferimento) return;
+
+    setGiustificazioneAperta({
+      giocatore,
+      testo:
+        giustificazioneGiocatore(allenamentoRiferimento.id, giocatore.id) ??
+        "",
+    });
+  }
+
+  async function confermaGiustificazione() {
+    if (!giustificazioneAperta || !allenamentoRiferimento) return;
+
+    setSalvandoGiustificazione(true);
+
+    try {
+      await salvaPresenza(
+        allenamentoRiferimento,
+        giustificazioneAperta.giocatore.id,
+        "AG",
+        // Campo facoltativo: vuoto significa "assenza giustificata senza
+        // motivo scritto", non va salvata una stringa vuota.
+        giustificazioneAperta.testo.trim() || null,
+      );
+
+      setGiustificazioneAperta(null);
+    } finally {
+      setSalvandoGiustificazione(false);
+    }
+  }
+
   return (
     <div
-      className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl border bg-zinc-950 shadow-2xl"
+      className="relative max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-2xl border bg-zinc-950 shadow-2xl"
       style={{ borderColor: `${themeColor}55` }}
     >
       <div className="flex items-center justify-between border-b border-zinc-800 p-5">
@@ -277,6 +333,29 @@ export default function RegistraPresenzeModal({
                             )?.label
                           : "Presenza non segnata"}
                       </p>
+
+                      {/*
+                        Con l'assenza giustificata mostriamo il motivo (o
+                        il fatto che manchi) con una matita per aprirlo in
+                        modifica: cliccare di nuovo "AG" cancellerebbe la
+                        presenza, quindi serve un accesso separato.
+                      */}
+                      {statoAttivo === "AG" && (
+                        <button
+                          type="button"
+                          onClick={() => apriGiustificazione(giocatore)}
+                          disabled={!isAdmin}
+                          className="mt-1 inline-flex max-w-xs items-center gap-1.5 text-left text-xs font-semibold text-amber-300/90 transition hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <Pencil size={12} className="shrink-0" />
+                          <span className="truncate">
+                            {giustificazioneGiocatore(
+                              allenamentoRiferimento.id,
+                              giocatore.id,
+                            ) || "Aggiungi la giustificazione"}
+                          </span>
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -294,6 +373,13 @@ export default function RegistraPresenzeModal({
                                   allenamentoRiferimento.id,
                                   giocatore.id,
                                 );
+                                return;
+                              }
+
+                              // L'assenza giustificata passa dal popup:
+                              // il salvataggio avviene alla conferma.
+                              if (stato.sigla === "AG") {
+                                apriGiustificazione(giocatore);
                                 return;
                               }
 
@@ -333,6 +419,112 @@ export default function RegistraPresenzeModal({
           </>
         )}
       </div>
+
+      {/* POPUP GIUSTIFICAZIONE ASSENZA */}
+      {giustificazioneAperta && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 p-4">
+          <div
+            className="w-full max-w-md rounded-2xl border bg-zinc-950 shadow-2xl"
+            style={{ borderColor: `${themeColor}55` }}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-800 p-5">
+              <h3 className="text-lg font-bold text-white">
+                Assenza giustificata
+              </h3>
+
+              <button
+                onClick={() => setGiustificazioneAperta(null)}
+                className="text-zinc-500 transition hover:text-white"
+                aria-label="Chiudi"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              <div className="flex items-center gap-3">
+                {giustificazioneAperta.giocatore.foto_url ? (
+                  <Image
+                    src={giustificazioneAperta.giocatore.foto_url}
+                    alt={`${giustificazioneAperta.giocatore.nome} ${giustificazioneAperta.giocatore.cognome}`}
+                    width={56}
+                    height={56}
+                    className="h-14 w-14 rounded-full object-cover"
+                  />
+                ) : (
+                  <div
+                    className="flex h-14 w-14 items-center justify-center rounded-full text-base font-bold text-white"
+                    style={{ backgroundColor: `${themeColor}66` }}
+                  >
+                    {giustificazioneAperta.giocatore.nome.charAt(0)}
+                    {giustificazioneAperta.giocatore.cognome.charAt(0)}
+                  </div>
+                )}
+
+                <div>
+                  <p className="text-lg font-bold text-white">
+                    {giustificazioneAperta.giocatore.nome}{" "}
+                    {giustificazioneAperta.giocatore.cognome}
+                  </p>
+                  <p className="text-sm text-zinc-500">
+                    {formattaData(data)}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="giustificazione-assenza"
+                  className="mb-2 block text-sm font-semibold text-zinc-300"
+                >
+                  Motivo dell&apos;assenza
+                </label>
+
+                <textarea
+                  id="giustificazione-assenza"
+                  rows={4}
+                  autoFocus
+                  value={giustificazioneAperta.testo}
+                  onChange={(event) =>
+                    setGiustificazioneAperta((corrente) =>
+                      corrente
+                        ? { ...corrente, testo: event.target.value }
+                        : corrente,
+                    )
+                  }
+                  placeholder="Es. visita medica, motivi di lavoro, impegno scolastico..."
+                  className="w-full rounded-xl border border-zinc-800 bg-zinc-900 p-3 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-zinc-600"
+                />
+
+                <p className="mt-2 text-xs text-zinc-500">
+                  Puoi lasciarlo vuoto e completarlo in un secondo momento.
+                  Il motivo compare nel PDF delle presenze.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setGiustificazioneAperta(null)}
+                  className="rounded-xl border border-zinc-800 px-4 py-2.5 text-sm font-bold text-zinc-300 transition hover:text-white"
+                >
+                  Annulla
+                </button>
+
+                <button
+                  type="button"
+                  onClick={confermaGiustificazione}
+                  disabled={salvandoGiustificazione}
+                  className="rounded-xl px-4 py-2.5 text-sm font-black text-white transition disabled:cursor-not-allowed disabled:opacity-60"
+                  style={{ backgroundColor: themeColor }}
+                >
+                  {salvandoGiustificazione ? "Salvataggio..." : "Salva"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

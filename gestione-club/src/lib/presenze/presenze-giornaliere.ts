@@ -52,6 +52,12 @@ export type PresenzaGiornaliera = {
   data: string;
   /** false = assenza dedotta dalla rosa, nessuna riga salvata. */
   registrata: boolean;
+  /**
+   * Motivo dell'assenza, compilato nel popup che si apre segnando "AG".
+   * Ha senso solo con stato = assenza_giustificata; sulle assenze dedotte
+   * e' sempre null, per definizione non le ha giustificate nessuno.
+   */
+  giustificazione: string | null;
 };
 
 export type ParametriPresenze = {
@@ -69,6 +75,7 @@ type RigaPresenza = {
   giocatore_id: string;
   squadra_id: string | null;
   data: string;
+  giustificazione: string | null;
 };
 
 type RigaGiocatore = {
@@ -157,7 +164,7 @@ export async function caricaPresenzeGiornaliere(
   // 3. Presenze effettivamente registrate.
   let registrate = client
     .from("presenze_giornaliere")
-    .select("id, stato, giocatore_id, squadra_id, data")
+    .select("id, stato, giocatore_id, squadra_id, data, giustificazione")
     .eq("club_id", clubId);
 
   if (squadraId) registrate = registrate.eq("squadra_id", squadraId);
@@ -237,6 +244,7 @@ export async function caricaPresenzeGiornaliere(
           squadra_id: registrata.squadra_id,
           data: registrata.data,
           registrata: true,
+          giustificazione: registrata.giustificazione ?? null,
         });
 
         continue;
@@ -253,6 +261,7 @@ export async function caricaPresenzeGiornaliere(
         squadra_id: giocatore.squadra_id,
         data: giorno,
         registrata: false,
+        giustificazione: null,
       });
     }
   }

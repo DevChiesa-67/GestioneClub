@@ -15,6 +15,7 @@ import {
   ChevronDown,
   CircleDot,
   Eye,
+  Goal,
   Layers,
   Megaphone,
   Pencil,
@@ -96,8 +97,16 @@ type Statistiche = {
   punti_subiti: number;
   mete_fatte: number;
   mete_subite: number;
-  calci_fatti: number;
-  calci_subiti: number;
+  /*
+   * Queste due colonne si chiamavano calci_fatti / calci_subiti ma
+   * contenevano le trasformazioni. I calci piazzati veri sono le due
+   * colonne calci_piazzati_* qui sotto (vedi
+   * rinomina-trasformazioni-aggiungi-calci-piazzati.sql).
+   */
+  trasformazioni_fatte: number;
+  trasformazioni_subite: number;
+  calci_piazzati_totali: number;
+  calci_piazzati_fatti: number;
   ammonizioni: number;
   espulsioni: number;
   punti_incontro_vinti: number;
@@ -674,12 +683,20 @@ export default function PartitaEditorClient({
       statistiche?.mete_subite ??
       0,
 
-    calci_fatti:
-      statistiche?.calci_fatti ??
+    trasformazioni_fatte:
+      statistiche?.trasformazioni_fatte ??
       0,
 
-    calci_subiti:
-      statistiche?.calci_subiti ??
+    trasformazioni_subite:
+      statistiche?.trasformazioni_subite ??
+      0,
+
+    calci_piazzati_totali:
+      statistiche?.calci_piazzati_totali ??
+      0,
+
+    calci_piazzati_fatti:
+      statistiche?.calci_piazzati_fatti ??
       0,
 
     ammonizioni:
@@ -1686,18 +1703,41 @@ function giocatoriPerPosizione(
               />
             </GruppoStatistiche>
 
-            <GruppoStatistiche icon={Target} titolo="Calci piazzati" coloreClub={coloreClub}>
+            <GruppoStatistiche icon={Target} titolo="Trasformazioni" coloreClub={coloreClub}>
+              <StatInput
+                label="Fatte"
+                tone="positivo"
+                value={stats.trasformazioni_fatte}
+                onChange={(v) =>
+                  setStats((prev) => ({ ...prev, trasformazioni_fatte: v }))
+                }
+              />
+              <StatInput
+                label="Subite"
+                tone="negativo"
+                value={stats.trasformazioni_subite}
+                onChange={(v) =>
+                  setStats((prev) => ({ ...prev, trasformazioni_subite: v }))
+                }
+              />
+            </GruppoStatistiche>
+
+            <GruppoStatistiche icon={Goal} titolo="Calci piazzati" coloreClub={coloreClub}>
+              <StatInput
+                label="Totali"
+                tone="neutro"
+                value={stats.calci_piazzati_totali}
+                onChange={(v) =>
+                  setStats((prev) => ({ ...prev, calci_piazzati_totali: v }))
+                }
+              />
               <StatInput
                 label="Fatti"
                 tone="positivo"
-                value={stats.calci_fatti}
-                onChange={(v) => setStats((prev) => ({ ...prev, calci_fatti: v }))}
-              />
-              <StatInput
-                label="Subiti"
-                tone="negativo"
-                value={stats.calci_subiti}
-                onChange={(v) => setStats((prev) => ({ ...prev, calci_subiti: v }))}
+                value={stats.calci_piazzati_fatti}
+                onChange={(v) =>
+                  setStats((prev) => ({ ...prev, calci_piazzati_fatti: v }))
+                }
               />
             </GruppoStatistiche>
 

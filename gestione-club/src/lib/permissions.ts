@@ -1,11 +1,19 @@
 
-export type UserRole = "admin" | "allenatore" | "preparatore" | "giocatore";
+export type UserRole =
+  | "admin"
+  | "allenatore"
+  | "preparatore"
+  | "giocatore"
+  | "medico"
+  | "fisioterapista";
 
 export const roleLabels: Record<UserRole, string> = {
   admin: "Admin",
   allenatore: "Allenatore",
   preparatore: "Preparatore",
   giocatore: "Giocatore",
+  medico: "Medico",
+  fisioterapista: "Fisioterapista",
 };
 
 export const roleHomePath: Record<UserRole, string> = {
@@ -13,24 +21,34 @@ export const roleHomePath: Record<UserRole, string> = {
   allenatore: "/dashboard",
   preparatore: "/performance",
   giocatore: "/dashboard",
+  medico: "/infortuni",
+  fisioterapista: "/infortuni",
 };
 
+/*
+ * Medico e fisioterapista leggono tutto il gestionale (filtrato per club
+ * dalle policy RLS) e scrivono solo sugli infortuni: qui compaiono su
+ * ogni rotta, il permesso di scrittura e' in @/lib/permessi/infortuni.
+ */
+const SANITARI: UserRole[] = ["medico", "fisioterapista"];
+
 export const routePermissions: Record<string, UserRole[]> = {
-  "/dashboard": ["admin", "allenatore", "preparatore", "giocatore"],
+  "/dashboard": ["admin", "allenatore", "preparatore", "giocatore", ...SANITARI],
 
-  "/club": ["admin", "allenatore"],
-  "/squadre": ["admin", "allenatore"],
+  "/club": ["admin", "allenatore", ...SANITARI],
+  "/squadre": ["admin", "allenatore", ...SANITARI],
 
-  "/giocatori": ["admin", "allenatore", "preparatore"],
+  "/giocatori": ["admin", "allenatore", "preparatore", ...SANITARI],
 
-  "/allenamenti": ["admin", "allenatore", "preparatore"],
-  "/partite": ["admin", "allenatore"],
+  "/allenamenti": ["admin", "allenatore", "preparatore", ...SANITARI],
+  "/partite": ["admin", "allenatore", ...SANITARI],
+  "/infortuni": ["admin", "allenatore", "preparatore", ...SANITARI],
 
-  "/performance": ["admin", "allenatore", "preparatore", "giocatore"],
-  "/comunicazioni": ["admin", "allenatore", "preparatore", "giocatore"],
+  "/performance": ["admin", "allenatore", "preparatore", "giocatore", ...SANITARI],
+  "/comunicazioni": ["admin", "allenatore", "preparatore", "giocatore", ...SANITARI],
 
-  "/report": ["admin", "allenatore", "preparatore", "giocatore"],
-  "/file": ["admin", "allenatore", "preparatore"],
+  "/report": ["admin", "allenatore", "preparatore", "giocatore", ...SANITARI],
+  "/file": ["admin", "allenatore", "preparatore", ...SANITARI],
 
   "/utenti-permessi": ["admin"],
   "/impostazioni": ["admin", "allenatore"],

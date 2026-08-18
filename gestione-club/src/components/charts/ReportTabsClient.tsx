@@ -542,6 +542,34 @@ export default function ReportTabsClient({
       return { label, totale: voce.totale, percentuale };
     });
 
+    /*
+     * Elenco delle assenze giustificate del periodo, con il motivo scritto
+     * nel popup di Registra presenze. Solo le righe davvero registrate: le
+     * assenze dedotte dalla rosa (registrata = false) sono ingiustificate
+     * per definizione e non hanno nessun motivo da stampare.
+     */
+    const nomiGiocatori = new Map(
+      giocatori.map((giocatore) => [giocatore.id, nomeCompleto(giocatore)])
+    );
+
+    const assenzeGiustificate = presenzeRows
+      .filter(
+        (riga) => riga.stato === "assenza_giustificata" && riga.registrata
+      )
+      .sort(
+        (a, b) =>
+          a.data.localeCompare(b.data) ||
+          (nomiGiocatori.get(a.giocatore_id) ?? "").localeCompare(
+            nomiGiocatori.get(b.giocatore_id) ?? ""
+          )
+      )
+      .map((riga) => ({
+        data: formatDataIT(riga.data),
+        giocatore:
+          nomiGiocatori.get(riga.giocatore_id) ?? "Giocatore non in rosa",
+        motivo: riga.giustificazione,
+      }));
+
     const titolo = statoInfo
       ? `ANDAMENTO PRESENZE — ${statoInfo.title.toUpperCase()}`
       : "ANDAMENTO PRESENZE";
@@ -558,7 +586,8 @@ export default function ReportTabsClient({
       distribuzione,
       legenda,
       { logo_url: clubLogoUrl },
-      `presenze-${new Date().toISOString().slice(0, 10)}.pdf`
+      `presenze-${new Date().toISOString().slice(0, 10)}.pdf`,
+      assenzeGiustificate
     );
   }
 

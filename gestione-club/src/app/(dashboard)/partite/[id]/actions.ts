@@ -9,8 +9,11 @@ type SalvaStatisticheInput = {
   punti_subiti: number;
   mete_fatte: number;
   mete_subite: number;
-  calci_fatti: number;
-  calci_subiti: number;
+  // ex calci_fatti / calci_subiti: contenevano le trasformazioni.
+  trasformazioni_fatte: number;
+  trasformazioni_subite: number;
+  calci_piazzati_totali: number;
+  calci_piazzati_fatti: number;
   ammonizioni: number;
   espulsioni: number;
   punti_incontro_vinti: number;
@@ -127,8 +130,10 @@ export async function salvaStatistichePartita(input: SalvaStatisticheInput) {
         punti_subiti: input.punti_subiti,
         mete_fatte: input.mete_fatte,
         mete_subite: input.mete_subite,
-        calci_fatti: input.calci_fatti,
-        calci_subiti: input.calci_subiti,
+        trasformazioni_fatte: input.trasformazioni_fatte,
+        trasformazioni_subite: input.trasformazioni_subite,
+        calci_piazzati_totali: input.calci_piazzati_totali,
+        calci_piazzati_fatti: input.calci_piazzati_fatti,
         ammonizioni: input.ammonizioni,
         espulsioni: input.espulsioni,
         punti_incontro_vinti: input.punti_incontro_vinti,

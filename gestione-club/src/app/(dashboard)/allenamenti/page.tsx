@@ -120,6 +120,8 @@ type Presenza = {
   squadra_id: string | null;
   data: string;
   stato: StatoPresenzaDb;
+  /** Motivo dell'assenza, valorizzato solo con stato assenza_giustificata. */
+  giustificazione: string | null;
 };
 
 type Profilo = {
@@ -635,6 +637,7 @@ export default function Page() {
     allenamento: Allenamento,
     giocatoreId: string,
     stato: StatoPresenza,
+    giustificazione?: string | null,
   ) {
     if (!isAdmin) return;
     if (!profilo?.last_club_id || !userId) return;
@@ -649,6 +652,13 @@ export default function Page() {
       squadra_id: profilo.last_squadra_id || allenamento.squadra_id,
       data: allenamento.data_allenamento,
       stato: statoDb,
+      /*
+       * Il motivo appartiene all'assenza giustificata: passando a un
+       * altro stato va azzerato, altrimenti resterebbe appiccicato alla
+       * giornata e finirebbe nel PDF su una riga che non e' piu' un'AG.
+       */
+      giustificazione:
+        statoDb === "assenza_giustificata" ? (giustificazione ?? null) : null,
       registrato_da: userId,
       updated_at: new Date().toISOString(),
     };
@@ -989,6 +999,22 @@ export default function Page() {
     )?.stato;
 
     return STATI_PRESENZA.find((stato) => stato.db === statoDb)?.sigla;
+  };
+
+  const giustificazioneGiocatore = (
+    allenamentoId: string,
+    giocatoreId: string,
+  ): string | null => {
+    const data = dataDiAllenamento(allenamentoId);
+
+    if (!data) return null;
+
+    return (
+      presenze.find(
+        (presenza) =>
+          presenza.data === data && presenza.giocatore_id === giocatoreId,
+      )?.giustificazione ?? null
+    );
   };
 
   const presentiAllenamento = (allenamentoId: string) => {
@@ -2206,6 +2232,7 @@ export default function Page() {
             statiPresenza={STATI_PRESENZA}
             coloreStato={COLORE_STATO}
             statoGiocatore={statoGiocatore}
+            giustificazioneGiocatore={giustificazioneGiocatore}
             salvaPresenza={salvaPresenza}
             eliminaPresenza={eliminaPresenza}
             onClose={() => setOpenRegistraPresenze(false)}

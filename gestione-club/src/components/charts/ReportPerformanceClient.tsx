@@ -35,6 +35,8 @@ giocatore_id: string;
 squadra_id: string | null;
 data: string;
 registrata: boolean;
+/** Motivo scritto nel popup quando si segna l'assenza giustificata. */
+giustificazione: string | null;
 };
 
 type Props = {

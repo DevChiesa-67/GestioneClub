@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { createClient } from "@/lib/supabase-server";
+import { puoGestireInfortuni } from "@/lib/permessi/infortuni";
 import { AppCard } from "@/components/ui/AppCard";
 import InfortunioDetailClient from "@/components/infortuni/InfortunioDetailClient";
 import {
@@ -36,7 +37,11 @@ export default async function InfortunioDetailPage({ params }: PageProps) {
     throw new Error("Club attivo non trovato.");
   }
 
-  const isAdmin = String(profilo.tipo_profilo || "").toLowerCase() === "admin";
+  /*
+   * Come nella lista: la prop resta isAdmin, ma include anche medico e
+   * fisioterapista.
+   */
+  const puoGestire = puoGestireInfortuni(profilo.tipo_profilo);
 
   const [
     { data: infortunio, error: infortunioError },
@@ -204,7 +209,7 @@ export default async function InfortunioDetailPage({ params }: PageProps) {
       medico={medicoConAllegati}
       fisioterapista={fisioterapista ?? []}
       preparatore={preparatore ?? []}
-      isAdmin={isAdmin}
+      isAdmin={puoGestire}
     />
   );
 }

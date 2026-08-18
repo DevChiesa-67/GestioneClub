@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase-server";
+import { puoGestireInfortuni } from "@/lib/permessi/infortuni";
 import InfortuniClient from "@/components/infortuni/InfortuniClient";
 
 export default async function InfortuniPage() {
@@ -22,7 +23,12 @@ export default async function InfortuniPage() {
     throw new Error("Club attivo non trovato.");
   }
 
-  const isAdmin = String(profilo.tipo_profilo || "").toLowerCase() === "admin";
+  /*
+   * La prop si chiama ancora isAdmin per non toccare tutta la catena di
+   * componenti, ma il permesso ora vale anche per medico e
+   * fisioterapista: e' "puo' gestire gli infortuni", non "e' admin".
+   */
+  const puoGestire = puoGestireInfortuni(profilo.tipo_profilo);
 
   let giocatoriQuery = supabase
     .from("giocatori")
@@ -105,7 +111,7 @@ export default async function InfortuniPage() {
     <InfortuniClient
       infortuni={infortuniNormalizzati}
       giocatori={giocatori ?? []}
-      isAdmin={isAdmin}
+      isAdmin={puoGestire}
     />
   );
 }

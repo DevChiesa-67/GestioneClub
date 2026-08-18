@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase-server";
+import { puoGestireInfortuni } from "@/lib/permessi/infortuni";
 import {
   assicuraBucketDocumentiMedici,
   BUCKET_DOCUMENTI_MEDICI,
@@ -53,8 +54,14 @@ async function getProfiloCorrente() {
   return profilo;
 }
 
-function assertAdmin(profilo: { tipo_profilo?: string | null }) {
-  if (String(profilo.tipo_profilo || "").toLowerCase() !== "admin") {
+/*
+ * Gli infortuni non sono piu' riservati all'admin: anche medico e
+ * fisioterapista li gestiscono (leggono tutto il resto del gestionale in
+ * sola lettura). L'elenco dei ruoli sta in un punto solo, allineato alle
+ * policy RLS di aggiungi-tipi-profilo-medico-fisioterapista.sql.
+ */
+function assertPuoGestireInfortuni(profilo: { tipo_profilo?: string | null }) {
+  if (!puoGestireInfortuni(profilo.tipo_profilo)) {
     throw new Error("Non hai i permessi per eseguire questa operazione.");
   }
 }
@@ -62,7 +69,7 @@ function assertAdmin(profilo: { tipo_profilo?: string | null }) {
 export async function creaInfortunio(formData: FormData) {
   const supabase = await createClient();
   const profilo = await getProfiloCorrente();
-  assertAdmin(profilo);
+  assertPuoGestireInfortuni(profilo);
 
   const giocatoreId = String(formData.get("giocatore_id") || "");
   const dataInfortunio = String(formData.get("data_infortunio") || "");
@@ -104,7 +111,7 @@ export async function creaInfortunio(formData: FormData) {
 export async function aggiornaInfortunio(infortunioId: string, formData: FormData) {
   const supabase = await createClient();
   const profilo = await getProfiloCorrente();
-  assertAdmin(profilo);
+  assertPuoGestireInfortuni(profilo);
 
   const { error } = await supabase
     .from("infortuni")
@@ -127,7 +134,7 @@ export async function aggiornaInfortunio(infortunioId: string, formData: FormDat
 export async function eliminaInfortunio(infortunioId: string) {
   const supabase = await createClient();
   const profilo = await getProfiloCorrente();
-  assertAdmin(profilo);
+  assertPuoGestireInfortuni(profilo);
 
   const { error } = await supabase
     .from("infortuni")
@@ -146,7 +153,7 @@ export async function aggiungiValutazioneMedico(
 ) {
   const supabase = await createClient();
   const profilo = await getProfiloCorrente();
-  assertAdmin(profilo);
+  assertPuoGestireInfortuni(profilo);
 
   const linksRaw = String(formData.get("medico_link_documentazione") || "");
   const links = linksRaw
@@ -218,7 +225,7 @@ export async function eliminaValutazioneInfortunio(
 ) {
   const supabase = await createClient();
   const profilo = await getProfiloCorrente();
-  assertAdmin(profilo);
+  assertPuoGestireInfortuni(profilo);
 
   const tabella = TABELLE_VALUTAZIONI[tipo];
   if (!tabella) throw new Error("Tipo di valutazione non valido.");
@@ -271,7 +278,7 @@ export async function aggiungiValutazioneFisioterapista(
 ) {
   const supabase = await createClient();
   const profilo = await getProfiloCorrente();
-  assertAdmin(profilo);
+  assertPuoGestireInfortuni(profilo);
 
   const { error } = await supabase
     .from("infortuni_fisioterapista_valutazioni")
@@ -298,7 +305,7 @@ export async function aggiungiValutazionePreparatore(
 ) {
   const supabase = await createClient();
   const profilo = await getProfiloCorrente();
-  assertAdmin(profilo);
+  assertPuoGestireInfortuni(profilo);
 
   const { error } = await supabase
     .from("infortuni_preparatore_valutazioni")

@@ -571,6 +571,18 @@ export type RigaDistribuzionePdf = {
 };
 
 /**
+ * Una riga della sezione "Assenze giustificate": il motivo scritto nel
+ * popup di Registra presenze, cosi' il PDF non si limita a dire quante
+ * assenze ci sono state ma anche perche'.
+ */
+export type RigaAssenzaGiustificataPdf = {
+  /** Gia' formattata per la stampa (gg/mm/aaaa). */
+  data: string;
+  giocatore: string;
+  motivo: string | null;
+};
+
+/**
  * Genera e scarica un PDF con l'andamento delle presenze in base ai filtri
  * applicati nella tab "Presenze" (inclusa l'eventuale card di stato
  * selezionata): riepilogo con % di presenza, grafico a barre impilate con
@@ -587,7 +599,10 @@ export async function generaPdfPresenze(
   distribuzione: RigaDistribuzionePdf[],
   legenda: LegendaPresenzaPdf[],
   club?: ClubPdf | null,
-  nomeFile = "presenze.pdf"
+  nomeFile = "presenze.pdf",
+  // In coda per non rompere le chiamate esistenti: senza assenze
+  // giustificate nel periodo la sezione non viene nemmeno disegnata.
+  assenzeGiustificate: RigaAssenzaGiustificataPdf[] = []
 ): Promise<PdfPerformanceGenerato> {
   const doc = new jsPDF({ orientation: "landscape" });
   const larghezzaPagina = doc.internal.pageSize.getWidth();
@@ -705,6 +720,56 @@ export async function generaPdfPresenze(
       fillColor: [245, 245, 245],
     },
   });
+
+  // Sezione "Assenze giustificate": elenco per data con il motivo scritto
+  // in Registra presenze. Larghezza piena, perche' i motivi sono testo
+  // libero e in una colonna stretta andrebbero a capo di continuo.
+  if (assenzeGiustificate.length > 0) {
+    const distribuzioneFinalY = (
+      doc as unknown as { lastAutoTable: { finalY: number } }
+    ).lastAutoTable.finalY;
+
+    startY = distribuzioneFinalY + 8;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(0, 0, 0);
+    doc.text("ASSENZE GIUSTIFICATE", margine, startY);
+    startY += 3;
+
+    autoTable(doc, {
+      startY,
+      head: [["Data", "Giocatore", "Motivo"]],
+      body: assenzeGiustificate.map((riga) => [
+        riga.data,
+        riga.giocatore,
+        riga.motivo?.trim() || "Motivo non indicato",
+      ]),
+      theme: "grid",
+      margin: { left: margine, right: margine },
+      styles: {
+        fontSize: 8,
+        cellPadding: 2,
+        lineColor: [0, 0, 0],
+        lineWidth: 0.2,
+        textColor: [0, 0, 0],
+        overflow: "linebreak",
+      },
+      columnStyles: {
+        0: { cellWidth: 24 },
+        1: { cellWidth: 55, fontStyle: "bold" },
+      },
+      headStyles: {
+        fillColor: COLORE_HEADER,
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+        halign: "center",
+      },
+      alternateRowStyles: {
+        fillColor: [245, 245, 245],
+      },
+    });
+  }
 
   return { doc, nomeFile };
 }
