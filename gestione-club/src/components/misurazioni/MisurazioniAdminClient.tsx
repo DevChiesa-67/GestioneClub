@@ -43,6 +43,13 @@ type Props = {
   giocatori: GiocatoreMisurazioni[];
   misurazioni: MisurazioneAntropometrica[];
   benessere: MisurazioneBenessereAdmin[];
+  /**
+   * Ruoli diversi dall'admin (preparatore, medico, fisioterapista...)
+   * consultano le misurazioni ma non le modificano: le policy RLS
+   * bloccano comunque la scrittura, qui si nascondono i pulsanti che
+   * altrimenti darebbero solo un errore.
+   */
+  soloLettura?: boolean;
 };
 
 type TabPrincipale = "antropometria" | "benessere";
@@ -139,6 +146,7 @@ export default function MisurazioniAdminClient({
   giocatori,
   misurazioni,
   benessere,
+  soloLettura = false,
 }: Props) {
   const [tabPrincipale, setTabPrincipale] =
     useState<TabPrincipale>("antropometria");
@@ -614,7 +622,7 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
             </p>
           </div>
 
-          {tabPrincipale === "antropometria" ? (
+          {soloLettura ? null : tabPrincipale === "antropometria" ? (
             <button
               type="button"
               onClick={() => {
@@ -885,30 +893,38 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
 
                   <td className="px-4 py-4">
                     <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => apriModifica(misurazione)}
-                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 transition hover:border-zinc-600 hover:text-white"
-                        aria-label="Modifica misurazione"
-                        title="Modifica"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
+                      {soloLettura ? (
+                        <span className="text-xs text-zinc-600">
+                          Sola lettura
+                        </span>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => apriModifica(misurazione)}
+                            className="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 transition hover:border-zinc-600 hover:text-white"
+                            aria-label="Modifica misurazione"
+                            title="Modifica"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleElimina(misurazione)}
-                        disabled={eliminazioneInCorsoId === misurazione.id}
-                        className="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 transition hover:border-red-500/40 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
-                        aria-label="Elimina misurazione"
-                        title="Elimina"
-                      >
-                        {eliminazioneInCorsoId === misurazione.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() => handleElimina(misurazione)}
+                            disabled={eliminazioneInCorsoId === misurazione.id}
+                            className="flex h-9 w-9 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 transition hover:border-red-500/40 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                            aria-label="Elimina misurazione"
+                            title="Elimina"
+                          >
+                            {eliminazioneInCorsoId === misurazione.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1015,30 +1031,32 @@ async function handleElimina(misurazione: MisurazioneAntropometrica) {
                 </div>
               )}
 
-              <div className="mt-4 flex gap-2 border-t border-zinc-900 pt-3">
-                <button
-                  type="button"
-                  onClick={() => apriModifica(misurazione)}
-                  className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 text-sm font-medium text-zinc-300 transition hover:border-zinc-600 hover:text-white"
-                >
-                  <Pencil className="h-4 w-4" />
-                  Modifica
-                </button>
+              {!soloLettura && (
+                <div className="mt-4 flex gap-2 border-t border-zinc-900 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => apriModifica(misurazione)}
+                    className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 text-sm font-medium text-zinc-300 transition hover:border-zinc-600 hover:text-white"
+                  >
+                    <Pencil className="h-4 w-4" />
+                    Modifica
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => handleElimina(misurazione)}
-                  disabled={eliminazioneInCorsoId === misurazione.id}
-                  className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 text-sm font-medium text-zinc-300 transition hover:border-red-500/40 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {eliminazioneInCorsoId === misurazione.id ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4" />
-                  )}
-                  Elimina
-                </button>
-              </div>
+                  <button
+                    type="button"
+                    onClick={() => handleElimina(misurazione)}
+                    disabled={eliminazioneInCorsoId === misurazione.id}
+                    className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 text-sm font-medium text-zinc-300 transition hover:border-red-500/40 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {eliminazioneInCorsoId === misurazione.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                    Elimina
+                  </button>
+                </div>
+              )}
             </div>
           </article>
         ))}

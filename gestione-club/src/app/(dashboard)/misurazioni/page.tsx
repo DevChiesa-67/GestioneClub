@@ -119,11 +119,45 @@ export default async function MisurazioniPage({ searchParams }: PageProps) {
 
   const coloreClub = club?.colore_flag || "#2563eb";
   const tipoProfilo = String(profilo.tipo_profilo || "").toLowerCase();
+  const isAdmin = tipoProfilo === "admin";
 
   /*
-   * ADMIN
+   * Chi vede le misurazioni di TUTTA la rosa.
+   *
+   * Prima era una lista di ruoli scritta qui dentro ("admin" e basta), e
+   * ogni ruolo nuovo (preparatore, medico, fisioterapista, direttore
+   * tecnico...) finiva sul messaggio "Non hai i permessi" anche con la
+   * riga giusta in permessi_pagine_tipo_profilo e le policy RLS a posto.
+   * Ora la decisione la prende quella tabella, cioe' la pagina "Utenti e
+   * permessi": aggiungere un ruolo non richiede piu' di toccare il
+   * codice. L'admin resta sempre autorizzato, come ovunque nel
+   * gestionale, e il giocatore ha la sua vista personale piu' sotto.
    */
-  if (tipoProfilo === "admin") {
+  let puoVedereTutteLeMisurazioni = isAdmin;
+
+  if (!isAdmin && tipoProfilo !== "giocatore") {
+    const { data: permesso, error: permessoError } = await supabase
+      .from("permessi_pagine_tipo_profilo")
+      .select("can_view")
+      .eq("club_id", profilo.last_club_id)
+      .eq("tipo_profilo", profilo.tipo_profilo)
+      .eq("pagina_key", "misurazioni")
+      .maybeSingle();
+
+    if (permessoError) {
+      console.error(
+        "Errore verifica permesso pagina misurazioni:",
+        permessoError,
+      );
+    }
+
+    puoVedereTutteLeMisurazioni = Boolean(permesso?.can_view);
+  }
+
+  /*
+   * STAFF (admin + ruoli abilitati in Utenti e permessi)
+   */
+  if (puoVedereTutteLeMisurazioni) {
     let giocatoriQuery = supabase
       .from("giocatori")
       .select("id, id_atleta, nome, cognome, foto_url, squadra_id")
@@ -232,6 +266,12 @@ export default async function MisurazioniPage({ searchParams }: PageProps) {
         benessere={
           (benessere || []) as unknown as MisurazioneBenessereAdmin[]
         }
+        /*
+         * Solo l'admin scrive: le policy RLS rifiuterebbero comunque
+         * insert/update/delete degli altri ruoli, tanto vale non
+         * mostrare pulsanti che darebbero soltanto un errore.
+         */
+        soloLettura={!isAdmin}
       />
     );
   }
