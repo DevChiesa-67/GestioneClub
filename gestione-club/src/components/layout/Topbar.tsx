@@ -833,6 +833,115 @@ export function Topbar() {
         )
       : null;
 
+  /*
+   * Campanella delle notifiche con il suo pannello. E' una funzione che
+   * ritorna JSX (non un componente) perche' non contiene hook e deve
+   * leggere stato e handler della Topbar: cosi' la stessa campanella
+   * serve sia la topbar desktop sia quella mobile, senza duplicare
+   * l'intero pannello. Solo una delle due e' visibile per volta, quindi
+   * il pannello a posizione fissa non si sdoppia mai a schermo.
+   */
+  function bloccoNotifiche() {
+    return (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => {
+            setOpenNotifiche((previous) => !previous);
+
+            setOpenSquadre(false);
+            setOpenUserMenu(false);
+          }}
+          className="relative flex h-10 w-10 items-center justify-center rounded-xl text-white transition hover:bg-white/5 sm:h-11 sm:w-11"
+          aria-label="Notifiche"
+        >
+          <Bell className="h-5 w-5 sm:h-6 sm:w-6" />
+
+          {nonLette > 0 && (
+            <span
+              className="absolute right-0 top-0 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[9px] font-bold text-white sm:h-5 sm:min-w-5 sm:text-[10px]"
+              style={{
+                backgroundColor: themeColor,
+              }}
+            >
+              {nonLette > 9 ? "9+" : nonLette}
+            </span>
+          )}
+        </button>
+
+        {openNotifiche && (
+          <div className="fixed left-4 right-4 top-[76px] z-50 max-h-[70vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#171717] shadow-2xl sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-3 sm:w-96">
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+              <p className="text-sm font-bold text-white">
+                Notifiche
+              </p>
+
+              {nonLette > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void segnaTutteComeLette()}
+                  className="text-xs font-medium text-zinc-400 transition hover:text-white"
+                >
+                  Segna tutte come lette
+                </button>
+              )}
+            </div>
+
+            {comunicazioniNonLette.length === 0 ? (
+              <p className="px-4 py-6 text-center text-sm text-zinc-500">
+                Nessuna comunicazione.
+              </p>
+            ) : (
+              <div className="p-2">
+                {comunicazioniNonLette.map((comunicazione) => {
+                  const letta = lettureIds.has(comunicazione.id);
+
+                  return (
+                    <button
+                      key={comunicazione.id}
+                      type="button"
+                      onClick={() => apriComunicazione(comunicazione)}
+                      className="flex w-full items-start gap-2 rounded-xl px-3 py-3 text-left transition hover:bg-white/5"
+                    >
+                      <span
+                        className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: letta
+                            ? "transparent"
+                            : themeColor,
+                        }}
+                      />
+
+                      <span className="min-w-0 flex-1">
+                        <span
+                          className={`block truncate text-sm ${
+                            letta
+                              ? "font-medium text-zinc-300"
+                              : "font-bold text-white"
+                          }`}
+                        >
+                          {comunicazione.titolo}
+                        </span>
+
+                        <span className="mt-0.5 line-clamp-2 block text-xs text-zinc-500">
+                          {comunicazione.descrizione}
+                        </span>
+
+                        <span className="mt-1 block text-[11px] text-zinc-600">
+                          {formatOraNotifica(comunicazione.created_at)}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <>
       <header className="sticky top-0 z-40 border-b border-white/10 bg-[#090909]/95 backdrop-blur-xl">
@@ -871,18 +980,22 @@ export function Topbar() {
             </span>
           </Link>
 
-          <button
-            type="button"
-            onClick={() => {
-              setOpenMobileMenu(true);
-              setOpenSquadre(false);
-              setOpenUserMenu(false);
-            }}
-            className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 text-white transition hover:bg-white/5"
-            aria-label="Apri menu"
-          >
-            <Menu size={24} />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            {bloccoNotifiche()}
+
+            <button
+              type="button"
+              onClick={() => {
+                setOpenMobileMenu(true);
+                setOpenSquadre(false);
+                setOpenUserMenu(false);
+              }}
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 text-white transition hover:bg-white/5"
+              aria-label="Apri menu"
+            >
+              <Menu size={24} />
+            </button>
+          </div>
         </div>
 
         {/* DESKTOP TOPBAR */}
@@ -903,102 +1016,7 @@ export function Topbar() {
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3 lg:gap-5">
             {/* NOTIFICHE */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => {
-                  setOpenNotifiche((previous) => !previous);
-
-                  setOpenSquadre(false);
-                  setOpenUserMenu(false);
-                }}
-                className="relative flex h-10 w-10 items-center justify-center rounded-xl text-white transition hover:bg-white/5 sm:h-11 sm:w-11"
-                aria-label="Notifiche"
-              >
-                <Bell className="h-5 w-5 sm:h-6 sm:w-6" />
-
-                {nonLette > 0 && (
-                  <span
-                    className="absolute right-0 top-0 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[9px] font-bold text-white sm:h-5 sm:min-w-5 sm:text-[10px]"
-                    style={{
-                      backgroundColor: themeColor,
-                    }}
-                  >
-                    {nonLette > 9 ? "9+" : nonLette}
-                  </span>
-                )}
-              </button>
-
-              {openNotifiche && (
-                <div className="fixed left-4 right-4 top-[76px] z-50 max-h-[70vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#171717] shadow-2xl sm:absolute sm:left-auto sm:right-0 sm:top-auto sm:mt-3 sm:w-96">
-                  <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                    <p className="text-sm font-bold text-white">
-                      Notifiche
-                    </p>
-
-                    {nonLette > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => void segnaTutteComeLette()}
-                        className="text-xs font-medium text-zinc-400 transition hover:text-white"
-                      >
-                        Segna tutte come lette
-                      </button>
-                    )}
-                  </div>
-
-                  {comunicazioniNonLette.length === 0 ? (
-                    <p className="px-4 py-6 text-center text-sm text-zinc-500">
-                      Nessuna comunicazione.
-                    </p>
-                  ) : (
-                    <div className="p-2">
-                      {comunicazioniNonLette.map((comunicazione) => {
-                        const letta = lettureIds.has(comunicazione.id);
-
-                        return (
-                          <button
-                            key={comunicazione.id}
-                            type="button"
-                            onClick={() => apriComunicazione(comunicazione)}
-                            className="flex w-full items-start gap-2 rounded-xl px-3 py-3 text-left transition hover:bg-white/5"
-                          >
-                            <span
-                              className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
-                              style={{
-                                backgroundColor: letta
-                                  ? "transparent"
-                                  : themeColor,
-                              }}
-                            />
-
-                            <span className="min-w-0 flex-1">
-                              <span
-                                className={`block truncate text-sm ${
-                                  letta
-                                    ? "font-medium text-zinc-300"
-                                    : "font-bold text-white"
-                                }`}
-                              >
-                                {comunicazione.titolo}
-                              </span>
-
-                              <span className="mt-0.5 line-clamp-2 block text-xs text-zinc-500">
-                                {comunicazione.descrizione}
-                              </span>
-
-                              <span className="mt-1 block text-[11px] text-zinc-600">
-                                {formatOraNotifica(comunicazione.created_at)}
-                              </span>
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            {bloccoNotifiche()}
 
             {/* SELETTORE SQUADRA */}
             <div className="relative">
