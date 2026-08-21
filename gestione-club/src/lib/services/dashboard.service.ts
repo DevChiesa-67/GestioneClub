@@ -189,14 +189,26 @@ async function getLogoSignedUrl(
   // usiamo un client service-role (bypassa RLS) per generare comunque lo
   // signed URL. Se le variabili service role non sono configurate,
   // ripieghiamo sul client legato alla sessione (comportamento precedente).
-  const clientStorage = creaSupabaseAdminOpzionale() ?? supabase;
+  const clientAdmin = creaSupabaseAdminOpzionale();
+  const clientStorage = clientAdmin ?? supabase;
 
   const { data, error } = await clientStorage.storage
     .from("loghi-squadre")
     .createSignedUrl(cleanPath, 60 * 60);
 
   if (error) {
-    console.error("Errore signed URL logo squadra:", error);
+    /*
+     * Il messaggio dice anche CON QUALE client il tentativo e' fallito.
+     * Senza questa distinzione il sintomo (loghi assenti in produzione,
+     * presenti in locale) non porta da nessuna parte: sono due cause
+     * diverse che vanno risolte in due modi diversi.
+     */
+    console.error(
+      clientAdmin
+        ? `Errore signed URL logo squadra "${cleanPath}" (client service role): ${error.message}. Il file probabilmente non esiste nel bucket "loghi-squadre".`
+        : `Errore signed URL logo squadra "${cleanPath}" (client utente, service role NON configurato): ${error.message}. Imposta SUPABASE_SECRET_KEY o SUPABASE_SERVICE_ROLE_KEY tra le variabili d'ambiente, oppure esegui abilita-lettura-loghi-squadre.sql per permettere la lettura del bucket agli utenti del club.`
+    );
+
     return null;
   }
 
