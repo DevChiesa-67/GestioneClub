@@ -195,7 +195,34 @@ export async function salvaConvocazioniPartita(
     throw new Error("Partita non trovata.");
   }
 
-  const righe = convocazioni.map((convocazione) => ({
+  /*
+   * Il client manda l'intera rosa: i convocati vengono salvati, i non
+   * convocati vengono RIMOSSI. Senza la rimozione, togliere un giocatore
+   * da una convocazione gia' salvata non aveva effetto, perche' l'upsert
+   * aggiorna solo le righe che riceve e non sa nulla di quelle sparite.
+   */
+  const daConvocare = convocazioni.filter(
+    (convocazione) => convocazione.convocato
+  );
+
+  const daRimuovere = convocazioni
+    .filter((convocazione) => !convocazione.convocato)
+    .map((convocazione) => convocazione.giocatore_id);
+
+  if (daRimuovere.length > 0) {
+    const { error: rimozioneError } = await supabase
+      .from("partite_convocazioni")
+      .delete()
+      .eq("partita_id", partita.id)
+      .eq("club_id", clubId)
+      .in("giocatore_id", daRimuovere);
+
+    if (rimozioneError) {
+      throw new Error(rimozioneError.message);
+    }
+  }
+
+  const righe = daConvocare.map((convocazione) => ({
     club_id: clubId,
     squadra_id: partita.squadra_id,
     partita_id: partita.id,
@@ -213,14 +240,16 @@ export async function salvaConvocazioniPartita(
     updated_at: new Date().toISOString(),
   }));
 
-  const { error } = await supabase
-    .from("partite_convocazioni")
-    .upsert(righe, {
-      onConflict: "partita_id,giocatore_id",
-    });
+  if (righe.length > 0) {
+    const { error } = await supabase
+      .from("partite_convocazioni")
+      .upsert(righe, {
+        onConflict: "partita_id,giocatore_id",
+      });
 
-  if (error) {
-    throw new Error(error.message);
+    if (error) {
+      throw new Error(error.message);
+    }
   }
 
   await supabase

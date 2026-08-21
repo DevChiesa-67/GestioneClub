@@ -1105,12 +1105,15 @@ function giocatoriPerPosizione(
 
     startTransition(async () => {
       try {
-        await salvaConvocazioniPartita(
-          partita.id,
-          convocazioniState.filter(
-            (item) => item.convocato
-          )
-        );
+        /*
+         * Si inviano TUTTE le righe, non solo i convocati. Mandando solo
+         * i convocati, togliere un giocatore da una convocazione gia'
+         * salvata non aveva alcun effetto: la sua riga non arrivava al
+         * server, l'upsert non la toccava e restava convocato = true.
+         * E' il motivo per cui una convocazione salvata sembrava non piu'
+         * modificabile. Il server ora rimuove le righe non convocate.
+         */
+        await salvaConvocazioniPartita(partita.id, convocazioniState);
 
         setMessage(
           "Convocazioni salvate correttamente."
