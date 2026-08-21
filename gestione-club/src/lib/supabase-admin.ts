@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 // Rimuove QUALSIASI spazio/a-capo, non solo iniziale/finale: se il valore è
 // stato incollato da un pannello di hosting o da un terminale che ha
@@ -41,7 +41,15 @@ function leggiConfigurazioneAdmin() {
   };
 }
 
-type ClientAdmin = ReturnType<typeof createClient>;
+/*
+ * SupabaseClient con i suoi parametri di default (Database = any), che e'
+ * esattamente il tipo che TypeScript inferiva prima da
+ * createClient(url, key). NON usare ReturnType<typeof createClient>: quello
+ * istanzia i generici a "unknown" invece che ai default, e le query
+ * finiscono per restituire "never" — il che rompe la compilazione nei punti
+ * che leggono le colonne del risultato.
+ */
+type ClientAdmin = SupabaseClient;
 
 let istanzaAdmin: ClientAdmin | null = null;
 

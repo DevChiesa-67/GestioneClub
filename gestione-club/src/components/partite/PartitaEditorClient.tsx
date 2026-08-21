@@ -778,6 +778,14 @@ export default function PartitaEditorClient({
       };
     }
 
+    /*
+     * Giocatore non ancora convocato: nessun numero preassegnato.
+     * Prima ereditava il numero di maglia della rosa, che pero' vive in
+     * uno spazio diverso da quello della partita: i titolari prendono
+     * 1-15 dalla posizione, quindi un giocatore con il 10 in rosa messo
+     * in panchina entrava in collisione con il mediano d'apertura e il
+     * salvataggio falliva su partite_convocazioni_unique_numero.
+     */
     return {
       giocatore_id: giocatore.id,
       convocato: false,
@@ -785,7 +793,7 @@ export default function PartitaEditorClient({
       capitano: false,
       vicecapitano: false,
       posizione: "panchina",
-      numero_maglia: giocatore.numero_maglia ?? null,
+      numero_maglia: null,
       ordine: null,
       ruolo_panchina: null,
       note: null,
@@ -835,10 +843,21 @@ export default function PartitaEditorClient({
           item.posizione === posizione &&
           posizione !== "panchina"
         ) {
+          /*
+           * Il giocatore che perde il posto va in panchina SENZA numero.
+           * Prima conservava il numero della maglia (es. il 10 del
+           * mediano d'apertura) mentre il nuovo titolare riceveva lo
+           * stesso numero: due righe con lo stesso numero nella stessa
+           * partita, che al salvataggio faceva scattare il vincolo
+           * partite_convocazioni_unique_numero. In panchina il numero
+           * si riassegna a mano (16-99), quindi azzerarlo e' anche il
+           * comportamento corretto.
+           */
           return {
             ...item,
             titolare: false,
             posizione: "panchina",
+            numero_maglia: null,
             ordine: null,
           };
         }
@@ -1070,7 +1089,12 @@ function giocatoriPerPosizione(
         convocato: false,
         titolare: false,
         capitano: false,
+        vicecapitano: false,
         posizione: "panchina",
+        // Liberare il numero insieme al posto: altrimenti resta occupato
+        // da un giocatore che non e' piu' della partita e il numero non
+        // e' piu' riassegnabile a nessun altro.
+        numero_maglia: null,
         ordine: null,
       }
     );

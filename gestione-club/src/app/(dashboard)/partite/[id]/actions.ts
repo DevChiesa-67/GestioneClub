@@ -209,6 +209,61 @@ export async function salvaConvocazioniPartita(
     .filter((convocazione) => !convocazione.convocato)
     .map((convocazione) => convocazione.giocatore_id);
 
+  /*
+   * Controllo dei numeri di maglia PRIMA di scrivere qualsiasi cosa.
+   * Sul database esiste il vincolo partite_convocazioni_unique_numero
+   * (un numero non puo' essere usato da due giocatori nella stessa
+   * partita): senza questo controllo l'utente vedeva il messaggio grezzo
+   * di Postgres, che non dice ne' quale numero ne' chi lo condivide.
+   */
+  const numeriUsati = new Map<number, string[]>();
+
+  for (const convocazione of daConvocare) {
+    const numero = convocazione.numero_maglia;
+
+    if (numero === null || numero === undefined) continue;
+
+    const elenco = numeriUsati.get(numero) ?? [];
+    elenco.push(convocazione.giocatore_id);
+    numeriUsati.set(numero, elenco);
+  }
+
+  const numeriDuplicati = Array.from(numeriUsati.entries()).filter(
+    ([, giocatoriIds]) => giocatoriIds.length > 1
+  );
+
+  if (numeriDuplicati.length > 0) {
+    const idCoinvolti = Array.from(
+      new Set(numeriDuplicati.flatMap(([, giocatoriIds]) => giocatoriIds))
+    );
+
+    const { data: anagrafiche } = await supabase
+      .from("giocatori")
+      .select("id, nome, cognome")
+      .in("id", idCoinvolti);
+
+    const nomePerId = new Map<string, string>(
+      (anagrafiche ?? []).map((giocatore) => [
+        giocatore.id as string,
+        `${giocatore.cognome ?? ""} ${giocatore.nome ?? ""}`.trim() ||
+          "giocatore senza nome",
+      ])
+    );
+
+    const dettagli = numeriDuplicati
+      .map(
+        ([numero, giocatoriIds]) =>
+          `il numero ${numero} è assegnato a ${giocatoriIds
+            .map((id) => nomePerId.get(id) ?? "giocatore sconosciuto")
+            .join(" e ")}`
+      )
+      .join("; ");
+
+    throw new Error(
+      `Numeri di maglia duplicati: ${dettagli}. In una partita ogni numero può appartenere a un solo giocatore: correggi i numeri e riprova.`
+    );
+  }
+
   if (daRimuovere.length > 0) {
     const { error: rimozioneError } = await supabase
       .from("partite_convocazioni")
@@ -241,6 +296,31 @@ export async function salvaConvocazioniPartita(
   }));
 
   if (righe.length > 0) {
+    /*
+     * I numeri di maglia gia' salvati vengono azzerati PRIMA dell'upsert.
+     *
+     * Il vincolo partite_convocazioni_unique_numero viene verificato riga
+     * per riga durante l'INSERT ... ON CONFLICT: scambiare due numeri fra
+     * giocatori gia' salvati (il 10 passa a chi aveva il 12 e viceversa)
+     * lo faceva scattare sul valore "vecchio" dell'altro giocatore, che
+     * in quell'istante esiste ancora. Il risultato era che una formazione
+     * salvata non si poteva piu' riordinare.
+     *
+     * Liberando prima tutti i numeri della partita, l'upsert li riassegna
+     * su un insieme vuoto e nessuna collisione temporanea e' possibile.
+     * I duplicati veri sono gia' stati intercettati sopra.
+     */
+    const { error: liberaNumeriError } = await supabase
+      .from("partite_convocazioni")
+      .update({ numero_maglia: null })
+      .eq("partita_id", partita.id)
+      .eq("club_id", clubId)
+      .not("numero_maglia", "is", null);
+
+    if (liberaNumeriError) {
+      throw new Error(liberaNumeriError.message);
+    }
+
     const { error } = await supabase
       .from("partite_convocazioni")
       .upsert(righe, {
@@ -248,6 +328,17 @@ export async function salvaConvocazioniPartita(
       });
 
     if (error) {
+      /*
+       * Rete di sicurezza: se il vincolo scatta comunque (dati gia'
+       * incoerenti sul database, o un numero ripetuto arrivato da un
+       * percorso diverso), almeno il messaggio spiega il problema.
+       */
+      if (error.message.includes("partite_convocazioni_unique_numero")) {
+        throw new Error(
+          "Due giocatori hanno lo stesso numero di maglia in questa partita. Controlla i numeri della formazione e della panchina e riprova."
+        );
+      }
+
       throw new Error(error.message);
     }
   }
