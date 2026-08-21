@@ -12,21 +12,59 @@ import { createClient } from "@supabase/supabase-js";
 const rimuoviSpazi = (valore: string | undefined) =>
   valore?.replace(/\s+/g, "");
 
-const supabaseUrl = rimuoviSpazi(process.env.NEXT_PUBLIC_SUPABASE_URL);
-const serviceRoleKey = rimuoviSpazi(process.env.SUPABASE_SERVICE_ROLE_KEY);
-
-if (!supabaseUrl) {
-  throw new Error("NEXT_PUBLIC_SUPABASE_URL non configurata");
+/*
+ * Le variabili si leggono a ogni chiamata, non una sola volta all'import.
+ *
+ * Prima questo modulo lanciava un errore a livello di modulo quando la
+ * chiave service role mancava. In un Server Component quell'errore
+ * scatta durante il RENDER della pagina che lo importa, e in produzione
+ * Next lo nasconde dietro un generico "An error occurred in the Server
+ * Components render": pagine intere morivano senza dire perche', anche
+ * se il client admin serviva per una sola query secondaria.
+ *
+ * Ora il client viene creato alla prima vera chiamata e l'errore, se
+ * arriva, nomina la variabile mancante e riguarda solo l'operazione che
+ * ne aveva bisogno.
+ *
+ * Accetta SUPABASE_SECRET_KEY oltre a SUPABASE_SERVICE_ROLE_KEY: sono i
+ * due nomi usati da Supabase (il primo e' quello nuovo, "Secret keys"),
+ * e la variante opzionale qui sotto li accettava gia' entrambi. Averne
+ * uno solo configurato faceva funzionare una meta' dell'applicazione e
+ * fallire l'altra.
+ */
+function leggiConfigurazioneAdmin() {
+  return {
+    url: rimuoviSpazi(process.env.NEXT_PUBLIC_SUPABASE_URL),
+    key: rimuoviSpazi(
+      process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY
+    ),
+  };
 }
 
-if (!serviceRoleKey) {
-  throw new Error("SUPABASE_SERVICE_ROLE_KEY non configurata");
-}
+type ClientAdmin = ReturnType<typeof createClient>;
 
-export const supabaseAdmin = createClient(
-  supabaseUrl,
-  serviceRoleKey,
-  {
+let istanzaAdmin: ClientAdmin | null = null;
+
+function creaClientAdmin(): ClientAdmin {
+  if (istanzaAdmin) return istanzaAdmin;
+
+  const { url, key } = leggiConfigurazioneAdmin();
+
+  if (!url) {
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_URL non configurata: impostala tra le variabili d'ambiente del progetto."
+    );
+  }
+
+  if (!key) {
+    throw new Error(
+      "Chiave service role non configurata: imposta SUPABASE_SECRET_KEY " +
+        "(o SUPABASE_SERVICE_ROLE_KEY) tra le variabili d'ambiente del " +
+        "progetto, anche in produzione."
+    );
+  }
+
+  istanzaAdmin = createClient(url, key, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
@@ -41,12 +79,32 @@ export const supabaseAdmin = createClient(
     // in pratica come "Headers.set: ... is an invalid header value").
     global: {
       headers: {
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: key,
+        Authorization: `Bearer ${key}`,
       },
     },
+  });
+
+  return istanzaAdmin;
+}
+
+/*
+ * Mantiene la stessa forma d'uso di prima (supabaseAdmin.from(...),
+ * supabaseAdmin.auth.admin..., supabaseAdmin.storage...) senza toccare i
+ * sei punti che lo usano: il client vero nasce al primo accesso.
+ */
+export const supabaseAdmin = new Proxy({} as ClientAdmin, {
+  get(_bersaglio, proprieta) {
+    const client = creaClientAdmin();
+    const valore = (client as unknown as Record<string | symbol, unknown>)[
+      proprieta
+    ];
+
+    return typeof valore === "function"
+      ? (valore as (...argomenti: unknown[]) => unknown).bind(client)
+      : valore;
   },
-);
+});
 
 let contatoreAvvisiAdminOpzionale = 0;
 
@@ -58,10 +116,7 @@ let contatoreAvvisiAdminOpzionale = 0;
  * configurazione non deve far cadere l'intera pagina.
  */
 export function creaSupabaseAdminOpzionale() {
-  const url = rimuoviSpazi(process.env.NEXT_PUBLIC_SUPABASE_URL);
-  const key = rimuoviSpazi(
-    process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY
-  );
+  const { url, key } = leggiConfigurazioneAdmin();
 
   if (!url || !key) {
     if (contatoreAvvisiAdminOpzionale < 1) {
