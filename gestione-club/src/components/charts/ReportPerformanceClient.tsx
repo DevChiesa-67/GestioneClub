@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { Loader2 } from "lucide-react";
 import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
@@ -28,6 +29,13 @@ type TipoSeduta = "tutte" | "allenamento" | "partita";
  * dedotte dalla rosa attiva e arrivano qui con registrata = false: sono
  * quelle che tengono onesto il denominatore della percentuale.
  */
+export type GiocatoreAnagrafica = {
+  id: string;
+  nome: string | null;
+  cognome: string | null;
+  foto_url: string | null;
+};
+
 export type PresenzaRow = {
 id: string;
 stato: StatoPresenzaDb;
@@ -50,6 +58,11 @@ giocatoreId?: string | null;
 giocatoreIds?: string[];
 eventoDate?: string[];
 hideFilters?: boolean;
+/*
+ * Anagrafica per la tabella per giocatore/data: senza questa il
+ * componente conosce solo i giocatore_id delle presenze, non nomi e foto.
+ */
+giocatori?: GiocatoreAnagrafica[];
 // Stato selezionato cliccando una card (filtro sull'istogramma). Sollevato
 // al chiamante in modo che anche l'export PDF nella pagina Performance
 // possa sapere quale card è attiva e generare un PDF coerente.
@@ -224,6 +237,192 @@ style={{ backgroundColor: stato.color }}
 ))}
 </div>
 );
+}
+
+/*
+ * Matrice presenze: una riga per giocatore, una colonna per giornata di
+ * allenamento nel periodo filtrato. Nella cella la sigla dello stato
+ * (P, PM, PP, I, AG, AI) col colore della legenda.
+ *
+ * Le date sono in colonna e possono essere molte: la tabella scorre in
+ * orizzontale e la colonna del giocatore resta agganciata a sinistra,
+ * altrimenti scorrendo non si saprebbe piu\' di chi e\' la riga.
+ */
+function TabellaPresenzePerGiocatore({
+  presenze,
+  giocatori,
+  themeColor,
+}: {
+  presenze: PresenzaRow[];
+  giocatori: GiocatoreAnagrafica[];
+  themeColor: string;
+}) {
+  const date = useMemo(
+    () =>
+      Array.from(new Set(presenze.map((riga) => riga.data)))
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b)),
+    [presenze]
+  );
+
+  const perGiocatore = useMemo(() => {
+    const mappa = new Map<string, Map<string, PresenzaRow>>();
+
+    for (const riga of presenze) {
+      const righeGiocatore = mappa.get(riga.giocatore_id) ?? new Map();
+      righeGiocatore.set(riga.data, riga);
+      mappa.set(riga.giocatore_id, righeGiocatore);
+    }
+
+    return mappa;
+  }, [presenze]);
+
+  const anagrafica = useMemo(
+    () => new Map(giocatori.map((giocatore) => [giocatore.id, giocatore])),
+    [giocatori]
+  );
+
+  /*
+   * Ordine per cognome, ma solo tra i giocatori che compaiono davvero
+   * nelle presenze filtrate: se il filtro seleziona tre atleti la
+   * tabella ne mostra tre.
+   */
+  const righeGiocatori = useMemo(() => {
+    return Array.from(perGiocatore.keys())
+      .map((id) => ({
+        id,
+        anagrafica: anagrafica.get(id) ?? null,
+      }))
+      .sort((a, b) => {
+        const nomeA = `${a.anagrafica?.cognome ?? ""} ${a.anagrafica?.nome ?? ""}`.trim();
+        const nomeB = `${b.anagrafica?.cognome ?? ""} ${b.anagrafica?.nome ?? ""}`.trim();
+
+        return nomeA.localeCompare(nomeB, "it", { sensitivity: "base" });
+      });
+  }, [perGiocatore, anagrafica]);
+
+  if (date.length === 0 || righeGiocatori.length === 0) {
+    return (
+      <p className="text-sm text-zinc-500">
+        Nessuna presenza da mostrare con i filtri selezionati.
+      </p>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-white/10">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="bg-black/30">
+            <th className="sticky left-0 z-10 bg-[#18181b] px-3 py-3 text-left text-xs font-black uppercase tracking-wide text-zinc-400">
+              Giocatore
+            </th>
+
+            {date.map((data) => (
+              <th
+                key={data}
+                className="whitespace-nowrap border-b border-white/10 px-2 py-3 text-center text-[11px] font-black text-zinc-400"
+              >
+                {formatData(data)}
+              </th>
+            ))}
+
+            <th className="whitespace-nowrap border-b border-white/10 px-3 py-3 text-center text-[11px] font-black text-zinc-400">
+              Presenze
+            </th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {righeGiocatori.map(({ id, anagrafica: giocatore }) => {
+            const righe = perGiocatore.get(id);
+
+            const presenti = date.filter((data) => {
+              const stato = righe?.get(data)?.stato;
+
+              return (
+                stato === "presente_entrambe" ||
+                stato === "presente_mattina" ||
+                stato === "presente_pomeriggio"
+              );
+            }).length;
+
+            const nomeCompleto =
+              [giocatore?.cognome, giocatore?.nome].filter(Boolean).join(" ") ||
+              "Giocatore non in rosa";
+
+            const iniziali = `${giocatore?.nome?.charAt(0) ?? "?"}${
+              giocatore?.cognome?.charAt(0) ?? ""
+            }`.toUpperCase();
+
+            return (
+              <tr key={id} className="border-t border-white/5">
+                <th className="sticky left-0 z-10 bg-[#18181b] px-3 py-2 text-left">
+                  <span className="flex items-center gap-2">
+                    {giocatore?.foto_url ? (
+                      <Image
+                        src={giocatore.foto_url}
+                        alt={nomeCompleto}
+                        width={64}
+                        height={64}
+                        className="h-8 w-8 shrink-0 rounded-full object-cover"
+                      />
+                    ) : (
+                      <span
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                        style={{ backgroundColor: `${themeColor}66` }}
+                      >
+                        {iniziali}
+                      </span>
+                    )}
+
+                    <span className="whitespace-nowrap text-sm font-semibold text-white">
+                      {nomeCompleto}
+                    </span>
+                  </span>
+                </th>
+
+                {date.map((data) => {
+                  const riga = righe?.get(data);
+                  const stato = riga?.stato;
+                  const info = stato
+                    ? STATI.find((voce) => voce.key === stato)
+                    : undefined;
+
+                  return (
+                    <td key={data} className="px-2 py-2 text-center">
+                      {info ? (
+                        <span
+                          title={`${info.title}${
+                            riga && !riga.registrata ? " (dedotta)" : ""
+                          }`}
+                          className="inline-flex h-7 min-w-7 items-center justify-center rounded-lg px-1.5 text-[11px] font-black text-white"
+                          style={{
+                            backgroundColor: info.color,
+                            /* Le assenze dedotte, mai registrate dallo
+                               staff, sono piu\' tenui di quelle scritte. */
+                            opacity: riga && !riga.registrata ? 0.45 : 1,
+                          }}
+                        >
+                          {info.label}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-zinc-700">—</span>
+                      )}
+                    </td>
+                  );
+                })}
+
+                <td className="whitespace-nowrap px-3 py-2 text-center text-sm font-bold text-white">
+                  {presenti}/{date.length}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function PieChartCustom({
@@ -478,6 +677,7 @@ tipiSeduta = [],
 giocatoreId = null,
 giocatoreIds = [],
 eventoDate = [],
+giocatori = [],
 statoSelezionato = null,
 onStatoSelezionatoChange = () => {},
 
@@ -690,6 +890,26 @@ return ( <div className="space-y-4 sm:space-y-5"> <div className="grid grid-cols
       />
     </AppCard>
   </div>
+
+  <AppCard>
+    <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+      <h2 className="text-lg font-semibold text-white">
+        Presenze per giocatore
+      </h2>
+
+      <p className="text-xs text-zinc-500">
+        Le sigle seguono la legenda dell&apos;istogramma. Le assenze in
+        trasparenza non sono state registrate dallo staff: sono dedotte
+        dalla rosa.
+      </p>
+    </div>
+
+    <TabellaPresenzePerGiocatore
+      presenze={presenze}
+      giocatori={giocatori}
+      themeColor="#d71920"
+    />
+  </AppCard>
 </div>
 
 

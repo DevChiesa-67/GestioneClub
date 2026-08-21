@@ -1322,6 +1322,7 @@ export default function ReportTabsClient({
           tipiSeduta={tipiSeduta}
           giocatoreIds={giocatoreIds}
           eventoDate={sessioniSelezionateDate}
+          giocatori={giocatori}
           hideFilters
           statoSelezionato={statoPresenzeSelezionato}
           onStatoSelezionatoChange={setStatoPresenzeSelezionato}
