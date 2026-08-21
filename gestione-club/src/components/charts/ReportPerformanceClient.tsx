@@ -384,30 +384,36 @@ function TabellaPresenzePerGiocatore({
 
                 {date.map((data) => {
                   const riga = righe?.get(data);
-                  const stato = riga?.stato;
-                  const info = stato
-                    ? STATI.find((voce) => voce.key === stato)
-                    : undefined;
+
+                  /*
+                   * Solo le presenze davvero registrate dallo staff hanno
+                   * una sigla. Le assenze dedotte dalla rosa non sono un
+                   * dato inserito da nessuno: lasciano il quadrato vuoto,
+                   * cosi\' si vede a colpo d'occhio dove manca la
+                   * registrazione invece di leggerlo come un'assenza
+                   * accertata.
+                   */
+                  const info =
+                    riga && riga.registrata
+                      ? STATI.find((voce) => voce.key === riga.stato)
+                      : undefined;
 
                   return (
                     <td key={data} className="px-2 py-2 text-center">
                       {info ? (
                         <span
-                          title={`${info.title}${
-                            riga && !riga.registrata ? " (dedotta)" : ""
-                          }`}
+                          title={info.title}
                           className="inline-flex h-7 min-w-7 items-center justify-center rounded-lg px-1.5 text-[11px] font-black text-white"
-                          style={{
-                            backgroundColor: info.color,
-                            /* Le assenze dedotte, mai registrate dallo
-                               staff, sono piu\' tenui di quelle scritte. */
-                            opacity: riga && !riga.registrata ? 0.45 : 1,
-                          }}
+                          style={{ backgroundColor: info.color }}
                         >
                           {info.label}
                         </span>
                       ) : (
-                        <span className="text-xs text-zinc-700">—</span>
+                        <span
+                          title="Presenza non segnata"
+                          aria-label="Presenza non segnata"
+                          className="inline-flex h-7 w-7 rounded-lg border border-dashed border-white/15"
+                        />
                       )}
                     </td>
                   );
@@ -898,9 +904,9 @@ return ( <div className="space-y-4 sm:space-y-5"> <div className="grid grid-cols
       </h2>
 
       <p className="text-xs text-zinc-500">
-        Le sigle seguono la legenda dell&apos;istogramma. Le assenze in
-        trasparenza non sono state registrate dallo staff: sono dedotte
-        dalla rosa.
+        Le sigle seguono la legenda dell&apos;istogramma. Il quadrato vuoto
+        significa che per quella giornata non è stata segnata nessuna
+        presenza.
       </p>
     </div>
 
