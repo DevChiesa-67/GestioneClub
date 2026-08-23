@@ -294,3 +294,134 @@ export async function eliminaAllenamento(
     };
   }
 }
+
+/*
+ * Eliminazione in blocco di piu' sedute dalla pagina Allenamenti.
+ *
+ * Non e' un ciclo di eliminaAllenamento(): quello farebbe una coppia di
+ * query per ogni seduta (con venti sedute selezionate sono quaranta
+ * viaggi verso il database) e, soprattutto, non sarebbe atomico nel modo
+ * che conta qui: se la nona fallisse, le prime otto sarebbero gia'
+ * sparite e l'utente non saprebbe a che punto si e' fermato. Qui le
+ * cancellazioni sono due sole, entrambe filtrate su un elenco di id gia'
+ * verificato, e il risultato dice esattamente quante sedute sono state
+ * eliminate.
+ */
+export async function eliminaAllenamentiInBlocco(
+  allenamentoIds: string[]
+): Promise<ActionResult & { eliminati: number }> {
+  try {
+    const { supabase, clubId } = await getContestoAdmin();
+
+    // Ripulisce l'elenco: stringhe vuote, duplicati e valori non validi
+    // arrivati dal client non devono finire in una clausola IN.
+    const ids = Array.from(
+      new Set(
+        (allenamentoIds ?? [])
+          .filter((id): id is string => typeof id === "string")
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0)
+      )
+    );
+
+    if (ids.length === 0) {
+      return {
+        success: false,
+        message: "Nessuna seduta selezionata.",
+        eliminati: 0,
+      };
+    }
+
+    /*
+     * Il filtro club_id non e' una formalita': senza, un id arrivato dal
+     * client permetterebbe di cancellare la seduta di un altro club. Si
+     * rileggono quindi gli id davvero appartenenti al club attivo e si
+     * lavora solo su quelli.
+     */
+    const { data: appartenenti, error: verificaError } = await supabase
+      .from("allenamenti")
+      .select("id")
+      .eq("club_id", clubId)
+      .in("id", ids);
+
+    if (verificaError) {
+      return {
+        success: false,
+        message: verificaError.message,
+        eliminati: 0,
+      };
+    }
+
+    const idsValidi = (appartenenti ?? []).map((riga) => riga.id as string);
+
+    if (idsValidi.length === 0) {
+      return {
+        success: false,
+        message: "Nessuna delle sedute selezionate appartiene al club attivo.",
+        eliminati: 0,
+      };
+    }
+
+    // I lavori vanno prima: sono figli della seduta e senza di essa
+    // resterebbero orfani.
+    const { error: lavoriError } = await supabase
+      .from("lavori_allenamento")
+      .delete()
+      .in("allenamento_id", idsValidi);
+
+    if (lavoriError) {
+      return {
+        success: false,
+        message: lavoriError.message,
+        eliminati: 0,
+      };
+    }
+
+    /*
+     * Le presenze NON si toccano, per lo stesso motivo per cui non le
+     * tocca eliminaAllenamento(): da quando vivono in
+     * presenze_giornaliere appartengono alla GIORNATA, e la stessa
+     * giornata puo' avere un'altra seduta. Cancellarle qui farebbe
+     * sparire anche le presenze di una seduta che resta.
+     */
+
+    const { error: deleteError } = await supabase
+      .from("allenamenti")
+      .delete()
+      .eq("club_id", clubId)
+      .in("id", idsValidi);
+
+    if (deleteError) {
+      return {
+        success: false,
+        message: deleteError.message,
+        eliminati: 0,
+      };
+    }
+
+    revalidatePath("/allenamenti");
+
+    // Se qualche id era gia' stato eliminato da un'altra scheda aperta,
+    // il messaggio lo dice invece di far credere che siano sparite tutte.
+    const ignorati = ids.length - idsValidi.length;
+
+    return {
+      success: true,
+      eliminati: idsValidi.length,
+      message:
+        idsValidi.length === 1
+          ? "1 seduta eliminata."
+          : `${idsValidi.length} sedute eliminate.` +
+            (ignorati > 0
+              ? ` ${ignorati} non sono state trovate (forse gia' eliminate).`
+              : ""),
+    };
+  } catch (error) {
+    return {
+      success: false,
+      eliminati: 0,
+      message:
+        error instanceof Error ? error.message : "Errore imprevisto.",
+    };
+  }
+}

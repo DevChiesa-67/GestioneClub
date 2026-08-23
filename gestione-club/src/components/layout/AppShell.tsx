@@ -1,6 +1,7 @@
 "use client";
 
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -8,6 +9,10 @@ import ClaudeChatbot from "@/components/ai/ClaudeChatbot";
 import { PushSubscriptionManager } from "@/components/notifiche/PushSubscriptionManager";
 import { ToastProvider } from "@/components/ui/Toast";
 import { usePagePermissions } from "@/hooks/use-page-permissions";
+import {
+  appartieneAllaSezione,
+  pulisciFiltriAllenamenti,
+} from "@/lib/allenamenti/filtri-sezione";
 
 type AppShellProps = {
   children: ReactNode;
@@ -16,6 +21,21 @@ type AppShellProps = {
 export function AppShell({ children }: AppShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { loading: permissionsLoading, isAdmin } = usePagePermissions();
+  const pathname = usePathname();
+
+  /*
+   * I filtri della pagina Allenamenti sopravvivono agli spostamenti
+   * dentro la sezione (elenco -> seduta -> elenco) e si azzerano appena
+   * si esce. La pulizia sta qui perche' AppShell e' l'unico componente
+   * client montato su OGNI pagina della dashboard: la pagina Allenamenti
+   * non puo' occuparsene da sola, visto che quando si esce e' gia' stata
+   * smontata e non riceve piu' nessun evento.
+   */
+  useEffect(() => {
+    if (!appartieneAllaSezione(pathname)) {
+      pulisciFiltriAllenamenti();
+    }
+  }, [pathname]);
 
   return (
     <ToastProvider>

@@ -9,11 +9,14 @@ import {
   FileDown,
   FileUp,
   Info,
+  ListChecks,
   Loader2,
   Pencil,
   Plus,
   Search,
+  Trash2,
   Users,
+  X,
 } from "lucide-react";
 
 import { AppCard } from "@/components/ui/AppCard";
@@ -26,6 +29,11 @@ import ScaricaTemplateAllenamentiModal from "@/components/allenamenti/ScaricaTem
 import PdfPreviewModal from "@/components/allenamenti/PdfPreviewModal";
 import DettaglioLavoroModal from "@/components/allenamenti/DettaglioLavoroModal";
 import { generaPdfAllenamento, scaricaPdfAllenamento } from "@/lib/pdf-allenamento";
+import { eliminaAllenamentiInBlocco } from "@/app/(dashboard)/allenamenti/[id]/actions";
+import {
+  leggiFiltriAllenamenti,
+  salvaFiltriAllenamenti,
+} from "@/lib/allenamenti/filtri-sezione";
 
 type StatoPresenza = "PM" | "PP" | "P" | "I" | "AG" | "AI";
 
@@ -137,6 +145,26 @@ type Vista =
   | "elenco"
   | "microcicli"
   | "drillbank";
+
+/*
+ * Elenco delle viste valide, usato per validare il valore ripristinato
+ * dalla memoria di sessione. Un semplice cast "as Vista" non basterebbe:
+ * il valore salvato puo' venire da una versione precedente dell'app
+ * rimasta aperta in un'altra scheda, e una vista inesistente lascerebbe
+ * la pagina senza nessun contenuto da mostrare.
+ */
+const VISTE: readonly Vista[] = [
+  "odierno",
+  "resoconto",
+  "riepilogo",
+  "elenco",
+  "microcicli",
+  "drillbank",
+];
+
+function isVista(valore: string): valore is Vista {
+  return (VISTE as readonly string[]).includes(valore);
+}
 
 // Settimane (microcicli) e fasi (macrocicli) vengono lette dalla
 // Programmazione già esistente: ogni allenamento viene abbinato alla
@@ -411,6 +439,60 @@ export default function Page() {
 
   const [dataDa, setDataDa] = useState(inizioSettimanaISO());
   const [dataA, setDataA] = useState(fineSettimanaISO());
+
+  /*
+   * Ripristino dei filtri al rientro da una seduta.
+   *
+   * Il valore NON si legge nell'inizializzatore di useState: questa
+   * pagina, pur essendo "use client", viene comunque renderizzata sul
+   * server, dove sessionStorage non esiste. Leggerlo li' produrrebbe un
+   * HTML diverso da quello del client e un errore di idratazione.
+   *
+   * Il flag serve a non salvare prima di aver ripristinato: senza, il
+   * primo render scriverebbe i valori di default sopra quelli salvati,
+   * cancellandoli proprio nell'istante in cui servono.
+   */
+  const [filtriRipristinati, setFiltriRipristinati] = useState(false);
+
+  useEffect(() => {
+    const salvati = leggiFiltriAllenamenti();
+
+    if (salvati) {
+      if (isVista(salvati.vista)) {
+        setVista(salvati.vista);
+      }
+
+      setDataDa(salvati.dataDa);
+      setDataA(salvati.dataA);
+    }
+
+    setFiltriRipristinati(true);
+  }, []);
+
+  useEffect(() => {
+    if (!filtriRipristinati) return;
+
+    salvaFiltriAllenamenti({ vista, dataDa, dataA });
+  }, [filtriRipristinati, vista, dataDa, dataA]);
+
+  /*
+   * Eliminazione in blocco delle sedute.
+   *
+   * La selezione e' un Set di id e non un campo dentro Allenamento:
+   * cosi' non va tenuta in sincronia con i dati ricaricati da
+   * caricaDati(), e sopravvive a un refresh dell'elenco senza doverla
+   * ricostruire. Viene comunque potata (vedi useEffect piu' sotto)
+   * quando cambiano i filtri, altrimenti si potrebbero eliminare sedute
+   * selezionate in un periodo e non piu' visibili in quello corrente.
+   */
+  const [modalitaSelezione, setModalitaSelezione] = useState(false);
+  const [selezionati, setSelezionati] = useState<Set<string>>(new Set());
+  const [confermaEliminazione, setConfermaEliminazione] = useState(false);
+  const [eliminandoBlocco, setEliminandoBlocco] = useState(false);
+  const [esitoEliminazione, setEsitoEliminazione] = useState<{
+    tipo: "ok" | "errore";
+    testo: string;
+  } | null>(null);
 
   const isAdmin =
     String(profilo?.tipo_profilo ?? "").toLowerCase() === "admin";
@@ -758,8 +840,142 @@ export default function Page() {
     );
   }, [allenamenti, dataDa, dataA]);
 
-  const allenamentiDaMostrare =
-    vista === "riepilogo" ? allenamentiSettimana : allenamentiIntervallo;
+  /*
+   * Memoizzato perche' e' la dipendenza dell'useEffect qui sotto: come
+   * semplice espressione sarebbe un array nuovo a ogni render e
+   * l'effetto girerebbe di continuo. Le due liste da cui deriva sono
+   * gia' memoizzate, quindi il riferimento cambia solo quando cambiano
+   * davvero i dati o la vista.
+   */
+  const allenamentiDaMostrare = useMemo(
+    () => (vista === "riepilogo" ? allenamentiSettimana : allenamentiIntervallo),
+    [vista, allenamentiSettimana, allenamentiIntervallo]
+  );
+
+  /*
+   * Pota la selezione tenendo solo le sedute ancora visibili. Senza,
+   * cambiando l'intervallo di date (o eliminando qualcosa) resterebbero
+   * selezionati id fuori schermo: il contatore direbbe "7 selezionate"
+   * mentre a video se ne vedono 2, e la conferma cancellerebbe anche
+   * quelle che l'utente non ha davanti.
+   */
+  useEffect(() => {
+    setSelezionati((precedente) => {
+      if (precedente.size === 0) return precedente;
+
+      const visibili = new Set(
+        allenamentiDaMostrare.map((allenamento) => allenamento.id)
+      );
+
+      const potata = new Set(
+        Array.from(precedente).filter((id) => visibili.has(id))
+      );
+
+      // Stessa dimensione = nessuna rimozione: si restituisce il Set
+      // originale per non innescare un render inutile.
+      return potata.size === precedente.size ? precedente : potata;
+    });
+  }, [allenamentiDaMostrare]);
+
+  const selezionatiVisibili = allenamentiDaMostrare.filter((allenamento) =>
+    selezionati.has(allenamento.id)
+  );
+
+  const tuttiSelezionati =
+    allenamentiDaMostrare.length > 0 &&
+    selezionatiVisibili.length === allenamentiDaMostrare.length;
+
+  /*
+   * Uscire dalla modalita' azzera anche la selezione: lasciare delle
+   * sedute spuntate ma invisibili significherebbe che riaccendendo la
+   * modalita' ci si ritrova una selezione fatta chissa' quando, con il
+   * pulsante Elimina gia' attivo.
+   */
+  function alternaModalitaSelezione() {
+    setModalitaSelezione((precedente) => {
+      if (precedente) {
+        setSelezionati(new Set());
+        setEsitoEliminazione(null);
+      }
+
+      return !precedente;
+    });
+  }
+
+  /*
+   * Il pulsante "Seleziona" vive nella barra dei filtri, che compare
+   * solo nella vista Elenco. Cambiando vista sparirebbe lasciando le
+   * checkbox accese e nessun modo per spegnerle: la modalita' si chiude
+   * insieme alla vista che la comanda.
+   */
+  useEffect(() => {
+    if (vista !== "elenco" && modalitaSelezione) {
+      setModalitaSelezione(false);
+      setSelezionati(new Set());
+      setEsitoEliminazione(null);
+    }
+  }, [vista, modalitaSelezione]);
+
+  function alternaSelezione(allenamentoId: string) {
+    setEsitoEliminazione(null);
+
+    setSelezionati((precedente) => {
+      const successivo = new Set(precedente);
+
+      if (successivo.has(allenamentoId)) {
+        successivo.delete(allenamentoId);
+      } else {
+        successivo.add(allenamentoId);
+      }
+
+      return successivo;
+    });
+  }
+
+  function alternaSelezioneTutti() {
+    setEsitoEliminazione(null);
+
+    setSelezionati(
+      tuttiSelezionati
+        ? new Set()
+        : new Set(allenamentiDaMostrare.map((allenamento) => allenamento.id))
+    );
+  }
+
+  async function eliminaSelezionate() {
+    if (selezionatiVisibili.length === 0) return;
+
+    setEliminandoBlocco(true);
+    setEsitoEliminazione(null);
+
+    try {
+      const esito = await eliminaAllenamentiInBlocco(
+        selezionatiVisibili.map((allenamento) => allenamento.id)
+      );
+
+      setEsitoEliminazione({
+        tipo: esito.success ? "ok" : "errore",
+        testo: esito.message,
+      });
+
+      if (esito.success) {
+        setSelezionati(new Set());
+        setConfermaEliminazione(false);
+        setOpenId(null);
+        await caricaDati();
+      }
+    } catch (error) {
+      setEsitoEliminazione({
+        tipo: "errore",
+        testo:
+          error instanceof Error
+            ? error.message
+            : "Errore durante l'eliminazione.",
+      });
+    } finally {
+      setEliminandoBlocco(false);
+    }
+  }
 
   const lavoriPerAllenamento = (allenamentoId: string) => {
     return lavori.filter((lavoro) => lavoro.allenamento_id === allenamentoId);
@@ -1577,6 +1793,29 @@ export default function Page() {
               >
                 Settimana corrente
               </button>
+
+              {/*
+                * Interruttore della selezione multipla, in fondo alla riga
+                * dei filtri (lg:ml-auto lo spinge a destra da tablet in su,
+                * mentre su mobile resta in colonna con gli altri). Finche'
+                * e' spento le sedute non mostrano nessuna checkbox: la
+                * lista resta quella di sempre e l'eliminazione non e'
+                * raggiungibile per sbaglio.
+                */}
+              {isAdmin && (
+                <button
+                  onClick={alternaModalitaSelezione}
+                  aria-pressed={modalitaSelezione}
+                  className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium lg:ml-auto ${
+                    modalitaSelezione
+                      ? "bg-zinc-800 text-white"
+                      : "bg-zinc-900 text-zinc-300 hover:text-white"
+                  }`}
+                >
+                  <ListChecks className="h-4 w-4" />
+                  {modalitaSelezione ? "Annulla selezione" : "Seleziona"}
+                </button>
+              )}
             </div>
           </AppCard>
         )}
@@ -1725,6 +1964,95 @@ export default function Page() {
           vista !== "odierno" &&
           vista !== "drillbank" && (
           <div className="space-y-4">
+            {/*
+              * Barra di selezione multipla: compare solo dopo aver premuto
+              * "Seleziona" fra i filtri. Sta sopra l'elenco cosi' il
+              * contatore resta in vista mentre si spuntano le card piu' in
+              * basso.
+              *
+              * Resta montata anche con l'elenco vuoto se c'e' un esito da
+              * mostrare: altrimenti eliminando l'ultima seduta rimasta la
+              * barra sparirebbe portandosi via il messaggio di conferma,
+              * proprio nel momento in cui serve leggerlo.
+              */}
+            {isAdmin &&
+              modalitaSelezione &&
+              (allenamentiDaMostrare.length > 0 || esitoEliminazione) && (
+              <AppCard>
+                {allenamentiDaMostrare.length > 0 && (
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <label className="flex cursor-pointer items-center gap-3 text-sm text-zinc-300">
+                    <input
+                      type="checkbox"
+                      checked={tuttiSelezionati}
+                      onChange={alternaSelezioneTutti}
+                      className="h-4 w-4 shrink-0 cursor-pointer accent-red-500"
+                    />
+
+                    <span>
+                      {selezionatiVisibili.length === 0
+                        ? "Seleziona tutte le sedute"
+                        : `${selezionatiVisibili.length} di ${allenamentiDaMostrare.length} selezionate`}
+                    </span>
+                  </label>
+
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {selezionatiVisibili.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setSelezionati(new Set());
+                          setEsitoEliminazione(null);
+                        }}
+                        className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-300 hover:text-white"
+                      >
+                        {/*
+                          * "Deseleziona tutte" e non "Annulla selezione":
+                          * quest'ultima etichetta e' gia' sul pulsante fra
+                          * i filtri, che pero' fa un'altra cosa (esce dalla
+                          * modalita'). Due pulsanti con lo stesso testo e
+                          * due effetti diversi sono un invito a sbagliare.
+                          */}
+                        Deseleziona tutte
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => setConfermaEliminazione(true)}
+                      disabled={selezionatiVisibili.length === 0}
+                      className="
+                        inline-flex items-center gap-2 rounded-xl
+                        border border-red-500/40 bg-red-500/10
+                        px-4 py-2 text-sm font-semibold text-red-300
+                        hover:bg-red-500/20 hover:text-red-200
+                        disabled:cursor-not-allowed disabled:opacity-40
+                        disabled:hover:bg-red-500/10
+                      "
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Elimina
+                      {selezionatiVisibili.length > 0 &&
+                        ` (${selezionatiVisibili.length})`}
+                    </button>
+                  </div>
+                </div>
+                )}
+
+                {esitoEliminazione && (
+                  <p
+                    className={`text-sm ${
+                      allenamentiDaMostrare.length > 0 ? "mt-3" : ""
+                    } ${
+                      esitoEliminazione.tipo === "ok"
+                        ? "text-emerald-400"
+                        : "text-red-400"
+                    }`}
+                  >
+                    {esitoEliminazione.testo}
+                  </p>
+                )}
+              </AppCard>
+            )}
+
             {allenamentiDaMostrare.map((allenamento) => {
               const aperto = openId === allenamento.id;
               const listaLavori = lavoriPerAllenamento(allenamento.id);
@@ -1734,6 +2062,24 @@ export default function Page() {
               return (
                 <AppCard key={allenamento.id}>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    {/*
+                      * La checkbox sta FUORI dal button che apre/chiude la
+                      * seduta: annidare un input dentro un button non e'
+                      * HTML valido e il click verrebbe intercettato dal
+                      * button, aprendo la card invece di selezionarla.
+                      */}
+                    {isAdmin && modalitaSelezione && (
+                      <input
+                        type="checkbox"
+                        checked={selezionati.has(allenamento.id)}
+                        onChange={() => alternaSelezione(allenamento.id)}
+                        aria-label={`Seleziona ${
+                          allenamento.titolo || "allenamento"
+                        } del ${formattaData(allenamento.data_allenamento)}`}
+                        className="mt-1 h-4 w-4 shrink-0 cursor-pointer self-start accent-red-500 sm:mt-0 sm:self-center"
+                      />
+                    )}
+
                     <button
                       onClick={() => setOpenId(aperto ? null : allenamento.id)}
                       className="flex flex-1 items-start justify-between gap-3 rounded-2xl text-left"
@@ -2168,6 +2514,98 @@ export default function Page() {
           </div>
         )}
       </div>
+
+      {/*
+        * Conferma esplicita prima di eliminare: l'operazione non e'
+        * annullabile e cancella anche tutti i lavori delle sedute. Il
+        * modale elenca le sedute per data cosi' si vede cosa sta per
+        * sparire, invece di doversi fidare di un contatore.
+        */}
+      {confermaEliminazione && selezionatiVisibili.length > 0 && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto bg-black/80 px-3 py-4 backdrop-blur-sm sm:px-6">
+          <div
+            className="w-full max-w-lg rounded-3xl border bg-[#090909] p-5 shadow-2xl sm:p-6"
+            style={{ borderColor: "#ef444455" }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="text-lg font-bold text-white">
+                {selezionatiVisibili.length === 1
+                  ? "Eliminare la seduta selezionata?"
+                  : `Eliminare ${selezionatiVisibili.length} sedute?`}
+              </h3>
+
+              <button
+                onClick={() => setConfermaEliminazione(false)}
+                disabled={eliminandoBlocco}
+                className="rounded-xl p-1 text-zinc-500 hover:text-white disabled:opacity-40"
+                aria-label="Chiudi"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <p className="mt-3 text-sm text-zinc-400">
+              Verranno eliminati anche tutti i lavori collegati. Le presenze
+              già registrate restano: appartengono alla giornata, non alla
+              singola seduta.
+            </p>
+
+            <p className="mt-1 text-sm font-medium text-red-400">
+              L&apos;operazione non è annullabile.
+            </p>
+
+            <ul className="mt-4 max-h-52 space-y-1 overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-950 p-3">
+              {selezionatiVisibili.map((allenamento) => (
+                <li key={allenamento.id} className="text-sm text-zinc-300">
+                  <span className="capitalize">
+                    {formattaData(allenamento.data_allenamento)}
+                  </span>
+                  {" · "}
+                  {allenamento.titolo || "Allenamento"}
+                </li>
+              ))}
+            </ul>
+
+            {esitoEliminazione?.tipo === "errore" && (
+              <p className="mt-3 text-sm text-red-400">
+                {esitoEliminazione.testo}
+              </p>
+            )}
+
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                onClick={() => setConfermaEliminazione(false)}
+                disabled={eliminandoBlocco}
+                className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-300 hover:text-white disabled:opacity-40"
+              >
+                Annulla
+              </button>
+
+              <button
+                onClick={eliminaSelezionate}
+                disabled={eliminandoBlocco}
+                className="
+                  inline-flex items-center justify-center gap-2 rounded-xl
+                  bg-red-600 px-4 py-2 text-sm font-semibold text-white
+                  hover:bg-red-500 disabled:opacity-60
+                "
+              >
+                {eliminandoBlocco ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Eliminazione…
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4" />
+                    Elimina definitivamente
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {openNuovoAllenamento && (
         <div className="fixed inset-0 z-[9999] overflow-y-auto bg-black/80 px-3 py-4 backdrop-blur-sm sm:px-6 sm:py-8">
