@@ -6,6 +6,7 @@ import {
   BookOpen,
   ChevronDown,
   ClipboardCheck,
+  Dumbbell,
   FileDown,
   FileUp,
   Info,
@@ -60,6 +61,8 @@ type Allenamento = {
   durata_minuti: number | null;
   stato: string;
   created_at: string;
+  ciclo_dal?: string | null;
+  ciclo_al?: string | null;
 };
 
 type Lavoro = {
@@ -85,6 +88,17 @@ type Lavoro = {
   progressione?: string | null;
   riferimento_gps?: string | null;
   perche_serve?: string | null;
+  serie?: number | null;
+  ripetizioni?: string | null;
+  rpe?: number | null;
+  carico?: string | null;
+};
+
+type CicloPalestra = {
+  chiave: string;
+  dal: string;
+  al: string;
+  sedute: Allenamento[];
 };
 
 type DrillBankRow = {
@@ -144,6 +158,7 @@ type Vista =
   | "riepilogo"
   | "elenco"
   | "microcicli"
+  | "palestra"
   | "drillbank";
 
 /*
@@ -159,6 +174,7 @@ const VISTE: readonly Vista[] = [
   "riepilogo",
   "elenco",
   "microcicli",
+  "palestra",
   "drillbank",
 ];
 
@@ -402,6 +418,70 @@ function InfoBox({
   );
 }
 
+function etichettaDayPalestra(allenamento: Allenamento) {
+  const titolo = allenamento.titolo?.trim();
+  if (!titolo) return "Day";
+  return titolo.replace(/^palestra\s*[—-]\s*/i, "") || "Day";
+}
+
+function TabellaLavoriPalestra({
+  righe,
+  mostraDay = false,
+}: {
+  righe: { lavoro: Lavoro; day: string }[];
+  mostraDay?: boolean;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[760px] border-collapse text-sm">
+        <thead className="bg-white/5 text-left text-xs uppercase tracking-wide text-zinc-500">
+          <tr>
+            {mostraDay && <th className="px-3 py-2.5">Day</th>}
+            <th className="px-3 py-2.5">Esercizio</th>
+            <th className="px-3 py-2.5 text-right">Serie</th>
+            <th className="px-3 py-2.5 text-right">Rep</th>
+            <th className="px-3 py-2.5 text-right">RPE</th>
+            <th className="px-3 py-2.5 text-right">Carico</th>
+            <th className="px-3 py-2.5 text-right">Recupero</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-zinc-900">
+          {righe.map(({ lavoro, day }) => (
+            <tr key={`${day}-${lavoro.id}`} className="text-zinc-300">
+              {mostraDay && (
+                <td className="whitespace-nowrap px-3 py-3 font-bold text-white">
+                  {day}
+                </td>
+              )}
+              <td className="px-3 py-3">
+                <p className="font-semibold text-white">
+                  {lavoro.titolo || lavoro.descrizione || "—"}
+                </p>
+                {lavoro.punti_chiave_coaching && (
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {lavoro.punti_chiave_coaching}
+                  </p>
+                )}
+              </td>
+              <td className="px-3 py-3 text-right">{lavoro.serie ?? "—"}</td>
+              <td className="px-3 py-3 text-right">
+                {lavoro.ripetizioni ?? lavoro.ripetizione ?? "—"}
+              </td>
+              <td className="px-3 py-3 text-right">{lavoro.rpe ?? "—"}</td>
+              <td className="px-3 py-3 text-right">{lavoro.carico ?? "—"}</td>
+              <td className="px-3 py-3 text-right">
+                {lavoro.tempo_recupero !== null
+                  ? `${lavoro.tempo_recupero} min`
+                  : "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function Page() {
   const [vista, setVista] = useState<Vista>("riepilogo");
   const [allenamenti, setAllenamenti] = useState<Allenamento[]>([]);
@@ -423,6 +503,19 @@ export default function Page() {
   const [vistaElencoLavori, setVistaElencoLavori] = useState<
     "card" | "tabella"
   >("tabella");
+  const [vistaPalestra, setVistaPalestra] = useState<"day" | "gruppo">(
+    "day"
+  );
+  const [cicloPalestraAperto, setCicloPalestraAperto] = useState<
+    string | null
+  >(null);
+  const [cicloPalestraDaEliminare, setCicloPalestraDaEliminare] = useState<
+    CicloPalestra | null
+  >(null);
+  const [eliminandoCicloPalestra, setEliminandoCicloPalestra] = useState(false);
+  const [erroreEliminazioneCiclo, setErroreEliminazioneCiclo] = useState<
+    string | null
+  >(null);
 
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -821,24 +914,73 @@ export default function Page() {
     setPdfInAnteprima(null);
   }
 
+  const allenamentiPalestra = useMemo(
+    () =>
+      allenamenti.filter(
+        (allenamento) =>
+          allenamento.tipo_allenamento?.trim().toLowerCase() === "palestra"
+      ),
+    [allenamenti]
+  );
+
+  const allenamentiOrdinari = useMemo(
+    () =>
+      allenamenti.filter(
+        (allenamento) =>
+          allenamento.tipo_allenamento?.trim().toLowerCase() !== "palestra"
+      ),
+    [allenamenti]
+  );
+
+  const cicliPalestra = useMemo(() => {
+    const gruppi = new Map<string, Allenamento[]>();
+
+    for (const seduta of allenamentiPalestra) {
+      // Le importazioni precedenti alla migrazione non hanno il periodo:
+      // confluiscono in un ciclo storico ricavato dalle date dei Day.
+      const chiave =
+        seduta.ciclo_dal && seduta.ciclo_al
+          ? `${seduta.ciclo_dal}|${seduta.ciclo_al}`
+          : "senza-periodo";
+      gruppi.set(chiave, [...(gruppi.get(chiave) ?? []), seduta]);
+    }
+
+    return Array.from(gruppi.entries())
+      .map(([chiave, sedute]) => {
+        const ordinate = [...sedute].sort((a, b) =>
+          a.data_allenamento.localeCompare(b.data_allenamento)
+        );
+        return {
+          chiave,
+          dal: ordinate[0]?.ciclo_dal ?? ordinate[0]?.data_allenamento ?? "",
+          al:
+            ordinate[0]?.ciclo_al ??
+            ordinate[ordinate.length - 1]?.data_allenamento ??
+            "",
+          sedute: ordinate,
+        };
+      })
+      .sort((a, b) => b.dal.localeCompare(a.dal));
+  }, [allenamentiPalestra]);
+
   const allenamentiSettimana = useMemo(() => {
     const inizio = inizioSettimanaISO();
     const fine = fineSettimanaISO();
 
-    return allenamenti.filter(
+    return allenamentiOrdinari.filter(
       (allenamento) =>
         allenamento.data_allenamento >= inizio &&
         allenamento.data_allenamento <= fine,
     );
-  }, [allenamenti]);
+  }, [allenamentiOrdinari]);
 
   const allenamentiIntervallo = useMemo(() => {
-    return allenamenti.filter(
+    return allenamentiOrdinari.filter(
       (allenamento) =>
         allenamento.data_allenamento >= dataDa &&
         allenamento.data_allenamento <= dataA,
     );
-  }, [allenamenti, dataDa, dataA]);
+  }, [allenamentiOrdinari, dataDa, dataA]);
 
   /*
    * Memoizzato perche' e' la dipendenza dell'useEffect qui sotto: come
@@ -977,6 +1119,36 @@ export default function Page() {
     }
   }
 
+  async function eliminaCicloPalestra() {
+    if (!cicloPalestraDaEliminare || !isAdmin) return;
+
+    setEliminandoCicloPalestra(true);
+    setErroreEliminazioneCiclo(null);
+
+    try {
+      const esito = await eliminaAllenamentiInBlocco(
+        cicloPalestraDaEliminare.sedute.map((seduta) => seduta.id)
+      );
+
+      if (!esito.success) {
+        setErroreEliminazioneCiclo(esito.message);
+        return;
+      }
+
+      setCicloPalestraAperto(null);
+      setCicloPalestraDaEliminare(null);
+      await caricaDati();
+    } catch (error) {
+      setErroreEliminazioneCiclo(
+        error instanceof Error
+          ? error.message
+          : "Errore durante l'eliminazione del ciclo."
+      );
+    } finally {
+      setEliminandoCicloPalestra(false);
+    }
+  }
+
   const lavoriPerAllenamento = (allenamentoId: string) => {
     return lavori.filter((lavoro) => lavoro.allenamento_id === allenamentoId);
   };
@@ -1062,7 +1234,7 @@ export default function Page() {
     return settimaneFlat
       .map((settimana) => ({
         settimana,
-        sedute: allenamenti
+        sedute: allenamentiOrdinari
           .filter(
             (allenamento) =>
               allenamento.data_allenamento >= settimana.data_inizio &&
@@ -1075,7 +1247,7 @@ export default function Page() {
           ),
       }))
       .filter((gruppo) => gruppo.sedute.length > 0);
-  }, [settimaneFlat, allenamenti]);
+  }, [settimaneFlat, allenamentiOrdinari]);
 
   // Blocco riepilogativo di una singola seduta per la vista Microcicli:
   // intestazione (giorno, tipo, orario) + tabella dei lavori
@@ -1197,7 +1369,8 @@ export default function Page() {
   // hoistate, una const resterebbe in temporal dead zone.
   function dataDiAllenamento(allenamentoId: string): string | null {
     return (
-      allenamenti.find((a) => a.id === allenamentoId)?.data_allenamento ?? null
+      allenamentiOrdinari.find((a) => a.id === allenamentoId)
+        ?.data_allenamento ?? null
     );
   }
 
@@ -1276,9 +1449,14 @@ export default function Page() {
     }));
   };
 
-  const totaleAllenamenti = allenamenti.length;
+  const totaleAllenamenti = allenamentiOrdinari.length;
 
-  const minutaggioTotale = sommaTempoTotaleDeduplicato(lavori);
+  const idsAllenamentiOrdinari = new Set(
+    allenamentiOrdinari.map((allenamento) => allenamento.id)
+  );
+  const minutaggioTotale = sommaTempoTotaleDeduplicato(
+    lavori.filter((lavoro) => idsAllenamentiOrdinari.has(lavoro.allenamento_id))
+  );
   // Un giorno può avere più sedute (es. mattina + sera): non prendiamo solo
   // la prima in ordine di data, ma TUTTE quelle che cadono nel giorno più
   // vicino (oggi, o il prossimo giorno con almeno una seduta programmata).
@@ -1294,7 +1472,7 @@ export default function Page() {
     );
     fineSettimana.setHours(23, 59, 59, 999);
 
-    const inRange = [...allenamenti]
+    const inRange = [...allenamentiOrdinari]
       .map((allenamento) => ({
         ...allenamento,
         data: new Date(`${allenamento.data_allenamento}T00:00:00`),
@@ -1314,7 +1492,7 @@ export default function Page() {
       .sort((a, b) =>
         (a.ora_inizio ?? "").localeCompare(b.ora_inizio ?? "")
       );
-  }, [allenamenti]);
+  }, [allenamentiOrdinari]);
   const tabButtonStyle = (tab: Vista) =>
     vista === tab
       ? {
@@ -1446,6 +1624,20 @@ export default function Page() {
         style={tabButtonStyle("microcicli")}
       >
         Microcicli
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setVista("palestra")}
+        className={`shrink-0 flex items-center gap-1.5 rounded-2xl px-4 py-2.5 text-sm font-bold transition ${
+          vista === "palestra"
+            ? ""
+            : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
+        }`}
+        style={tabButtonStyle("palestra")}
+      >
+        <Dumbbell className="h-4 w-4" />
+        Palestra
       </button>
 
       <button
@@ -1682,6 +1874,259 @@ export default function Page() {
     )}
   </div>
 )}
+        {!loading && vista === "palestra" && (
+          <div className="space-y-5">
+            <AppCard>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-lg font-black text-white">
+                    Cicli palestra
+                  </h2>
+                  <p className="mt-1 text-sm text-zinc-400">
+                    Programmi completi separati dagli allenamenti sul campo.
+                  </p>
+                </div>
+                <div className="inline-flex self-start rounded-xl border border-zinc-800 bg-zinc-950 p-1">
+                  {([
+                    ["day", "Per Day"],
+                    ["gruppo", "Per gruppo"],
+                  ] as const).map(([valore, etichetta]) => (
+                    <button
+                      key={valore}
+                      type="button"
+                      onClick={() => setVistaPalestra(valore)}
+                      className={`rounded-lg px-3 py-2 text-xs font-bold transition ${
+                        vistaPalestra === valore
+                          ? "bg-white text-black"
+                          : "text-zinc-400 hover:text-white"
+                      }`}
+                    >
+                      {etichetta}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </AppCard>
+
+            {cicliPalestra.length === 0 ? (
+              <AppCard>
+                <div className="flex min-h-[180px] flex-col items-center justify-center text-center">
+                  <Dumbbell className="h-8 w-8 text-zinc-600" />
+                  <h3 className="mt-3 font-bold text-white">
+                    Nessun ciclo palestra
+                  </h3>
+                  <p className="mt-1 text-sm text-zinc-500">
+                    Importa un file palestra per visualizzarlo qui.
+                  </p>
+                </div>
+              </AppCard>
+            ) : (
+              cicliPalestra.map((ciclo) => {
+                const righeCiclo = ciclo.sedute.flatMap((seduta) =>
+                  lavoriPerAllenamento(seduta.id).map((lavoro) => ({
+                    lavoro,
+                    day: etichettaDayPalestra(seduta),
+                  }))
+                );
+
+                const gruppi = new Map<string, typeof righeCiclo>();
+                for (const riga of righeCiclo) {
+                  const sezione =
+                    riga.lavoro.sezione.trim().toLowerCase() ===
+                    "core and wellness"
+                      ? "Circuiti"
+                      : riga.lavoro.sezione || "Senza gruppo";
+                  gruppi.set(sezione, [...(gruppi.get(sezione) ?? []), riga]);
+                }
+
+                return (
+                  <AppCard key={ciclo.chiave}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCicloPalestraAperto((precedente) =>
+                          precedente === ciclo.chiave ? null : ciclo.chiave
+                        )
+                      }
+                      aria-expanded={cicloPalestraAperto === ciclo.chiave}
+                      className={`flex w-full flex-wrap items-center justify-between gap-3 text-left ${
+                        cicloPalestraAperto === ciclo.chiave
+                          ? "border-b border-zinc-800 pb-4"
+                          : ""
+                      }`}
+                    >
+                      <div>
+                        <p
+                          className="text-xs font-bold uppercase tracking-[0.18em]"
+                          style={{ color: themeColor }}
+                        >
+                          Ciclo palestra
+                        </p>
+                        <h3 className="mt-1 text-xl font-black text-white">
+                          {formatDataITBreve(ciclo.dal)} –{" "}
+                          {formatDataITBreve(ciclo.al)}
+                        </h3>
+                      </div>
+                      <span className="flex items-center gap-2">
+                        <span className="rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs font-bold text-zinc-400">
+                          {ciclo.sedute.length} Day
+                        </span>
+                        <ChevronDown
+                          className={`h-5 w-5 text-zinc-500 transition-transform ${
+                            cicloPalestraAperto === ciclo.chiave
+                              ? "rotate-180"
+                              : ""
+                          }`}
+                        />
+                      </span>
+                    </button>
+
+                    {isAdmin && cicloPalestraAperto === ciclo.chiave && (
+                      <div className="mt-4 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setErroreEliminazioneCiclo(null);
+                            setCicloPalestraDaEliminare(ciclo);
+                          }}
+                          className="inline-flex items-center gap-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300 transition hover:bg-red-500/20"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Elimina ciclo
+                        </button>
+                      </div>
+                    )}
+
+                    {cicloPalestraAperto === ciclo.chiave &&
+                    (vistaPalestra === "day" ? (
+                      <div className="mt-5 space-y-4">
+                        {ciclo.sedute.map((seduta) => {
+                          const righe = lavoriPerAllenamento(seduta.id).map(
+                            (lavoro) => ({
+                              lavoro,
+                              day: etichettaDayPalestra(seduta),
+                            })
+                          );
+                          const righePerGruppo = new Map<
+                            string,
+                            typeof righe
+                          >();
+
+                          for (const riga of righe) {
+                            const gruppo =
+                              riga.lavoro.sezione.trim().toLowerCase() ===
+                              "core and wellness"
+                                ? "Circuiti"
+                                : riga.lavoro.sezione || "Senza gruppo";
+                            righePerGruppo.set(gruppo, [
+                              ...(righePerGruppo.get(gruppo) ?? []),
+                              riga,
+                            ]);
+                          }
+
+                          return (
+                            <section
+                              key={seduta.id}
+                              className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <h4 className="font-black text-white">
+                                  {etichettaDayPalestra(seduta)}
+                                </h4>
+                                <span className="text-xs text-zinc-500">
+                                  {righe.length} esercizi
+                                </span>
+                              </div>
+
+                              <div className="mt-4 space-y-3">
+                                {Array.from(righePerGruppo.entries()).map(
+                                  ([gruppo, righeGruppo]) => (
+                                    <div
+                                      key={gruppo}
+                                      className="overflow-hidden rounded-xl border border-zinc-800 bg-black"
+                                    >
+                                      <div className="flex items-center justify-between gap-2 border-b border-zinc-800 bg-white/[0.04] px-4 py-3">
+                                        <p
+                                          className="text-sm font-black"
+                                          style={{ color: themeColor }}
+                                        >
+                                          {gruppo}
+                                        </p>
+                                        <span className="text-xs text-zinc-500">
+                                          {righeGruppo.length}{" "}
+                                          {righeGruppo.length === 1
+                                            ? "lavoro"
+                                            : "lavori"}
+                                        </span>
+                                      </div>
+                                      <TabellaLavoriPalestra
+                                        righe={righeGruppo}
+                                      />
+                                    </div>
+                                  )
+                                )}
+                              </div>
+                            </section>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="mt-5 space-y-4">
+                        {Array.from(gruppi.entries()).map(([gruppo, righe]) => (
+                          <section
+                            key={gruppo}
+                            className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <h4 className="font-black text-white">{gruppo}</h4>
+                              <span className="text-xs text-zinc-500">
+                                {righe.length} esercizi
+                              </span>
+                            </div>
+
+                            <div className="mt-4 space-y-3">
+                              {Array.from(
+                                righe.reduce((perDay, riga) => {
+                                  perDay.set(riga.day, [
+                                    ...(perDay.get(riga.day) ?? []),
+                                    riga,
+                                  ]);
+                                  return perDay;
+                                }, new Map<string, typeof righe>())
+                              ).map(([day, righeDay]) => (
+                                <div
+                                  key={day}
+                                  className="overflow-hidden rounded-xl border border-zinc-800 bg-black"
+                                >
+                                  <div className="flex items-center justify-between gap-2 border-b border-zinc-800 bg-white/[0.04] px-4 py-3">
+                                    <p
+                                      className="text-sm font-black"
+                                      style={{ color: themeColor }}
+                                    >
+                                      {day}
+                                    </p>
+                                    <span className="text-xs text-zinc-500">
+                                      {righeDay.length}{" "}
+                                      {righeDay.length === 1
+                                        ? "lavoro"
+                                        : "lavori"}
+                                    </span>
+                                  </div>
+                                  <TabellaLavoriPalestra righe={righeDay} />
+                                </div>
+                              ))}
+                            </div>
+                          </section>
+                        ))}
+                      </div>
+                    ))}
+                  </AppCard>
+                );
+              })
+            )}
+          </div>
+        )}
+
         {!loading && vista === "microcicli" && (
           <div className="space-y-5">
             {microcicli.length === 0 ? (
@@ -1959,10 +2404,7 @@ export default function Page() {
           </AppCard>
         )}
 
-        {!loading &&
-          vista !== "resoconto" &&
-          vista !== "odierno" &&
-          vista !== "drillbank" && (
+        {!loading && (vista === "riepilogo" || vista === "elenco") && (
           <div className="space-y-4">
             {/*
               * Barra di selezione multipla: compare solo dopo aver premuto
@@ -2515,6 +2957,71 @@ export default function Page() {
         )}
       </div>
 
+      {cicloPalestraDaEliminare && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center overflow-y-auto bg-black/80 px-3 py-4 backdrop-blur-sm sm:px-6">
+          <div className="w-full max-w-lg rounded-3xl border border-red-500/40 bg-[#090909] p-5 shadow-2xl sm:p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-black text-white">
+                  Eliminare il ciclo palestra?
+                </h3>
+                <p className="mt-2 text-sm text-zinc-400">
+                  Ciclo dal {formatDataITBreve(cicloPalestraDaEliminare.dal)} al{" "}
+                  {formatDataITBreve(cicloPalestraDaEliminare.al)}: verranno
+                  eliminate {cicloPalestraDaEliminare.sedute.length} sedute e
+                  tutti i lavori collegati.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCicloPalestraDaEliminare(null)}
+                disabled={eliminandoCicloPalestra}
+                className="rounded-xl p-1 text-zinc-500 hover:text-white disabled:opacity-40"
+                aria-label="Chiudi"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <p className="mt-3 text-sm font-semibold text-red-400">
+              L&apos;operazione non è annullabile.
+            </p>
+
+            {erroreEliminazioneCiclo && (
+              <p className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+                {erroreEliminazioneCiclo}
+              </p>
+            )}
+
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setCicloPalestraDaEliminare(null)}
+                disabled={eliminandoCicloPalestra}
+                className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-bold text-zinc-300 hover:text-white disabled:opacity-40"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                onClick={() => void eliminaCicloPalestra()}
+                disabled={eliminandoCicloPalestra}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-black text-white hover:bg-red-500 disabled:opacity-60"
+              >
+                {eliminandoCicloPalestra ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+                {eliminandoCicloPalestra
+                  ? "Eliminazione…"
+                  : "Elimina definitivamente"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/*
         * Conferma esplicita prima di eliminare: l'operazione non e'
         * annullabile e cancella anche tutti i lavori delle sedute. Il
@@ -2662,7 +3169,7 @@ export default function Page() {
       {openRegistraPresenze && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <RegistraPresenzeModal
-            allenamenti={allenamenti}
+            allenamenti={allenamentiOrdinari}
             giocatori={giocatori}
             isAdmin={isAdmin}
             themeColor={themeColor}

@@ -1,9 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ChevronDown, Plus, Target, TrendingUp, User } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import {
+  ChevronDown,
+  Loader2,
+  Pencil,
+  Plus,
+  Target,
+  Trash2,
+  TrendingUp,
+  User,
+} from "lucide-react";
 import { AppCard } from "@/components/ui/AppCard";
-import AggiungiTestModal from "@/components/test/AggiungiTestModal";
+import AggiungiTestModal, {
+  type SessioneDaModificare,
+} from "@/components/test/AggiungiTestModal";
+import {
+  eliminaMisurazione,
+  eliminaMisurazioniTest,
+} from "@/app/(dashboard)/test/actions";
 import NuovoTipoTestModal from "@/components/test/NuovoTipoTestModal";
 import TestSparkline from "@/components/test/TestSparkline";
 
@@ -130,6 +145,20 @@ export default function TestPageClient({
   const [openNuovoTipo, setOpenNuovoTipo] = useState(false);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
+  const [sessioneDaModificare, setSessioneDaModificare] =
+    useState<SessioneDaModificare | null>(null);
+
+  const [gruppoInEliminazione, setGruppoInEliminazione] = useState<
+    string | null
+  >(null);
+
+  const [misurazioneInEliminazione, setMisurazioneInEliminazione] = useState<
+    string | null
+  >(null);
+
+  const [erroreAzione, setErroreAzione] = useState<string | null>(null);
+  const [isEliminando, startEliminazione] = useTransition();
+
   const coloreFlag = club.colore_flag || "#d71920";
 
   const misurazioniNormalizzate = useMemo(() => {
@@ -219,6 +248,87 @@ export default function TestPageClient({
     }));
   }
 
+  function apriModifica(testId: string, dataTest: string) {
+    setErroreAzione(null);
+    setSessioneDaModificare({ test_id: testId, data_test: dataTest });
+  }
+
+  function chiudiModale() {
+    setOpenAggiungi(false);
+    setSessioneDaModificare(null);
+  }
+
+  function eliminaGruppo(
+    key: string,
+    testId: string,
+    dataTest: string,
+    nomeTest: string,
+    numeroRighe: number
+  ) {
+    setErroreAzione(null);
+
+    const conferma = window.confirm(
+      `Vuoi eliminare "${nomeTest}" del ${formatDate(dataTest)} con tutte le ${numeroRighe} misurazioni? L'operazione non e' reversibile.`
+    );
+
+    if (!conferma) return;
+
+    setGruppoInEliminazione(key);
+
+    startEliminazione(async () => {
+      try {
+        await eliminaMisurazioniTest({
+          test_id: testId,
+          data_test: dataTest,
+        });
+
+        window.location.reload();
+      } catch (error) {
+        setErroreAzione(
+          error instanceof Error
+            ? error.message
+            : "Errore durante l'eliminazione del test."
+        );
+
+        setGruppoInEliminazione(null);
+      }
+    });
+  }
+
+  /** Cancella il dato di un solo giocatore, per correggere un errore. */
+  function eliminaSingola(
+    misurazioneId: string,
+    nomeCompleto: string,
+    valore: string,
+    nomeTest: string
+  ) {
+    setErroreAzione(null);
+
+    const conferma = window.confirm(
+      `Vuoi eliminare la misurazione di ${nomeCompleto} (${valore}) in "${nomeTest}"? L'operazione non e' reversibile.`
+    );
+
+    if (!conferma) return;
+
+    setMisurazioneInEliminazione(misurazioneId);
+
+    startEliminazione(async () => {
+      try {
+        await eliminaMisurazione(misurazioneId);
+
+        window.location.reload();
+      } catch (error) {
+        setErroreAzione(
+          error instanceof Error
+            ? error.message
+            : "Errore durante l'eliminazione della misurazione."
+        );
+
+        setMisurazioneInEliminazione(null);
+      }
+    });
+  }
+
   return (
     <div className="w-full min-w-0 space-y-4 px-3 py-4 sm:space-y-6 sm:px-4 sm:py-5 lg:p-6">
       {/* HEADER */}
@@ -263,6 +373,12 @@ export default function TestPageClient({
         )}
       </div>
 
+      {erroreAzione && (
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm leading-5 text-red-300">
+          {erroreAzione}
+        </div>
+      )}
+
       {/* EMPTY STATE TEST */}
       {tests.length === 0 && (
         <AppCard>
@@ -301,47 +417,88 @@ export default function TestPageClient({
           return (
             <AppCard key={gruppo.key} noPadding>
               {/* HEADER GRUPPO */}
-              <button
-                type="button"
-                onClick={() => toggleGroup(gruppo.key)}
-                className="flex w-full min-w-0 items-center justify-between gap-3 px-4 py-4 text-left sm:gap-4 sm:px-5"
-              >
-                <div className="min-w-0 flex-1">
-                  <h2 className="truncate text-base font-black text-white sm:text-lg">
-                    {gruppo.test.nome}
-                  </h2>
+              <div className="flex w-full min-w-0 items-center gap-2 px-4 py-4 sm:gap-3 sm:px-5">
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(gruppo.key)}
+                  className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left sm:gap-4"
+                >
+                  <div className="min-w-0 flex-1">
+                    <h2 className="truncate text-base font-black text-white sm:text-lg">
+                      {gruppo.test.nome}
+                    </h2>
 
-                  <p className="mt-1 text-xs text-zinc-500 sm:text-sm">
-                    {formatDate(gruppo.data_test)}
-                    <span className="mx-1.5">·</span>
-                    {gruppo.rows.length} atleti
-                  </p>
+                    <p className="mt-1 text-xs text-zinc-500 sm:text-sm">
+                      {formatDate(gruppo.data_test)}
+                      <span className="mx-1.5">·</span>
+                      {gruppo.rows.length} atleti
+                    </p>
 
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:hidden">
-                    <span className="rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold uppercase text-zinc-400">
-                      {gruppo.test.tipo_test}
-                    </span>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 sm:hidden">
+                      <span className="rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold uppercase text-zinc-400">
+                        {gruppo.test.tipo_test}
+                      </span>
 
-                    <span className="rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold text-zinc-400">
-                      {gruppo.test.unita_misura}
-                    </span>
+                      <span className="rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold text-zinc-400">
+                        {gruppo.test.unita_misura}
+                      </span>
+                    </div>
+
+                    <p className="mt-1 hidden text-sm text-zinc-500 sm:block">
+                      {gruppo.test.tipo_test} · {gruppo.test.unita_misura} ·{" "}
+                      {gruppo.rows.length} atleti
+                    </p>
                   </div>
 
-                  <p className="mt-1 hidden text-sm text-zinc-500 sm:block">
-                    {gruppo.test.tipo_test} · {gruppo.test.unita_misura} ·{" "}
-                    {gruppo.rows.length} atleti
-                  </p>
-                </div>
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5">
+                    <ChevronDown
+                      size={20}
+                      className={`text-zinc-400 transition-transform duration-200 ${
+                        isOpen ? "rotate-180" : ""
+                      }`}
+                    />
+                  </div>
+                </button>
 
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/5">
-                  <ChevronDown
-                    size={20}
-                    className={`text-zinc-400 transition-transform duration-200 ${
-                      isOpen ? "rotate-180" : ""
-                    }`}
-                  />
-                </div>
-              </button>
+                {isAdmin && (
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      title="Modifica le misurazioni"
+                      aria-label="Modifica le misurazioni"
+                      onClick={() =>
+                        apriModifica(gruppo.test.id, gruppo.data_test)
+                      }
+                      className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/5 text-zinc-300 transition hover:bg-white/10 hover:text-white"
+                    >
+                      <Pencil size={17} />
+                    </button>
+
+                    <button
+                      type="button"
+                      title="Elimina il test salvato"
+                      aria-label="Elimina il test salvato"
+                      disabled={isEliminando}
+                      onClick={() =>
+                        eliminaGruppo(
+                          gruppo.key,
+                          gruppo.test.id,
+                          gruppo.data_test,
+                          gruppo.test.nome,
+                          gruppo.rows.length
+                        )
+                      }
+                      className="grid h-10 w-10 place-items-center rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
+                    >
+                      {gruppoInEliminazione === gruppo.key ? (
+                        <Loader2 className="animate-spin" size={17} />
+                      ) : (
+                        <Trash2 size={17} />
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {isOpen && (
                 <div className="border-t border-white/10">
@@ -506,12 +663,38 @@ export default function TestPageClient({
                             </div>
 
                             {/* STATO */}
-                            <div className="border-t border-white/10 px-4 py-3">
+                            <div className="flex items-center justify-between gap-3 border-t border-white/10 px-4 py-3">
                               <span
-                                className={`inline-flex max-w-full rounded-full px-3 py-1.5 text-xs font-bold ${badge.className}`}
+                                className={`inline-flex min-w-0 rounded-full px-3 py-1.5 text-xs font-bold ${badge.className}`}
                               >
                                 {badge.label}
                               </span>
+
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  title="Elimina questa misurazione"
+                                  aria-label="Elimina questa misurazione"
+                                  disabled={isEliminando}
+                                  onClick={() =>
+                                    eliminaSingola(
+                                      row.id,
+                                      giocatore
+                                        ? `${giocatore.nome} ${giocatore.cognome}`
+                                        : "questo giocatore",
+                                      `${row.valore} ${gruppo.test.unita_misura}`,
+                                      gruppo.test.nome
+                                    )
+                                  }
+                                  className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
+                                >
+                                  {misurazioneInEliminazione === row.id ? (
+                                    <Loader2 className="animate-spin" size={15} />
+                                  ) : (
+                                    <Trash2 size={15} />
+                                  )}
+                                </button>
+                              )}
                             </div>
                           </div>
                         );
@@ -525,12 +708,19 @@ export default function TestPageClient({
                   <div className="hidden gap-5 p-5 md:grid xl:grid-cols-[minmax(0,1fr)_260px]">
                     {/* TABELLA */}
                     <div className="min-w-0 overflow-hidden rounded-xl border border-white/10">
-                      <div className="grid grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.8fr] bg-white/5 px-4 py-3 text-xs font-bold uppercase tracking-wide text-zinc-500">
+                      <div
+                        className={`grid ${
+                          isAdmin
+                            ? "grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.8fr_44px]"
+                            : "grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.8fr]"
+                        } bg-white/5 px-4 py-3 text-xs font-bold uppercase tracking-wide text-zinc-500`}
+                      >
                         <span>Giocatore</span>
                         <span>Valore</span>
                         <span>Obiettivo</span>
                         <span>Storico</span>
                         <span>Stato</span>
+                        {isAdmin && <span className="sr-only">Azioni</span>}
                       </div>
 
                       {gruppo.rows.map((row) => {
@@ -547,7 +737,11 @@ export default function TestPageClient({
                         return (
                           <div
                             key={row.id}
-                            className="grid grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.8fr] items-center gap-3 border-t border-white/10 px-4 py-3"
+                            className={`grid ${
+                              isAdmin
+                                ? "grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.8fr_44px]"
+                                : "grid-cols-[1.3fr_0.7fr_0.7fr_1fr_0.8fr]"
+                            } items-center gap-3 border-t border-white/10 px-4 py-3`}
                           >
                             <div className="min-w-0">
                               <p className="truncate font-bold text-white">
@@ -588,6 +782,32 @@ export default function TestPageClient({
                             >
                               {badge.label}
                             </span>
+
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                title="Elimina questa misurazione"
+                                aria-label="Elimina questa misurazione"
+                                disabled={isEliminando}
+                                onClick={() =>
+                                  eliminaSingola(
+                                    row.id,
+                                    giocatore
+                                      ? `${giocatore.nome} ${giocatore.cognome}`
+                                      : "questo giocatore",
+                                    `${row.valore} ${gruppo.test.unita_misura}`,
+                                    gruppo.test.nome
+                                  )
+                                }
+                                className="grid h-9 w-9 place-items-center rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
+                              >
+                                {misurazioneInEliminazione === row.id ? (
+                                  <Loader2 className="animate-spin" size={15} />
+                                ) : (
+                                  <Trash2 size={15} />
+                                )}
+                              </button>
+                            )}
                           </div>
                         );
                       })}
@@ -639,10 +859,11 @@ export default function TestPageClient({
       </div>
 
       <AggiungiTestModal
-        open={openAggiungi}
-        onClose={() => setOpenAggiungi(false)}
+        open={openAggiungi || sessioneDaModificare !== null}
+        onClose={chiudiModale}
         tests={tests}
         coloreFlag={coloreFlag}
+        modifica={sessioneDaModificare}
       />
 
       <NuovoTipoTestModal

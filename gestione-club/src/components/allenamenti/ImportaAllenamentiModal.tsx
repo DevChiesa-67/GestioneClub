@@ -3,14 +3,17 @@
 import { useState } from "react";
 import {
   AlertTriangle,
+  CalendarRange,
   CheckCircle2,
   ChevronDown,
+  Dumbbell,
   Loader2,
   Upload,
   X,
 } from "lucide-react";
 
 import { AppCard } from "@/components/ui/AppCard";
+import ImportaPalestraSezione from "@/components/allenamenti/ImportaPalestraSezione";
 import { supabase } from "@/lib/supabase-client";
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -79,6 +82,14 @@ export default function ImportaAllenamentiModal({
   const [tabAttiva, setTabAttiva] = useState<"sedute" | "drillbank">(
     "sedute"
   );
+
+  // Che tipo di seduta si sta importando: il file di campo e quello di
+  // palestra hanno formati diversi e vanno letti da parser diversi.
+  const [tipoImport, setTipoImport] = useState<"allenamento" | "palestra">(
+    "allenamento"
+  );
+
+  const [filePalestraCaricato, setFilePalestraCaricato] = useState(false);
 
   async function handleFile(file: File) {
     setErroreFile(null);
@@ -456,6 +467,9 @@ export default function ImportaAllenamentiModal({
     }
   }
 
+  const puoCambiareTipo =
+    tipoImport === "allenamento" ? !sedute : !filePalestraCaricato;
+
   return (
     <div className="space-y-4 sm:space-y-6">
       <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4 sm:gap-6 sm:pb-6">
@@ -464,8 +478,9 @@ export default function ImportaAllenamentiModal({
             Importa da Excel
           </h2>
           <p className="mt-1 text-sm text-zinc-400">
-            Carica un file con la programmazione della settimana: leggiamo le
-            sedute e te le mostriamo in anteprima prima di salvarle.
+            {tipoImport === "allenamento"
+              ? "Carica un file con la programmazione della settimana: leggiamo le sedute e te le mostriamo in anteprima prima di salvarle."
+              : "Carica il file della palestra: leggiamo gli esercizi gruppo per gruppo e te li mostriamo in anteprima prima di salvarli."}
           </p>
         </div>
 
@@ -478,7 +493,64 @@ export default function ImportaAllenamentiModal({
         </button>
       </div>
 
-      {!sedute ? (
+      {/* CHE COSA SI STA IMPORTANDO */}
+      {puoCambiareTipo && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {(
+            [
+              {
+                valore: "allenamento" as const,
+                icona: CalendarRange,
+                titolo: "Allenamento",
+                testo: "Microciclo settimanale con le sedute in campo.",
+              },
+              {
+                valore: "palestra" as const,
+                icona: Dumbbell,
+                titolo: "Palestra",
+                testo: "Un foglio per gruppo con serie, rep, RPE e carico.",
+              },
+            ]
+          ).map((opzione) => {
+            const attivo = tipoImport === opzione.valore;
+            const Icona = opzione.icona;
+
+            return (
+              <button
+                key={opzione.valore}
+                type="button"
+                onClick={() => setTipoImport(opzione.valore)}
+                className="rounded-2xl border p-4 text-left transition"
+                style={{
+                  borderColor: attivo ? themeColor : "#27272a",
+                  backgroundColor: attivo ? `${themeColor}18` : "transparent",
+                }}
+              >
+                <Icona
+                  className="h-5 w-5"
+                  style={{ color: attivo ? themeColor : "#a1a1aa" }}
+                />
+
+                <p className="mt-2 font-black text-white">{opzione.titolo}</p>
+
+                <p className="mt-1 text-xs leading-5 text-zinc-400">
+                  {opzione.testo}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {tipoImport === "palestra" ? (
+        <ImportaPalestraSezione
+          onClose={onClose}
+          onSaved={onSaved}
+          themeColor={themeColor}
+          isAdmin={isAdmin}
+          onFileCaricato={setFilePalestraCaricato}
+        />
+      ) : !sedute ? (
         <AppCard>
           <label className="flex min-h-[200px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-zinc-700 p-8 text-center transition hover:border-zinc-500">
             {caricamentoFile ? (

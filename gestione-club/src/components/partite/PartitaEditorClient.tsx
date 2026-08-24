@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   ChevronDown,
   CircleDot,
+  Eraser,
   Eye,
   Goal,
   Layers,
@@ -1100,6 +1101,49 @@ function giocatoriPerPosizione(
     );
   }
 
+  /**
+   * Svuota la formazione: titolari e panchina tornano tutti "non
+   * convocato", senza numero, senza capitano/vicecapitano e senza ruolo
+   * panchina. Agisce solo sullo stato locale: per renderlo definitivo
+   * serve "Salva convocazioni", che lato server cancella le righe dei non
+   * convocati.
+   */
+  function pulisciFormazione() {
+    const convocati = convocazioniState.filter(
+      (item) => item.convocato
+    ).length;
+
+    if (convocati === 0) return;
+
+    const conferma = window.confirm(
+      `Vuoi togliere tutti i ${convocati} giocatori dalla formazione, panchina compresa? Dovrai poi salvare per rendere la modifica definitiva.`
+    );
+
+    if (!conferma) return;
+
+    setConvocazioniState((prev) =>
+      prev.map((item) => ({
+        ...item,
+        convocato: false,
+        titolare: false,
+        capitano: false,
+        vicecapitano: false,
+        posizione: "panchina",
+        // Il numero va liberato insieme al posto, altrimenti resta
+        // occupato da un giocatore che non e' piu' della partita:
+        // stessa regola di rimuoviDallaPanchina.
+        numero_maglia: null,
+        ordine: null,
+        ruolo_panchina: null,
+        note: null,
+      }))
+    );
+
+    setMessage(
+      "Formazione svuotata. Premi \u201cSalva convocazioni\u201d per confermare."
+    );
+  }
+
   function salvaStats() {
     setMessage(null);
 
@@ -1179,6 +1223,10 @@ function giocatoriPerPosizione(
       : null,
   };
 });
+
+  const numeroConvocati = convocazioniState.filter(
+    (item) => item.convocato
+  ).length;
 
   const giocatoriPanchina = giocatori.filter(
     (giocatore) => {
@@ -1982,6 +2030,39 @@ function giocatoriPerPosizione(
                   <Eye className="h-4 w-4" />
                   Anteprima
                 </button>
+
+                {isAdmin && (
+                <button
+                  type="button"
+                  onClick={pulisciFormazione}
+                  disabled={isPending || numeroConvocati === 0}
+                  title="Toglie tutti i giocatori da titolari e panchina"
+                  className="
+                    inline-flex
+                    w-full
+                    shrink-0
+                    items-center
+                    justify-center
+                    gap-2
+                    rounded-xl
+                    border border-red-900/70
+                    bg-red-950/30
+                    px-5
+                    py-3
+                    text-sm
+                    font-bold
+                    text-red-300
+                    transition
+                    hover:bg-red-950/60
+                    disabled:cursor-not-allowed
+                    disabled:opacity-40
+                    sm:w-auto
+                  "
+                >
+                  <Eraser className="h-4 w-4" />
+                  Pulisci formazione
+                </button>
+                )}
 
                 {isAdmin && (
                 <button
@@ -2946,6 +3027,38 @@ function giocatoriPerPosizione(
                   )}
                 </div>
 
+                {/* PULISCI MOBILE */}
+                {isAdmin && (
+                <button
+                  type="button"
+                  onClick={pulisciFormazione}
+                  disabled={isPending || numeroConvocati === 0}
+                  className="
+                    mt-5
+                    inline-flex
+                    w-full
+                    items-center
+                    justify-center
+                    gap-2
+                    rounded-xl
+                    border border-red-900/70
+                    bg-red-950/30
+                    px-5
+                    py-3
+                    text-sm
+                    font-bold
+                    text-red-300
+                    transition
+                    hover:bg-red-950/60
+                    disabled:cursor-not-allowed
+                    disabled:opacity-40
+                  "
+                >
+                  <Eraser className="h-4 w-4" />
+                  Pulisci formazione
+                </button>
+                )}
+
                 {/* SALVA MOBILE */}
                 {isAdmin && (
                 <button
@@ -2953,7 +3066,7 @@ function giocatoriPerPosizione(
                   onClick={salvaConvocazioni}
                   disabled={isPending}
                   className="
-                    mt-5
+                    mt-3
                     inline-flex
                     w-full
                     items-center

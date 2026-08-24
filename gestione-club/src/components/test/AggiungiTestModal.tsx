@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { Loader2, Save, Search, X } from "lucide-react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { AlertTriangle, Loader2, Save, Search, Trash2, X } from "lucide-react";
 import {
   caricaGiocatoriPresenti,
+  caricaMisurazioniTest,
+  eliminaMisurazioniTest,
   salvaMisurazioniTest,
 } from "@/app/(dashboard)/test/actions";
 import { DateInput } from "@/components/ui/DateInput";
@@ -29,31 +31,94 @@ type RigaMisurazione = {
   note: string;
 };
 
+type MisurazioneSalvata = {
+  id: string;
+  giocatore_id: string;
+  valore: number | null;
+  obiettivo: number | null;
+  note: string | null;
+  giocatore: Giocatore | null;
+};
+
+/** Sessione gia' salvata che si sta riaprendo per modificarla. */
+export type SessioneDaModificare = {
+  test_id: string;
+  data_test: string;
+};
+
 type Props = {
   open: boolean;
   onClose: () => void;
   tests: TestPerformance[];
   coloreFlag: string;
+  /** Se valorizzata, il modale si apre in modifica su quella sessione. */
+  modifica?: SessioneDaModificare | null;
 };
+
+function testoValore(valore: number | null) {
+  return valore === null || valore === undefined ? "" : String(valore);
+}
+
+function ordinaGiocatori(elenco: Giocatore[]) {
+  return [...elenco].sort((a, b) => {
+    const perCognome = (a.cognome ?? "").localeCompare(b.cognome ?? "", "it-IT");
+
+    if (perCognome !== 0) return perCognome;
+
+    return (a.nome ?? "").localeCompare(b.nome ?? "", "it-IT");
+  });
+}
 
 export default function AggiungiTestModal({
   open,
   onClose,
   tests,
   coloreFlag,
+  modifica = null,
 }: Props) {
   const [dataTest, setDataTest] = useState("");
   const [testId, setTestId] = useState("");
   const [giocatori, setGiocatori] = useState<Giocatore[]>([]);
   const [righe, setRighe] = useState<Record<string, RigaMisurazione>>({});
+  const [misurazioniSalvate, setMisurazioniSalvate] = useState(0);
   const [errore, setErrore] = useState<string | null>(null);
   const [isLoadingGiocatori, startLoadingGiocatori] = useTransition();
   const [isSaving, startSaving] = useTransition();
+  const [isDeleting, startDeleting] = useTransition();
 
   const selectedTest = useMemo(
     () => tests.find((test) => test.id === testId) ?? null,
     [tests, testId]
   );
+
+  const inModifica = modifica !== null;
+
+  const modificaTestId = modifica?.test_id ?? "";
+  const modificaDataTest = modifica?.data_test ?? "";
+
+  /**
+   * All'apertura: in modifica carica subito la sessione scelta, altrimenti
+   * riparte pulito.
+   */
+  useEffect(() => {
+    if (!open) return;
+
+    setErrore(null);
+
+    if (modificaTestId && modificaDataTest) {
+      setDataTest(modificaDataTest);
+      setTestId(modificaTestId);
+      caricaAtleti(modificaDataTest, modificaTestId);
+      return;
+    }
+
+    setDataTest("");
+    setTestId("");
+    setGiocatori([]);
+    setRighe({});
+    setMisurazioniSalvate(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, modificaTestId, modificaDataTest]);
 
   if (!open) return null;
 
@@ -74,6 +139,91 @@ export default function AggiungiTestModal({
     }));
   }
 
+  /**
+   * Carica insieme i presenti di quella data e le misurazioni gia' salvate
+   * per quel test: l'elenco e' l'unione dei due, con i valori gia' inseriti
+   * precompilati. Cosi' reinserire lo stesso test lo aggiorna invece di
+   * duplicarlo.
+   */
+  function caricaAtleti(data: string, test: string) {
+    setErrore(null);
+
+    startLoadingGiocatori(async () => {
+      try {
+        const [presentiRaw, salvateRaw] = await Promise.all([
+          caricaGiocatoriPresenti(data),
+          caricaMisurazioniTest(data, test),
+        ]);
+
+        const presenti = presentiRaw as Giocatore[];
+        const salvate = salvateRaw as MisurazioneSalvata[];
+
+        const perGiocatore = new Map<string, MisurazioneSalvata>();
+
+        for (const misurazione of salvate) {
+          perGiocatore.set(misurazione.giocatore_id, misurazione);
+        }
+
+        const elenco = new Map<string, Giocatore>();
+
+        // Prima chi ha gia' una misurazione: potrebbe non risultare presente
+        // oggi (presenza corretta a posteriori) e non deve sparire.
+        for (const misurazione of salvate) {
+          if (misurazione.giocatore) {
+            elenco.set(misurazione.giocatore_id, misurazione.giocatore);
+          }
+        }
+
+        for (const giocatore of presenti) {
+          if (!elenco.has(giocatore.id)) {
+            elenco.set(giocatore.id, giocatore);
+          }
+        }
+
+        const ordinati = ordinaGiocatori(Array.from(elenco.values()));
+
+        const nuoveRighe: Record<string, RigaMisurazione> = {};
+
+        ordinati.forEach((giocatore) => {
+          const salvata = perGiocatore.get(giocatore.id);
+
+          nuoveRighe[giocatore.id] = {
+            giocatore_id: giocatore.id,
+            valore: testoValore(salvata?.valore ?? null),
+            obiettivo: testoValore(salvata?.obiettivo ?? null),
+            note: salvata?.note ?? "",
+          };
+        });
+
+        setGiocatori(ordinati);
+        setRighe(nuoveRighe);
+        setMisurazioniSalvate(salvate.length);
+      } catch (error) {
+        setErrore(
+          error instanceof Error
+            ? error.message
+            : "Errore durante il caricamento dei giocatori."
+        );
+      }
+    });
+  }
+
+  /**
+   * Svuota i campi di un giocatore: al salvataggio la sua misurazione
+   * viene eliminata (vedi salvaMisurazioniTest).
+   */
+  function svuotaRiga(giocatoreId: string) {
+    setRighe((prev) => ({
+      ...prev,
+      [giocatoreId]: {
+        giocatore_id: giocatoreId,
+        valore: "",
+        obiettivo: "",
+        note: "",
+      },
+    }));
+  }
+
   function cercaGiocatori() {
     setErrore(null);
 
@@ -87,29 +237,32 @@ export default function AggiungiTestModal({
       return;
     }
 
-    startLoadingGiocatori(async () => {
+    caricaAtleti(dataTest, testId);
+  }
+
+  function eliminaSessione() {
+    setErrore(null);
+
+    const conferma = window.confirm(
+      `Vuoi eliminare tutte le ${misurazioniSalvate} misurazioni salvate per questo test in questa data? L'operazione non e' reversibile.`
+    );
+
+    if (!conferma) return;
+
+    startDeleting(async () => {
       try {
-        const result = (await caricaGiocatoriPresenti(dataTest)) as Giocatore[];
-
-        setGiocatori(result);
-
-        const nuoveRighe: Record<string, RigaMisurazione> = {};
-
-        result.forEach((giocatore) => {
-          nuoveRighe[giocatore.id] = {
-            giocatore_id: giocatore.id,
-            valore: "",
-            obiettivo: "",
-            note: "",
-          };
+        await eliminaMisurazioniTest({
+          data_test: dataTest,
+          test_id: testId,
         });
 
-        setRighe(nuoveRighe);
+        onClose();
+        window.location.reload();
       } catch (error) {
         setErrore(
           error instanceof Error
             ? error.message
-            : "Errore durante il caricamento dei giocatori."
+            : "Errore durante l'eliminazione."
         );
       }
     });
@@ -142,6 +295,7 @@ export default function AggiungiTestModal({
         setTestId("");
         setGiocatori([]);
         setRighe({});
+        setMisurazioniSalvate(0);
         onClose();
         window.location.reload();
       } catch (error) {
@@ -169,9 +323,13 @@ export default function AggiungiTestModal({
       <div className="max-h-[94vh] w-full max-w-6xl overflow-hidden rounded-3xl border border-white/10 bg-[#111] shadow-2xl sm:max-h-[90vh]">
         <div className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-4 sm:items-center sm:px-5">
           <div className="min-w-0">
-            <h2 className="text-lg font-black text-white">Aggiungi test</h2>
+            <h2 className="text-lg font-black text-white">
+              {inModifica ? "Modifica test salvato" : "Aggiungi test"}
+            </h2>
             <p className="mt-1 text-xs leading-5 text-zinc-500 sm:text-sm">
-              Vengono caricati solo i presenti P, PM o PP nella squadra attiva.
+              {inModifica
+                ? "Correggi i valori, svuota un campo per togliere quella misurazione."
+                : "Vengono caricati solo i presenti P, PM o PP nella squadra attiva."}
             </p>
           </div>
 
@@ -193,10 +351,12 @@ export default function AggiungiTestModal({
               <div className="relative">
                 <DateInput
                   value={dataTest}
+                  disabled={inModifica}
                   onChange={(v) => {
                     setDataTest(v);
                     setGiocatori([]);
                     setRighe({});
+                    setMisurazioniSalvate(0);
                     setErrore(null);
                   }}
                   wrapperStyle={{
@@ -217,13 +377,15 @@ export default function AggiungiTestModal({
 
               <select
                 value={testId}
+                disabled={inModifica}
                 onChange={(e) => {
                   setTestId(e.target.value);
                   setGiocatori([]);
                   setRighe({});
+                  setMisurazioniSalvate(0);
                   setErrore(null);
                 }}
-                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition focus:border-white/30 sm:text-base"
+                className="w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition focus:border-white/30 disabled:opacity-60 sm:text-base"
               >
                 <option value="">Seleziona test</option>
                 {tests.map((test) => (
@@ -234,7 +396,7 @@ export default function AggiungiTestModal({
               </select>
             </div>
 
-            <div className="flex items-end">
+            <div className={`flex items-end ${inModifica ? "hidden" : ""}`}>
               <button
                 onClick={cercaGiocatori}
                 disabled={isLoadingGiocatori || !dataTest || !testId}
@@ -257,6 +419,34 @@ export default function AggiungiTestModal({
             </p>
           )}
 
+          {misurazioniSalvate > 0 && (
+            <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-start gap-2 text-sm leading-5 text-amber-200">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+
+                <span>
+                  Ci sono gia&apos; {misurazioniSalvate}{" "}
+                  {misurazioniSalvate === 1 ? "misurazione" : "misurazioni"}{" "}
+                  per questo test in questa data: salvando le aggiorni, non
+                  crei un doppione.
+                </span>
+              </div>
+
+              <button
+                onClick={eliminaSessione}
+                disabled={isDeleting || isSaving}
+                className="flex shrink-0 items-center justify-center gap-2 rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-2.5 text-sm font-bold text-red-300 transition hover:bg-red-500/20 disabled:opacity-60"
+              >
+                {isDeleting ? (
+                  <Loader2 className="animate-spin" size={16} />
+                ) : (
+                  <Trash2 size={16} />
+                )}
+                Elimina test
+              </button>
+            </div>
+          )}
+
           <div className="mt-5 overflow-hidden rounded-2xl border border-white/10 sm:mt-6">
             <div className="hidden grid-cols-[1.4fr_1fr_1fr_1fr] bg-white/5 px-4 py-3 text-xs font-bold uppercase tracking-wide text-zinc-400 md:grid">
               <span>Giocatore</span>
@@ -267,7 +457,9 @@ export default function AggiungiTestModal({
 
             {giocatori.length === 0 ? (
               <div className="px-4 py-10 text-center text-sm text-zinc-500">
-                Seleziona una data e carica i presenti.
+                {isLoadingGiocatori
+                  ? "Caricamento in corso..."
+                  : "Seleziona una data e carica i presenti."}
               </div>
             ) : (
               <div className="divide-y divide-white/10">
@@ -276,10 +468,22 @@ export default function AggiungiTestModal({
                     key={giocatore.id}
                     className="grid gap-3 p-4 md:grid-cols-[1.4fr_1fr_1fr_1fr] md:items-center md:px-4 md:py-3"
                   >
-                    <div className="min-w-0">
+                    <div className="flex min-w-0 items-center justify-between gap-2">
                       <p className="truncate text-base font-black text-white md:text-sm">
                         {giocatore.nome} {giocatore.cognome}
                       </p>
+
+                      {(righe[giocatore.id]?.valore ?? "") !== "" && (
+                        <button
+                          type="button"
+                          title="Svuota: al salvataggio questa misurazione viene eliminata"
+                          aria-label={`Svuota la misurazione di ${giocatore.nome} ${giocatore.cognome}`}
+                          onClick={() => svuotaRiga(giocatore.id)}
+                          className="grid h-8 w-8 shrink-0 place-items-center rounded-xl border border-red-500/30 bg-red-500/10 text-red-300 transition hover:bg-red-500/20"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
 
                     <div>
@@ -351,7 +555,9 @@ export default function AggiungiTestModal({
               ) : (
                 <Save size={18} />
               )}
-              Salva misurazioni
+              {misurazioniSalvate > 0
+                ? "Aggiorna misurazioni"
+                : "Salva misurazioni"}
             </button>
           </div>
         </div>
