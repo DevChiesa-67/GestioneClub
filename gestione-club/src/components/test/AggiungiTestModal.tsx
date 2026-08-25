@@ -59,6 +59,19 @@ function testoValore(valore: number | null) {
   return valore === null || valore === undefined ? "" : String(valore);
 }
 
+function minutiDaSecondi(valore: string) {
+  const secondi = Number(valore);
+  return valore === "" || !Number.isFinite(secondi)
+    ? ""
+    : String(Math.floor(secondi / 60));
+}
+
+function restoSecondi(valore: string) {
+  const secondi = Number(valore);
+  if (valore === "" || !Number.isFinite(secondi)) return "";
+  return String(Math.round((secondi % 60) * 100) / 100);
+}
+
 function ordinaGiocatori(elenco: Giocatore[]) {
   return [...elenco].sort((a, b) => {
     const perCognome = (a.cognome ?? "").localeCompare(b.cognome ?? "", "it-IT");
@@ -117,7 +130,6 @@ export default function AggiungiTestModal({
     setGiocatori([]);
     setRighe({});
     setMisurazioniSalvate(0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, modificaTestId, modificaDataTest]);
 
   if (!open) return null;
@@ -137,6 +149,28 @@ export default function AggiungiTestModal({
         [field]: value,
       },
     }));
+  }
+
+  function aggiornaTempo(
+    giocatoreId: string,
+    field: "valore" | "obiettivo",
+    parte: "minuti" | "secondi",
+    value: string
+  ) {
+    const corrente = righe[giocatoreId]?.[field] ?? "";
+    const minutiCorrenti = Number(minutiDaSecondi(corrente)) || 0;
+    const secondiCorrenti = Number(restoSecondi(corrente)) || 0;
+    const nuovoValore = value === "" ? 0 : Math.max(0, Number(value) || 0);
+    const minuti = parte === "minuti" ? nuovoValore : minutiCorrenti;
+    const secondi = parte === "secondi" ? Math.min(59.99, nuovoValore) : secondiCorrenti;
+
+    aggiornaRiga(
+      giocatoreId,
+      field,
+      minuti === 0 && secondi === 0 && value === ""
+        ? ""
+        : String(minuti * 60 + secondi)
+    );
   }
 
   /**
@@ -318,6 +352,8 @@ export default function AggiungiTestModal({
     ? `Obiettivo (${selectedTest.unita_misura})`
     : "Obiettivo";
 
+  const testATempo = selectedTest?.unita_misura === "secondi";
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 px-3 py-3 backdrop-blur-sm sm:items-center sm:px-4">
       <div className="max-h-[94vh] w-full max-w-6xl overflow-hidden rounded-3xl border border-white/10 bg-[#111] shadow-2xl sm:max-h-[90vh]">
@@ -490,38 +526,134 @@ export default function AggiungiTestModal({
                       <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-zinc-500 md:hidden">
                         {labelValore}
                       </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={righe[giocatore.id]?.valore ?? ""}
-                        onChange={(e) =>
-                          aggiornaRiga(
-                            giocatore.id,
-                            "valore",
-                            e.target.value
-                          )
-                        }
-                        className="w-full rounded-2xl border border-white/10 bg-black px-3 py-3 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-white/30 md:py-2"
-                      />
+                      {testATempo ? (
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              placeholder="0"
+                              value={minutiDaSecondi(
+                                righe[giocatore.id]?.valore ?? ""
+                              )}
+                              onChange={(e) =>
+                                aggiornaTempo(
+                                  giocatore.id,
+                                  "valore",
+                                  "minuti",
+                                  e.target.value
+                                )
+                              }
+                              className="w-full rounded-2xl border border-white/10 bg-black px-3 py-3 pr-9 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-white/30 md:py-2"
+                            />
+                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-500">min</span>
+                          </label>
+                          <label className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              max="59.99"
+                              step="0.01"
+                              placeholder="0"
+                              value={restoSecondi(
+                                righe[giocatore.id]?.valore ?? ""
+                              )}
+                              onChange={(e) =>
+                                aggiornaTempo(
+                                  giocatore.id,
+                                  "valore",
+                                  "secondi",
+                                  e.target.value
+                                )
+                              }
+                              className="w-full rounded-2xl border border-white/10 bg-black px-3 py-3 pr-8 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-white/30 md:py-2"
+                            />
+                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-500">sec</span>
+                          </label>
+                        </div>
+                      ) : (
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={righe[giocatore.id]?.valore ?? ""}
+                          onChange={(e) =>
+                            aggiornaRiga(
+                              giocatore.id,
+                              "valore",
+                              e.target.value
+                            )
+                          }
+                          className="w-full rounded-2xl border border-white/10 bg-black px-3 py-3 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-white/30 md:py-2"
+                        />
+                      )}
                     </div>
 
                     <div>
                       <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-zinc-500 md:hidden">
                         {labelObiettivo}
                       </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={righe[giocatore.id]?.obiettivo ?? ""}
-                        onChange={(e) =>
-                          aggiornaRiga(
-                            giocatore.id,
-                            "obiettivo",
-                            e.target.value
-                          )
-                        }
-                        className="w-full rounded-2xl border border-white/10 bg-black px-3 py-3 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-white/30 md:py-2"
-                      />
+                      {testATempo ? (
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              placeholder="0"
+                              value={minutiDaSecondi(
+                                righe[giocatore.id]?.obiettivo ?? ""
+                              )}
+                              onChange={(e) =>
+                                aggiornaTempo(
+                                  giocatore.id,
+                                  "obiettivo",
+                                  "minuti",
+                                  e.target.value
+                                )
+                              }
+                              className="w-full rounded-2xl border border-white/10 bg-black px-3 py-3 pr-9 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-white/30 md:py-2"
+                            />
+                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-500">min</span>
+                          </label>
+                          <label className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              max="59.99"
+                              step="0.01"
+                              placeholder="0"
+                              value={restoSecondi(
+                                righe[giocatore.id]?.obiettivo ?? ""
+                              )}
+                              onChange={(e) =>
+                                aggiornaTempo(
+                                  giocatore.id,
+                                  "obiettivo",
+                                  "secondi",
+                                  e.target.value
+                                )
+                              }
+                              className="w-full rounded-2xl border border-white/10 bg-black px-3 py-3 pr-8 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-white/30 md:py-2"
+                            />
+                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-500">sec</span>
+                          </label>
+                        </div>
+                      ) : (
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={righe[giocatore.id]?.obiettivo ?? ""}
+                          onChange={(e) =>
+                            aggiornaRiga(
+                              giocatore.id,
+                              "obiettivo",
+                              e.target.value
+                            )
+                          }
+                          className="w-full rounded-2xl border border-white/10 bg-black px-3 py-3 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-white/30 md:py-2"
+                        />
+                      )}
                     </div>
 
                     <div>

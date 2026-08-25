@@ -9,7 +9,6 @@ import {
   Dumbbell,
   FileDown,
   FileUp,
-  Info,
   ListChecks,
   Loader2,
   Pencil,
@@ -2765,10 +2764,10 @@ export default function Page() {
                                                   lavoro,
                                                 )
                                               }
-                                              className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                                              className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs font-black text-zinc-300 hover:bg-zinc-800 hover:text-white"
                                               title="Dettagli drill bank"
                                             >
-                                              <Info className="h-4 w-4" />
+                                              {lavoro.codice || "Dettagli"}
                                             </button>
                                           )}
                                         </td>
@@ -2818,10 +2817,10 @@ export default function Page() {
                                   onClick={() =>
                                     setLavoroDrillBankAperto(lavoro)
                                   }
-                                  className="absolute right-3 top-3 rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+                                  className="absolute right-3 top-3 rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs font-black text-zinc-300 hover:bg-zinc-800 hover:text-white"
                                   title="Dettagli drill bank"
                                 >
-                                  <Info className="h-4 w-4" />
+                                  {lavoro.codice || "Dettagli"}
                                 </button>
                               )}
 
