@@ -9,6 +9,14 @@ import {
   salvaMisurazioniTest,
 } from "@/app/(dashboard)/test/actions";
 import { DateInput } from "@/components/ui/DateInput";
+import {
+  aggiornaComponenteTest,
+  etichettaUnitaTest,
+  parseUnitaTest,
+  unitaEffettivaTest,
+  valoreComponenteTest,
+  type ComponenteUnitaTest,
+} from "@/lib/test-unita";
 
 type TestPerformance = {
   id: string;
@@ -59,19 +67,6 @@ function testoValore(valore: number | null) {
   return valore === null || valore === undefined ? "" : String(valore);
 }
 
-function minutiDaSecondi(valore: string) {
-  const secondi = Number(valore);
-  return valore === "" || !Number.isFinite(secondi)
-    ? ""
-    : String(Math.floor(secondi / 60));
-}
-
-function restoSecondi(valore: string) {
-  const secondi = Number(valore);
-  if (valore === "" || !Number.isFinite(secondi)) return "";
-  return String(Math.round((secondi % 60) * 100) / 100);
-}
-
 function ordinaGiocatori(elenco: Giocatore[]) {
   return [...elenco].sort((a, b) => {
     const perCognome = (a.cognome ?? "").localeCompare(b.cognome ?? "", "it-IT");
@@ -80,6 +75,73 @@ function ordinaGiocatori(elenco: Giocatore[]) {
 
     return (a.nome ?? "").localeCompare(b.nome ?? "", "it-IT");
   });
+}
+
+function CampiMisurazioneComposta({
+  componenti,
+  valore,
+  unita,
+  onChange,
+}: {
+  componenti: ComponenteUnitaTest[];
+  valore: string;
+  unita: string;
+  onChange: (componente: ComponenteUnitaTest, valore: string) => void;
+}) {
+  const abbreviazioni: Record<ComponenteUnitaTest, string> = {
+    minuti: "min",
+    secondi: "sec",
+    centesimi: "cs",
+    kg: "kg",
+    g: "g",
+    metri: "m",
+    centimetri: "cm",
+  };
+
+  return (
+    <div
+      className="grid gap-2"
+      style={{
+        gridTemplateColumns: `repeat(${componenti.length}, minmax(0, 1fr))`,
+      }}
+    >
+      {componenti.map((componente) => {
+        const limitaSecondi =
+          componente === "secondi" && componenti.includes("minuti");
+        const limitaGrammi = componente === "g" && componenti.includes("kg");
+        const limitaCentimetri =
+          componente === "centimetri" && componenti.includes("metri");
+        const massimo =
+          componente === "centesimi"
+            ? 99
+            : limitaSecondi
+              ? 59
+              : limitaGrammi
+                ? 999
+                : limitaCentimetri
+                  ? 99
+                : undefined;
+
+        return (
+          <label key={componente} className="relative min-w-0">
+            <input
+              type="number"
+              min="0"
+              max={massimo}
+              step="1"
+              placeholder="0"
+              value={valoreComponenteTest(valore, unita, componente)}
+              onChange={(e) => onChange(componente, e.target.value)}
+              className="w-full rounded-2xl border border-white/10 bg-black px-2 py-3 pr-9 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-white/30 md:py-2"
+            />
+            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-zinc-500">
+              {abbreviazioni[componente]}
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function AggiungiTestModal({
@@ -151,25 +213,23 @@ export default function AggiungiTestModal({
     }));
   }
 
-  function aggiornaTempo(
+  function aggiornaUnitaComposta(
     giocatoreId: string,
     field: "valore" | "obiettivo",
-    parte: "minuti" | "secondi",
+    componente: ComponenteUnitaTest,
     value: string
   ) {
-    const corrente = righe[giocatoreId]?.[field] ?? "";
-    const minutiCorrenti = Number(minutiDaSecondi(corrente)) || 0;
-    const secondiCorrenti = Number(restoSecondi(corrente)) || 0;
-    const nuovoValore = value === "" ? 0 : Math.max(0, Number(value) || 0);
-    const minuti = parte === "minuti" ? nuovoValore : minutiCorrenti;
-    const secondi = parte === "secondi" ? Math.min(59.99, nuovoValore) : secondiCorrenti;
-
     aggiornaRiga(
       giocatoreId,
       field,
-      minuti === 0 && secondi === 0 && value === ""
-        ? ""
-        : String(minuti * 60 + secondi)
+      aggiornaComponenteTest({
+        valoreNormalizzato: righe[giocatoreId]?.[field] ?? "",
+        unita: selectedTest
+          ? unitaEffettivaTest(selectedTest.nome, selectedTest.unita_misura)
+          : "",
+        componente,
+        nuovoValore: value,
+      })
     );
   }
 
@@ -342,17 +402,24 @@ export default function AggiungiTestModal({
     });
   }
 
+  const unitaSelezionataEffettiva = selectedTest
+    ? unitaEffettivaTest(selectedTest.nome, selectedTest.unita_misura)
+    : "";
+
   const labelValore = selectedTest
     ? selectedTest.tipo_test === "atletica"
-      ? `Misurazione (${selectedTest.unita_misura})`
-      : `Carico / Ripetizioni (${selectedTest.unita_misura})`
+      ? `Misurazione (${etichettaUnitaTest(unitaSelezionataEffettiva)})`
+      : `Carico (${etichettaUnitaTest(unitaSelezionataEffettiva)})`
     : "Misurazione";
 
   const labelObiettivo = selectedTest
-    ? `Obiettivo (${selectedTest.unita_misura})`
+    ? `Obiettivo (${etichettaUnitaTest(unitaSelezionataEffettiva)})`
     : "Obiettivo";
 
-  const testATempo = selectedTest?.unita_misura === "secondi";
+  const configurazioneUnita = selectedTest
+    ? parseUnitaTest(unitaSelezionataEffettiva)
+    : null;
+  const testConUnitaComposta = configurazioneUnita?.categoria !== "altro";
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 px-3 py-3 backdrop-blur-sm sm:items-center sm:px-4">
@@ -526,52 +593,20 @@ export default function AggiungiTestModal({
                       <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-zinc-500 md:hidden">
                         {labelValore}
                       </label>
-                      {testATempo ? (
-                        <div className="grid grid-cols-2 gap-2">
-                          <label className="relative">
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              placeholder="0"
-                              value={minutiDaSecondi(
-                                righe[giocatore.id]?.valore ?? ""
-                              )}
-                              onChange={(e) =>
-                                aggiornaTempo(
-                                  giocatore.id,
-                                  "valore",
-                                  "minuti",
-                                  e.target.value
-                                )
-                              }
-                              className="w-full rounded-2xl border border-white/10 bg-black px-3 py-3 pr-9 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-white/30 md:py-2"
-                            />
-                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-500">min</span>
-                          </label>
-                          <label className="relative">
-                            <input
-                              type="number"
-                              min="0"
-                              max="59.99"
-                              step="0.01"
-                              placeholder="0"
-                              value={restoSecondi(
-                                righe[giocatore.id]?.valore ?? ""
-                              )}
-                              onChange={(e) =>
-                                aggiornaTempo(
-                                  giocatore.id,
-                                  "valore",
-                                  "secondi",
-                                  e.target.value
-                                )
-                              }
-                              className="w-full rounded-2xl border border-white/10 bg-black px-3 py-3 pr-8 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-white/30 md:py-2"
-                            />
-                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-500">sec</span>
-                          </label>
-                        </div>
+                      {testConUnitaComposta && configurazioneUnita ? (
+                        <CampiMisurazioneComposta
+                          componenti={configurazioneUnita.componenti}
+                          valore={righe[giocatore.id]?.valore ?? ""}
+                          unita={unitaSelezionataEffettiva}
+                          onChange={(componente, valore) =>
+                            aggiornaUnitaComposta(
+                              giocatore.id,
+                              "valore",
+                              componente,
+                              valore
+                            )
+                          }
+                        />
                       ) : (
                         <input
                           type="number"
@@ -593,52 +628,20 @@ export default function AggiungiTestModal({
                       <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-zinc-500 md:hidden">
                         {labelObiettivo}
                       </label>
-                      {testATempo ? (
-                        <div className="grid grid-cols-2 gap-2">
-                          <label className="relative">
-                            <input
-                              type="number"
-                              min="0"
-                              step="1"
-                              placeholder="0"
-                              value={minutiDaSecondi(
-                                righe[giocatore.id]?.obiettivo ?? ""
-                              )}
-                              onChange={(e) =>
-                                aggiornaTempo(
-                                  giocatore.id,
-                                  "obiettivo",
-                                  "minuti",
-                                  e.target.value
-                                )
-                              }
-                              className="w-full rounded-2xl border border-white/10 bg-black px-3 py-3 pr-9 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-white/30 md:py-2"
-                            />
-                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-500">min</span>
-                          </label>
-                          <label className="relative">
-                            <input
-                              type="number"
-                              min="0"
-                              max="59.99"
-                              step="0.01"
-                              placeholder="0"
-                              value={restoSecondi(
-                                righe[giocatore.id]?.obiettivo ?? ""
-                              )}
-                              onChange={(e) =>
-                                aggiornaTempo(
-                                  giocatore.id,
-                                  "obiettivo",
-                                  "secondi",
-                                  e.target.value
-                                )
-                              }
-                              className="w-full rounded-2xl border border-white/10 bg-black px-3 py-3 pr-8 text-sm text-white outline-none transition placeholder:text-zinc-600 focus:border-white/30 md:py-2"
-                            />
-                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-500">sec</span>
-                          </label>
-                        </div>
+                      {testConUnitaComposta && configurazioneUnita ? (
+                        <CampiMisurazioneComposta
+                          componenti={configurazioneUnita.componenti}
+                          valore={righe[giocatore.id]?.obiettivo ?? ""}
+                          unita={unitaSelezionataEffettiva}
+                          onChange={(componente, valore) =>
+                            aggiornaUnitaComposta(
+                              giocatore.id,
+                              "obiettivo",
+                              componente,
+                              valore
+                            )
+                          }
+                        />
                       ) : (
                         <input
                           type="number"

@@ -2,12 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase-server";
+import { parseUnitaTest } from "@/lib/test-unita";
 
 type CreaTipoTestInput = {
   nome: string;
   tipo_test: "atletica" | "forza";
-  unita_misura: "secondi" | "kg" | "ripetizioni" | "metri" | "cm";
+  unita_misura: string;
 };
+
+type AggiornaTipoTestInput = CreaTipoTestInput & { id: string };
 
 type MisurazioneInput = {
   giocatore_id: string;
@@ -74,6 +77,18 @@ function assertAdmin(tipoProfilo: unknown) {
   }
 }
 
+function erroreUnitaTest(error: { code?: string; message?: string }) {
+  if (
+    error.code === "23514" &&
+    error.message?.includes("test_atletici_forza_unita_misura_check")
+  ) {
+    return new Error(
+      "Il database non è ancora abilitato alle unità composte. Esegui lo script abilita-unita-composte-test.sql nel SQL Editor di Supabase."
+    );
+  }
+  return new Error(error.message || "Errore durante il salvataggio del test.");
+}
+
 export async function creaTipoTest(input: CreaTipoTestInput) {
   const { supabase, profilo } = await getProfiloCorrente();
 
@@ -85,6 +100,14 @@ export async function creaTipoTest(input: CreaTipoTestInput) {
     throw new Error("Nome test obbligatorio.");
   }
 
+  const configurazione = parseUnitaTest(input.unita_misura);
+  if (
+    configurazione.categoria === "altro" ||
+    configurazione.componenti.length === 0
+  ) {
+    throw new Error("Configurazione dell'unità di misura non valida.");
+  }
+
   const { error } = await supabase.from("test_atletici_forza").insert({
     nome,
     tipo_test: input.tipo_test,
@@ -92,9 +115,63 @@ export async function creaTipoTest(input: CreaTipoTestInput) {
   });
 
   if (error) {
-    throw new Error(error.message);
+    throw erroreUnitaTest(error);
   }
 
+  revalidatePath("/test");
+}
+
+export async function aggiornaTipoTest(input: AggiornaTipoTestInput) {
+  const { supabase, profilo } = await getProfiloCorrente();
+  assertAdmin(profilo.tipo_profilo);
+
+  const nome = input.nome.trim();
+  if (!input.id || !nome) throw new Error("Nome test obbligatorio.");
+
+  const configurazione = parseUnitaTest(input.unita_misura);
+  if (
+    configurazione.categoria === "altro" ||
+    configurazione.componenti.length === 0
+  ) {
+    throw new Error("Configurazione dell'unità di misura non valida.");
+  }
+
+  const { error } = await supabase
+    .from("test_atletici_forza")
+    .update({
+      nome,
+      tipo_test: input.tipo_test,
+      unita_misura: input.unita_misura,
+    })
+    .eq("id", input.id);
+
+  if (error) throw erroreUnitaTest(error);
+  revalidatePath("/test");
+}
+
+export async function eliminaTipoTest(testId: string) {
+  const { supabase, profilo } = await getProfiloCorrente();
+  assertAdmin(profilo.tipo_profilo);
+  if (!testId) throw new Error("Tipo di test non valido.");
+
+  const { count, error: countError } = await supabase
+    .from("test_misurazioni")
+    .select("id", { count: "exact", head: true })
+    .eq("test_id", testId);
+
+  if (countError) throw new Error(countError.message);
+  if ((count ?? 0) > 0) {
+    throw new Error(
+      `Questo test contiene ${count} misurazioni. Elimina prima le sessioni collegate.`
+    );
+  }
+
+  const { error } = await supabase
+    .from("test_atletici_forza")
+    .delete()
+    .eq("id", testId);
+
+  if (error) throw new Error(error.message);
   revalidatePath("/test");
 }
 

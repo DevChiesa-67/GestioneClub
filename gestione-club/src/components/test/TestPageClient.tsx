@@ -6,6 +6,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Settings2,
   Target,
   Trash2,
   TrendingUp,
@@ -20,7 +21,15 @@ import {
   eliminaMisurazioniTest,
 } from "@/app/(dashboard)/test/actions";
 import NuovoTipoTestModal from "@/components/test/NuovoTipoTestModal";
+import GestisciTipiTestModal, {
+  type TipoTestGestibile,
+} from "@/components/test/GestisciTipiTestModal";
 import TestSparkline from "@/components/test/TestSparkline";
+import {
+  etichettaUnitaTest,
+  formattaValoreTest,
+  unitaEffettivaTest,
+} from "@/lib/test-unita";
 
 type Club = {
   id: string;
@@ -136,13 +145,15 @@ function statoBadge(percentuale: number | null) {
 
 export default function TestPageClient({
   club,
-  profilo,
   tests,
   misurazioni,
   isAdmin,
 }: Props) {
   const [openAggiungi, setOpenAggiungi] = useState(false);
   const [openNuovoTipo, setOpenNuovoTipo] = useState(false);
+  const [openGestisciTipi, setOpenGestisciTipi] = useState(false);
+  const [tipoTestDaModificare, setTipoTestDaModificare] =
+    useState<TipoTestGestibile | null>(null);
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   const [sessioneDaModificare, setSessioneDaModificare] =
@@ -162,11 +173,22 @@ export default function TestPageClient({
   const coloreFlag = club.colore_flag || "#d71920";
 
   const misurazioniNormalizzate = useMemo(() => {
-    return misurazioni.map((m) => ({
-      ...m,
-      giocatore: getSingle(m.giocatori),
-      test: getSingle(m.test_atletici_forza),
-    }));
+    return misurazioni.map((m) => {
+      const test = getSingle(m.test_atletici_forza);
+      return {
+        ...m,
+        giocatore: getSingle(m.giocatori),
+        test: test
+          ? {
+              ...test,
+              unita_misura: unitaEffettivaTest(
+                test.nome,
+                test.unita_misura
+              ),
+            }
+          : null,
+      };
+    });
   }, [misurazioni]);
 
   const gruppi = useMemo(() => {
@@ -349,6 +371,15 @@ export default function TestPageClient({
           <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:gap-3">
             <button
               type="button"
+              onClick={() => setOpenGestisciTipi(true)}
+              className="col-span-2 flex min-w-0 items-center justify-center gap-2 rounded-xl border border-white/10 px-3 py-3 text-sm font-bold text-white transition hover:bg-white/5 sm:col-span-1 sm:px-5"
+            >
+              <Settings2 size={17} className="shrink-0" />
+              Tipi e configurazioni
+            </button>
+
+            <button
+              type="button"
               onClick={() => setOpenNuovoTipo(true)}
               className="flex min-w-0 items-center justify-center gap-2 rounded-xl border border-white/10 px-3 py-3 text-sm font-bold text-white transition hover:bg-white/5 sm:px-5"
             >
@@ -440,12 +471,13 @@ export default function TestPageClient({
                       </span>
 
                       <span className="rounded-full bg-white/5 px-2 py-1 text-[10px] font-bold text-zinc-400">
-                        {gruppo.test.unita_misura}
+                        {etichettaUnitaTest(gruppo.test.unita_misura)}
                       </span>
                     </div>
 
                     <p className="mt-1 hidden text-sm text-zinc-500 sm:block">
-                      {gruppo.test.tipo_test} · {gruppo.test.unita_misura} ·{" "}
+                      {gruppo.test.tipo_test} ·{" "}
+                      {etichettaUnitaTest(gruppo.test.unita_misura)} ·{" "}
                       {gruppo.rows.length} atleti
                     </p>
                   </div>
@@ -611,10 +643,10 @@ export default function TestPageClient({
                                 </div>
 
                                 <p className="mt-1.5 truncate text-base font-black text-white">
-                                  {row.valore}{" "}
-                                  <span className="text-xs font-semibold text-zinc-500">
-                                    {gruppo.test.unita_misura}
-                                  </span>
+                                  {formattaValoreTest(
+                                    Number(row.valore),
+                                    gruppo.test.unita_misura
+                                  )}
                                 </p>
                               </div>
 
@@ -630,10 +662,10 @@ export default function TestPageClient({
                                 <p className="mt-1.5 truncate text-base font-black text-white">
                                   {row.obiettivo ? (
                                     <>
-                                      {row.obiettivo}{" "}
-                                      <span className="text-xs font-semibold text-zinc-500">
-                                        {gruppo.test.unita_misura}
-                                      </span>
+                                      {formattaValoreTest(
+                                        row.obiettivo,
+                                        gruppo.test.unita_misura
+                                      )}
                                     </>
                                   ) : (
                                     <span className="text-zinc-600">—</span>
@@ -682,7 +714,10 @@ export default function TestPageClient({
                                       giocatore
                                         ? `${giocatore.nome} ${giocatore.cognome}`
                                         : "questo giocatore",
-                                      `${row.valore} ${gruppo.test.unita_misura}`,
+                                      formattaValoreTest(
+                                        Number(row.valore),
+                                        gruppo.test.unita_misura
+                                      ),
                                       gruppo.test.nome
                                     )
                                   }
@@ -758,12 +793,18 @@ export default function TestPageClient({
                             </div>
 
                             <p className="text-sm font-bold text-white">
-                              {row.valore} {gruppo.test.unita_misura}
+                              {formattaValoreTest(
+                                Number(row.valore),
+                                gruppo.test.unita_misura
+                              )}
                             </p>
 
                             <p className="text-sm text-zinc-300">
                               {row.obiettivo
-                                ? `${row.obiettivo} ${gruppo.test.unita_misura}`
+                                ? formattaValoreTest(
+                                    row.obiettivo,
+                                    gruppo.test.unita_misura
+                                  )
                                 : "-"}
                             </p>
 
@@ -795,7 +836,10 @@ export default function TestPageClient({
                                     giocatore
                                       ? `${giocatore.nome} ${giocatore.cognome}`
                                       : "questo giocatore",
-                                    `${row.valore} ${gruppo.test.unita_misura}`,
+                                    formattaValoreTest(
+                                      Number(row.valore),
+                                      gruppo.test.unita_misura
+                                    ),
                                     gruppo.test.nome
                                   )
                                 }
@@ -867,9 +911,23 @@ export default function TestPageClient({
       />
 
       <NuovoTipoTestModal
-        open={openNuovoTipo}
-        onClose={() => setOpenNuovoTipo(false)}
+        open={openNuovoTipo || tipoTestDaModificare !== null}
+        onClose={() => {
+          setOpenNuovoTipo(false);
+          setTipoTestDaModificare(null);
+        }}
         coloreFlag={coloreFlag}
+        testDaModificare={tipoTestDaModificare}
+      />
+
+      <GestisciTipiTestModal
+        open={openGestisciTipi}
+        tests={tests}
+        onClose={() => setOpenGestisciTipi(false)}
+        onEdit={(test) => {
+          setOpenGestisciTipi(false);
+          setTipoTestDaModificare(test);
+        }}
       />
     </div>
   );
