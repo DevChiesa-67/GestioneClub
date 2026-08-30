@@ -71,6 +71,7 @@ export default function ModificaGiocatorePage() {
     influenza_squadra: "",
     importanza_giocatore: "",
     note: "",
+    accademia: false,
   });
 
   const iniziali = useMemo(() => {
@@ -148,6 +149,7 @@ export default function ModificaGiocatorePage() {
               influenza_squadra,
               importanza_giocatore,
               note,
+              accademia,
               foto_url
             `)
             .eq("id", giocatoreId)
@@ -185,6 +187,7 @@ export default function ModificaGiocatorePage() {
         importanza_giocatore:
           giocatore.importanza_giocatore?.toString() ?? "",
         note: giocatore.note ?? "",
+        accademia: Boolean(giocatore.accademia),
       });
 
       setFotoUrlEsistente(giocatore.foto_url ?? null);
@@ -310,6 +313,7 @@ export default function ModificaGiocatorePage() {
           : null,
         note: form.note || null,
         foto_url: fotoUrl,
+        accademia: form.accademia,
       });
 
       if (!result.success) {
@@ -510,8 +514,8 @@ export default function ModificaGiocatorePage() {
 
                 {form.email.trim() && (
                   <p className="mt-4 text-xs leading-5 text-zinc-500">
-                    Nota: dato che questo giocatore ha un'email associata,
-                    il campo "ID atleta" viene usato internamente per
+                    Nota: dato che questo giocatore ha un&apos;email associata,
+                    il campo &quot;ID atleta&quot; viene usato internamente per
                     collegare il giocatore al suo profilo di accesso e
                     verrà sovrascritto automaticamente al salvataggio.
                   </p>
@@ -521,6 +525,40 @@ export default function ModificaGiocatorePage() {
 
             {activeTab === "Sportivi" && (
               <Section title="Dati sportivi">
+                <button
+                  type="button"
+                  aria-pressed={form.accademia}
+                  onClick={() =>
+                    setForm((prev) => ({
+                      ...prev,
+                      accademia: !prev.accademia,
+                    }))
+                  }
+                  className={`mb-5 flex w-full items-center justify-between rounded-2xl border p-4 text-left transition ${
+                    form.accademia
+                      ? "border-amber-400/50 bg-amber-400/10"
+                      : "border-white/10 bg-black hover:border-white/20"
+                  }`}
+                >
+                  <span>
+                    <span className="block font-black text-white">
+                      Flag Accademia
+                    </span>
+                    <span className="mt-1 block text-sm text-zinc-500">
+                      Indica l&apos;appartenenza del giocatore all&apos;Accademia.
+                    </span>
+                  </span>
+                  <span
+                    className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl text-lg font-black ${
+                      form.accademia
+                        ? "bg-amber-400 text-black"
+                        : "bg-white/5 text-zinc-500"
+                    }`}
+                  >
+                    A
+                  </span>
+                </button>
+
                 <FormGrid>
                   <Select
                     label="Squadra"
@@ -627,9 +665,9 @@ export default function ModificaGiocatorePage() {
                 </FormGrid>
 
                 <p className="mt-4 text-xs leading-5 text-zinc-500">
-                  Se aggiungi o modifichi l'email, al salvataggio il
+                  Se aggiungi o modifichi l&apos;email, al salvataggio il
                   giocatore verrà autorizzato ad accedere al gestionale
-                  con quell'indirizzo (o collegato al profilo già
+                  con quell&apos;indirizzo (o collegato al profilo già
                   esistente con la stessa email).
                 </p>
               </Section>

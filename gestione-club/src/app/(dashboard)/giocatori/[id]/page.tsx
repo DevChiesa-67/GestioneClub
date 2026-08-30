@@ -129,6 +129,7 @@ export default async function GiocatoreDetailPage({
       importanza_giocatore,
       note,
       attivo,
+      accademia,
       presenze_giornaliere (
         id,
         stato,
@@ -254,6 +255,15 @@ export default async function GiocatoreDetailPage({
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
+                {giocatore.accademia && (
+                  <span className="inline-flex w-fit items-center gap-2 rounded-full border border-amber-400/40 bg-amber-400/15 px-4 py-2 text-sm font-black text-amber-300">
+                    <span className="grid h-5 w-5 place-items-center rounded-md bg-amber-400 text-xs text-black">
+                      A
+                    </span>
+                    Accademia
+                  </span>
+                )}
+
                 <span
                   className={`w-fit rounded-full px-4 py-2 text-sm font-bold ${
                     giocatore.attivo

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase-server";
 import { Plus, User, ChevronRight } from "lucide-react";
+import { impostaAccademiaGiocatore } from "./actions";
 
 function getGoogleDriveImageUrl(url: string | null) {
   if (!url) return null;
@@ -32,12 +33,13 @@ async function getPageContext() {
       clubId: null,
       squadraId: null,
       themeColor: "#d71920",
+      isAdmin: false,
     };
   }
 
   const { data: profile } = await supabase
     .from("profili")
-    .select("last_club_id, last_squadra_id")
+    .select("last_club_id, last_squadra_id, tipo_profilo")
     .eq("auth_user_id", user.id)
     .single();
 
@@ -48,11 +50,12 @@ async function getPageContext() {
     supabase,
     clubId,
     squadraId,
+    isAdmin: String(profile?.tipo_profilo ?? "").toLowerCase() === "admin",
   };
 }
 
 export default async function GiocatoriPage() {
-  const { supabase, clubId, squadraId } = await getPageContext();
+  const { supabase, clubId, squadraId, isAdmin } = await getPageContext();
 
   if (!clubId) {
     return (
@@ -78,6 +81,7 @@ export default async function GiocatoriPage() {
       email,
       telefono,
       attivo,
+      accademia,
       club_id,
       squadra_id
     `
@@ -140,14 +144,14 @@ export default async function GiocatoriPage() {
           const annoNascita = getAnnoNascita(g.data_nascita);
 
           return (
-            <Link
+            <div
               key={g.id}
-              href={`/giocatori/${g.id}`}
-              className="group overflow-hidden rounded-2xl border border-white/10 bg-[#171717] transition hover:bg-[#1f1f1f]"
+              className="group relative overflow-hidden rounded-2xl border border-white/10 bg-[#171717] transition hover:bg-[#1f1f1f]"
               style={{
                 ["--hover-border" as string]: `${themeColor}99`,
               }}
             >
+              <Link href={`/giocatori/${g.id}`} className="block">
               <div className="relative h-80 w-full overflow-hidden bg-zinc-900">
                 {imageUrl ? (
                   <img
@@ -211,7 +215,39 @@ export default async function GiocatoriPage() {
                   />
                 </div>
               </div>
-            </Link>
+              </Link>
+
+              {isAdmin && (
+                <form
+                  action={async () => {
+                    "use server";
+                    await impostaAccademiaGiocatore(g.id, !g.accademia);
+                  }}
+                  className="absolute left-4 top-4 z-10"
+                >
+                  <button
+                    type="submit"
+                    title={
+                      g.accademia
+                        ? "Rimuovi da Accademia"
+                        : "Aggiungi ad Accademia"
+                    }
+                    aria-label={
+                      g.accademia
+                        ? `Rimuovi ${g.nome} ${g.cognome} da Accademia`
+                        : `Aggiungi ${g.nome} ${g.cognome} ad Accademia`
+                    }
+                    className={`grid h-10 w-10 place-items-center rounded-xl border text-sm font-black shadow-lg backdrop-blur transition ${
+                      g.accademia
+                        ? "border-amber-300 bg-amber-400 text-black"
+                        : "border-white/20 bg-black/65 text-white hover:border-amber-300 hover:text-amber-300"
+                    }`}
+                  >
+                    A
+                  </button>
+                </form>
+              )}
+            </div>
           );
         })}
       </div>

@@ -31,6 +31,7 @@ type ModificaGiocatoreInput = {
   importanza_giocatore: number | null;
   note: string | null;
   foto_url: string | null;
+  accademia: boolean;
 };
 
 type ActionResult =
@@ -221,6 +222,7 @@ export async function aggiornaGiocatoreAction(
           importanza_giocatore: scala1a10OrNull(input.importanza_giocatore),
           foto_url: stringOrNull(input.foto_url),
           note: stringOrNull(input.note),
+          accademia: Boolean(input.accademia),
           updated_at: new Date().toISOString(),
         })
         .eq("id", input.giocatoreId)
