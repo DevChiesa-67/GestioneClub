@@ -2,7 +2,17 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Droplets, Loader2, Plus, Save, Trash2, ArrowLeft, Users } from "lucide-react";
+import {
+  Droplets,
+  Loader2,
+  Plus,
+  Save,
+  Trash2,
+  ArrowLeft,
+  ArrowUp,
+  ArrowDown,
+  Users,
+} from "lucide-react";
 
 import {
   aggiornaAllenamento,
@@ -111,6 +121,20 @@ function calcolaOraFine(oraInizio: string, minutiTotali: number) {
   const minutiFine = ((totaleMinutiGiorno % 60) + 60) % 60;
 
   return `${String(oreFine).padStart(2, "0")}:${String(minutiFine).padStart(2, "0")}`;
+}
+
+function orarioAMinuti(orario: string) {
+  const [ore, minuti] = orario.split(":").map((parte) => Number(parte) || 0);
+  return ore * 60 + minuti;
+}
+
+function minutiAOrario(minuti: number) {
+  const oreEffettive = Math.floor(minuti / 60) % 24;
+  const minutiEffettivi = ((minuti % 60) + 60) % 60;
+
+  return `${String(oreEffettive).padStart(2, "0")}:${String(
+    minutiEffettivi
+  ).padStart(2, "0")}`;
 }
 
 function generaId() {
@@ -299,6 +323,44 @@ export default function ModificaAllenamentoClient({
 
     return blocchi;
   }, [lavori]);
+
+  // Orario di inizio/fine di ogni blocco: i blocchi si susseguono a partire
+  // dall'ora di inizio della seduta, quindi basta accumulare le durate. Un
+  // gruppo in contemporanea occupa un solo slot (dura quanto il suo lavoro
+  // piu' lungo). Dipende da "blocchiLavori": riordinando i lavori o
+  // cambiando i tempi, gli orari si aggiornano da soli.
+  const orariBlocchi = useMemo(() => {
+    if (!oraInizio) return [] as { inizio: string; fine: string }[];
+
+    let cursore = orarioAMinuti(oraInizio);
+
+    return blocchiLavori.map((blocco) => {
+      const durata = blocco.membri.reduce(
+        (massimo, membro) => Math.max(massimo, calcolaTempoTotale(membro)),
+        0
+      );
+
+      const inizio = cursore;
+      cursore += durata;
+
+      return { inizio: minutiAOrario(inizio), fine: minutiAOrario(cursore) };
+    });
+  }, [blocchiLavori, oraInizio]);
+
+  // Sposta un blocco (lavoro singolo o gruppo in contemporanea) su o giu'
+  // nell'elenco. La posizione nell'array e' anche l'ordine salvato sul
+  // database (colonna "ordine"), quindi il riordino resta dopo il salvataggio.
+  function spostaBlocco(indice: number, direzione: -1 | 1) {
+    const destinazione = indice + direzione;
+    if (destinazione < 0 || destinazione >= blocchiLavori.length) return;
+
+    const nuoviBlocchi = [...blocchiLavori];
+    const scambiato = nuoviBlocchi[indice];
+    nuoviBlocchi[indice] = nuoviBlocchi[destinazione];
+    nuoviBlocchi[destinazione] = scambiato;
+
+    setLavori(nuoviBlocchi.flatMap((blocco) => blocco.membri));
+  }
 
   const minutiTotali = useMemo(() => {
     const gruppiContati = new Set<string>();
@@ -742,9 +804,17 @@ export default function ModificaAllenamentoClient({
 
       <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5 sm:p-6">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-black text-white">
-            Lavori ({lavori.length}) · {minutiTotali} min totali
-          </h2>
+          <div className="min-w-0">
+            <h2 className="text-lg font-black text-white">
+              Lavori ({lavori.length}) · {minutiTotali} min totali
+            </h2>
+
+            <p className="mt-1 text-xs text-zinc-500">
+              {oraInizio
+                ? "Usa le frecce per riordinare i lavori: gli orari si ricalcolano da soli."
+                : "Imposta l'ora di inizio per vedere l'orario di ogni lavoro."}
+            </p>
+          </div>
 
           <button
             type="button"
@@ -764,7 +834,7 @@ export default function ModificaAllenamentoClient({
             </div>
           )}
 
-          {blocchiLavori.map((blocco) => {
+          {blocchiLavori.map((blocco, indiceBlocco) => {
             // Blocco singolo: lavoro normale oppure pausa H2O.
             if (!blocco.gruppoId) {
               const lavoro = blocco.membri[0];
@@ -777,20 +847,34 @@ export default function ModificaAllenamentoClient({
                   key={lavoro.chiave}
                   className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"
                 >
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-zinc-500">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="flex flex-wrap items-center gap-2 text-xs font-bold uppercase tracking-wide text-zinc-500">
                       {h2o && <Droplets size={14} style={{ color: colore }} />}
-                      {h2o ? "Pausa H2O" : "Lavoro"}
+                      {indiceBlocco + 1}. {h2o ? "Pausa H2O" : "Lavoro"}
+                      <OrarioBlocco
+                        orario={orariBlocchi[indiceBlocco]}
+                        colore={colore}
+                      />
                     </p>
 
-                    <button
-                      type="button"
-                      onClick={() => rimuoviLavoro(lavoro.chiave)}
-                      title="Rimuovi lavoro"
-                      className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-red-500/20 hover:text-red-300"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <FrecceOrdine
+                        indice={indiceBlocco}
+                        totale={blocchiLavori.length}
+                        onSposta={(direzione) =>
+                          spostaBlocco(indiceBlocco, direzione)
+                        }
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => rimuoviLavoro(lavoro.chiave)}
+                        title="Rimuovi lavoro"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-red-500/20 hover:text-red-300"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-2">
@@ -1115,20 +1199,34 @@ export default function ModificaAllenamentoClient({
                 key={gruppoId}
                 className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4"
               >
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-zinc-500">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="flex flex-wrap items-center gap-2 text-xs font-bold uppercase tracking-wide text-zinc-500">
                     <Users size={14} style={{ color: coloreGruppo }} />
-                    Gruppo in contemporanea ({membri.length})
+                    {indiceBlocco + 1}. Gruppo in contemporanea ({membri.length})
+                    <OrarioBlocco
+                      orario={orariBlocchi[indiceBlocco]}
+                      colore={coloreGruppo}
+                    />
                   </p>
 
-                  <button
-                    type="button"
-                    onClick={() => eliminaGruppo(gruppoId)}
-                    title="Elimina gruppo"
-                    className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-red-500/20 hover:text-red-300"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <FrecceOrdine
+                      indice={indiceBlocco}
+                      totale={blocchiLavori.length}
+                      onSposta={(direzione) =>
+                        spostaBlocco(indiceBlocco, direzione)
+                      }
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => eliminaGruppo(gruppoId)}
+                      title="Elimina gruppo"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition hover:bg-red-500/20 hover:text-red-300"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="mb-4 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
@@ -1559,5 +1657,67 @@ function DettagliLavoroForm({
         </Campo>
       </div>
     </div>
+  );
+}
+
+// Frecce su/giu' per riordinare un blocco di lavoro. La prima e l'ultima
+// posizione disattivano la freccia corrispondente.
+function FrecceOrdine({
+  indice,
+  totale,
+  onSposta,
+}: {
+  indice: number;
+  totale: number;
+  onSposta: (direzione: -1 | 1) => void;
+}) {
+  const bottoneClass =
+    "flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-800 text-zinc-400 transition hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-400";
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => onSposta(-1)}
+        disabled={indice === 0}
+        title="Sposta su"
+        aria-label="Sposta su"
+        className={bottoneClass}
+      >
+        <ArrowUp size={14} />
+      </button>
+
+      <button
+        type="button"
+        onClick={() => onSposta(1)}
+        disabled={indice === totale - 1}
+        title="Sposta giù"
+        aria-label="Sposta giù"
+        className={bottoneClass}
+      >
+        <ArrowDown size={14} />
+      </button>
+    </>
+  );
+}
+
+// Fascia oraria del blocco, calcolata dall'ora di inizio della seduta.
+// Senza ora di inizio non viene mostrata nulla.
+function OrarioBlocco({
+  orario,
+  colore,
+}: {
+  orario?: { inizio: string; fine: string };
+  colore: string;
+}) {
+  if (!orario) return null;
+
+  return (
+    <span
+      className="rounded-md px-2 py-0.5 text-[11px] font-black tracking-normal"
+      style={{ backgroundColor: `${colore}22`, color: colore }}
+    >
+      {orario.inizio} – {orario.fine}
+    </span>
   );
 }

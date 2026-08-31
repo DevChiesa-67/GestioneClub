@@ -17,10 +17,13 @@ import {
 } from "lucide-react";
 import { AppCard } from "@/components/ui/AppCard";
 import {
-  creaVideoFile,
+  preparaUploadFile,
+  registraFileVideo,
   eliminaVideoFile,
   aggiornaVideoFile,
 } from "@/app/(dashboard)/file/actions";
+import { supabase } from "@/lib/supabase-client";
+import { LIMITE_FILE_MB, tipoFileConsentito } from "@/lib/file-video";
 import { creaTipoEvento } from "@/app/(dashboard)/eventi/actions";
 
 type Partita = {
@@ -392,6 +395,7 @@ export default function FileVideoClient({
 
   const [isPending, startTransition] = useTransition();
   const [errore, setErrore] = useState<string | null>(null);
+  const [avanzamento, setAvanzamento] = useState<string | null>(null);
 
   const { tipo: tipoEvento, tipoEventoId: tipoEventoIdSel } =
     scomponiValoreTipo(tipoValore);
@@ -428,11 +432,103 @@ export default function FileVideoClient({
     }));
   }
 
+  /*
+   * Il file NON passa piu' dal server: il browser lo carica direttamente su
+   * Supabase Storage con un "signed upload URL" chiesto alla Server Action.
+   * Motivo: su Vercel ogni richiesta a una Server Action ha un limite rigido
+   * di ~4,5 MB, quindi in produzione qualsiasi video piu' grande veniva
+   * rifiutato (in locale invece passava, perche' li' vale solo il
+   * serverActions.bodySizeLimit di next.config.ts). Al server restano solo i
+   * percorsi dei file gia' caricati, cioe' poche decine di byte.
+   */
   function onSubmit(formData: FormData) {
     setErrore(null);
+
+    const files = formData
+      .getAll("video")
+      .filter((valore): valore is File => valore instanceof File && valore.size > 0);
+
+    if (files.length === 0) {
+      setErrore("Seleziona almeno un file.");
+      return;
+    }
+
+    const fileTroppoGrande = files.find(
+      (file) => file.size > LIMITE_FILE_MB * 1024 * 1024
+    );
+    if (fileTroppoGrande) {
+      setErrore(
+        `"${fileTroppoGrande.name}" pesa ${(
+          fileTroppoGrande.size /
+          (1024 * 1024)
+        ).toFixed(0)} MB e supera il limite di ${LIMITE_FILE_MB} MB per file.`
+      );
+      return;
+    }
+
+    const fileNonValido = files.find((file) => !tipoFileConsentito(file.type));
+    if (fileNonValido) {
+      setErrore(
+        `Formato non supportato per "${fileNonValido.name}". Carica video, immagini o PDF.`
+      );
+      return;
+    }
+
     startTransition(async () => {
       try {
-        await creaVideoFile(formData);
+        const caricati: {
+          path: string;
+          nome: string;
+          tipoMime: string;
+          dimensione: number;
+        }[] = [];
+
+        for (const [indice, file] of files.entries()) {
+          setAvanzamento(
+            `Caricamento ${indice + 1} di ${files.length}: ${file.name}...`
+          );
+
+          const preparazione = await preparaUploadFile({
+            nome: file.name,
+            tipoMime: file.type,
+            dimensione: file.size,
+          });
+
+          if (!preparazione.ok) throw new Error(preparazione.message);
+
+          const { path, token } = preparazione;
+
+          const { error: uploadError } = await supabase.storage
+            .from("file-video")
+            .uploadToSignedUrl(path, token, file, { contentType: file.type });
+
+          if (uploadError) {
+            throw new Error(`${file.name}: ${uploadError.message}`);
+          }
+
+          caricati.push({
+            path,
+            nome: file.name,
+            tipoMime: file.type,
+            dimensione: file.size,
+          });
+        }
+
+        setAvanzamento("Salvataggio in corso...");
+
+        const salvataggio = await registraFileVideo({
+          titolo: String(formData.get("titolo") ?? ""),
+          tipoEvento: String(formData.get("tipo_evento") ?? ""),
+          eventoId: String(formData.get("evento_id") ?? ""),
+          note: String(formData.get("note") ?? ""),
+          visibilita: String(formData.get("visibilita") ?? ""),
+          personaId: String(formData.get("persona_id") ?? ""),
+          giocatoreIds: formData.getAll("giocatore_ids").map(String),
+          files: caricati,
+        });
+
+        if (!salvataggio.ok) throw new Error(salvataggio.message);
+
         setShowCreateForm(false);
         router.refresh();
       } catch (error) {
@@ -441,6 +537,8 @@ export default function FileVideoClient({
             ? error.message
             : "Impossibile caricare il file. Verifica la configurazione del database."
         );
+      } finally {
+        setAvanzamento(null);
       }
     });
   }
@@ -518,7 +616,8 @@ export default function FileVideoClient({
                   className="mt-2 w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-zinc-300 outline-none"
                 />
                 <p className="mt-2 text-xs text-zinc-500">
-                  Puoi selezionare più file contemporaneamente.
+                  Puoi selezionare più file contemporaneamente. Massimo{" "}
+                  {LIMITE_FILE_MB} MB per file.
                 </p>
               </div>
 
@@ -608,14 +707,20 @@ export default function FileVideoClient({
               />
             </div>
 
-            <button
-              type="submit"
-              disabled={isPending}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-zinc-950 disabled:opacity-50 sm:w-auto"
-            >
-              {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Salva file
-            </button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <button
+                type="submit"
+                disabled={isPending}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-black text-zinc-950 disabled:opacity-50 sm:w-auto"
+              >
+                {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Salva file
+              </button>
+
+              {avanzamento && (
+                <p className="text-xs text-zinc-400">{avanzamento}</p>
+              )}
+            </div>
           </form>
         </AppCard>
       )}
