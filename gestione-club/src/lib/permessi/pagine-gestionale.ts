@@ -83,6 +83,11 @@ export const PAGINE_GESTIONALE: PaginaGestionale[] = [
     href: "/file",
   },
   {
+    key: "giocate",
+    label: "Giocate",
+    href: "/giocate",
+  },
+  {
     key: "comunicazioni",
     label: "Comunicazioni",
     href: "/comunicazioni",
