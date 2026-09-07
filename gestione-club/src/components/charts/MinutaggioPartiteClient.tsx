@@ -6,7 +6,10 @@ import { Loader2, Timer, UserRound } from "lucide-react";
 
 import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
-import { calcolaMinutaggioPartita } from "@/lib/minutaggi/calcola-minutaggio";
+import {
+  calcolaMinutaggioPartita,
+  type Intervallo,
+} from "@/lib/minutaggi/calcola-minutaggio";
 
 type Giocatore = {
   id: string;
@@ -42,6 +45,9 @@ type RigaGiocatore = {
   minutoUscita: number;
   minutiGiocati: number;
   titolare: boolean;
+  // Tutti i periodi in campo: più di uno quando il giocatore è uscito e
+  // poi rientrato. Ingresso/uscita restano il primo e l'ultimo.
+  intervalli: Intervallo[];
 };
 
 function unicoNome(valore: SquadraNome): string {
@@ -234,6 +240,7 @@ export default function MinutaggioPartiteClient({
               minutoUscita: m.minutoUscita,
               minutiGiocati: m.minutiGiocati,
               titolare: m.titolare,
+              intervalli: m.intervalli,
             }))
             .sort((a, b) => a.minutoIngresso - b.minutoIngresso);
 
@@ -364,7 +371,28 @@ export default function MinutaggioPartiteClient({
                                   Titolare
                                 </span>
                               )}
+
+                              {riga.intervalli.length > 1 && (
+                                <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-300">
+                                  Rientro
+                                </span>
+                              )}
                             </div>
+
+                            {riga.intervalli.length > 1 && (
+                              <p className="mt-1 pl-[42px] text-[11px] text-zinc-500">
+                                {riga.intervalli
+                                  .map(
+                                    (i) =>
+                                      `${i.minutoIngresso}'-${
+                                        i.minutoUscita >= partita.durataMinuti
+                                          ? "fine"
+                                          : `${i.minutoUscita}'`
+                                      }`,
+                                  )
+                                  .join(" · ")}
+                              </p>
+                            )}
                           </td>
 
                           <td className="border-t border-zinc-800 px-3 py-2.5 text-right text-zinc-300">

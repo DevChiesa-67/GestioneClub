@@ -225,15 +225,99 @@ export async function salvaMinutaggioImport(
   }
 }
 
-type CambioManuale = {
+/*
+ * Un evento singolo del minutaggio: un giocatore che entra o che esce a
+ * un certo minuto. Le sostituzioni "classiche" sono semplicemente due
+ * eventi con lo stesso minuto (uno "esce" + uno "entra"), ma i due lati
+ * sono indipendenti: questo permette di far uscire un giocatore senza
+ * sostituto (cartellino, infortunio in attesa) e soprattutto di farlo
+ * RIENTRARE in campo più avanti nella partita, anche più volte
+ * (calcolaMinutaggioPartita somma tutti gli intervalli, vedi
+ * calcola-minutaggio.ts).
+ *
+ * `giocatoreId` nullo esiste solo per i cambi letti da un file Excel il
+ * cui nome non è stato collegato a nessun giocatore: non entrano nel
+ * calcolo, ma vanno conservati quando si aggiorna un import da file.
+ */
+export type EventoMinutaggioInput = {
   minuto: number;
-  giocatoreEntraId: string;
-  giocatoreEsceId: string;
+  giocatoreId: string | null;
+  tipo: "entra" | "esce";
+  nomeTesto?: string | null;
 };
+
+type RigaCambioDb = {
+  import_id: string;
+  club_id: string;
+  giocatore_id: string | null;
+  nome_testo: string;
+  minuto: number;
+  tipo: "entra" | "esce";
+};
+
+type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
+
+function filtraEventiValidi(
+  eventi: EventoMinutaggioInput[] | undefined,
+): EventoMinutaggioInput[] {
+  return (eventi ?? []).filter(
+    (evento) =>
+      (evento.tipo === "entra" || evento.tipo === "esce") &&
+      Number.isFinite(Number(evento.minuto)) &&
+      Number(evento.minuto) >= 0 &&
+      (Boolean(evento.giocatoreId) || Boolean(evento.nomeTesto)),
+  );
+}
+
+/*
+ * Trasforma gli eventi in righe di partite_minutaggi_cambi. `nome_testo`
+ * è NOT NULL e serve solo da riferimento leggibile: per gli eventi
+ * collegati a un giocatore lo ricaviamo dall'anagrafica, per quelli che
+ * arrivano da un file conserviamo il testo originale.
+ */
+async function costruisciRigheCambi(
+  supabase: SupabaseClient,
+  clubId: string,
+  importId: string,
+  eventi: EventoMinutaggioInput[],
+): Promise<RigaCambioDb[]> {
+  const idNecessari = Array.from(
+    new Set(
+      eventi
+        .map((evento) => evento.giocatoreId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+
+  const nomiPerId = new Map<string, string>();
+
+  if (idNecessari.length > 0) {
+    const { data: giocatoriNomi } = await supabase
+      .from("giocatori")
+      .select("id, nome, cognome")
+      .in("id", idNecessari);
+
+    for (const g of giocatoriNomi ?? []) {
+      nomiPerId.set(g.id, `${g.cognome ?? ""} ${g.nome ?? ""}`.trim());
+    }
+  }
+
+  return eventi.map((evento) => ({
+    import_id: importId,
+    club_id: clubId,
+    giocatore_id: evento.giocatoreId ?? null,
+    nome_testo:
+      (evento.giocatoreId ? nomiPerId.get(evento.giocatoreId) : null) ||
+      evento.nomeTesto ||
+      "Giocatore",
+    minuto: Number(evento.minuto),
+    tipo: evento.tipo,
+  }));
+}
 
 /*
  * Salva un minutaggio inserito manualmente dal popup "Aggiungi
- * Minutaggio" (senza file Excel): solo le sostituzioni, perché la
+ * Minutaggio" (senza file Excel): solo gli eventi entra/esce, perché la
  * formazione (titolari 1-15 + panchina) viene ereditata da
  * partite_convocazioni — stessa tabella già gestita dal tab
  * "Convocazioni" della partita e già letta da calcolaMinutaggioPartita
@@ -245,7 +329,7 @@ type CambioManuale = {
 export async function salvaMinutaggioManuale(input: {
   partitaId: string;
   durataMinuti: number;
-  cambi: CambioManuale[];
+  eventi: EventoMinutaggioInput[];
 }): Promise<MinutaggioActionResult> {
   try {
     const { supabase, user, clubId } = await getContestoAdmin();
@@ -261,14 +345,7 @@ export async function salvaMinutaggioManuale(input: {
         ? input.durataMinuti
         : 80;
 
-    const cambi = (input.cambi ?? []).filter(
-      (c) =>
-        c.giocatoreEntraId &&
-        c.giocatoreEsceId &&
-        c.giocatoreEntraId !== c.giocatoreEsceId &&
-        Number.isFinite(c.minuto) &&
-        c.minuto >= 0
-    );
+    const eventi = filtraEventiValidi(input.eventi);
 
     const { data: partita, error: partitaError } = await supabase
       .from("partite")
@@ -305,26 +382,6 @@ export async function salvaMinutaggioManuale(input: {
       };
     }
 
-    // Nomi (cognome) dei giocatori coinvolti nei cambi, solo per
-    // popolare "nome_testo" (colonna NOT NULL, usata come riferimento
-    // testuale leggibile, non per il calcolo).
-    const idNomiNecessari = Array.from(
-      new Set(cambi.flatMap((c) => [c.giocatoreEntraId, c.giocatoreEsceId]))
-    );
-
-    const nomiPerId = new Map<string, string>();
-
-    if (idNomiNecessari.length > 0) {
-      const { data: giocatoriNomi } = await supabase
-        .from("giocatori")
-        .select("id, nome, cognome")
-        .in("id", idNomiNecessari);
-
-      for (const g of giocatoriNomi ?? []) {
-        nomiPerId.set(g.id, `${g.cognome ?? ""} ${g.nome ?? ""}`.trim());
-      }
-    }
-
     const { data: importCreato, error: importError } = await supabase
       .from("partite_minutaggi_import")
       .insert({
@@ -348,25 +405,13 @@ export async function salvaMinutaggioManuale(input: {
       };
     }
 
-    if (cambi.length > 0) {
-      const righeCambi = cambi.flatMap((cambio) => [
-        {
-          import_id: importCreato.id,
-          club_id: clubId,
-          giocatore_id: cambio.giocatoreEntraId,
-          nome_testo: nomiPerId.get(cambio.giocatoreEntraId) || "Giocatore",
-          minuto: cambio.minuto,
-          tipo: "entra" as const,
-        },
-        {
-          import_id: importCreato.id,
-          club_id: clubId,
-          giocatore_id: cambio.giocatoreEsceId,
-          nome_testo: nomiPerId.get(cambio.giocatoreEsceId) || "Giocatore",
-          minuto: cambio.minuto,
-          tipo: "esce" as const,
-        },
-      ]);
+    if (eventi.length > 0) {
+      const righeCambi = await costruisciRigheCambi(
+        supabase,
+        clubId,
+        importCreato.id,
+        eventi,
+      );
 
       const { error: cambiError } = await supabase
         .from("partite_minutaggi_cambi")
@@ -395,6 +440,120 @@ export async function salvaMinutaggioManuale(input: {
     };
   } catch (error) {
     console.error("Errore salvaMinutaggioManuale:", error);
+
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : "Errore imprevisto.",
+    };
+  }
+}
+
+/*
+ * Aggiorna un minutaggio già salvato: durata della partita ed elenco
+ * degli eventi entra/esce. Funziona sia sugli inserimenti manuali sia
+ * sugli import da file — in quel caso il file originale resta allegato e
+ * scaricabile, si riscrivono solo i cambi.
+ *
+ * I cambi vengono sostituiti in blocco (cancella + reinserisci) perché
+ * l'editor lavora su una lista, non su singole righe identificate. Se
+ * l'inserimento fallisce ripristiniamo le righe precedenti, così un
+ * errore a metà non lascia il minutaggio svuotato.
+ */
+export async function aggiornaMinutaggioManuale(input: {
+  importId: string;
+  durataMinuti: number;
+  eventi: EventoMinutaggioInput[];
+}): Promise<MinutaggioActionResult> {
+  try {
+    const { supabase, clubId } = await getContestoAdmin();
+
+    const importId = input.importId?.trim();
+
+    if (!importId) {
+      return { success: false, message: "Minutaggio non valido." };
+    }
+
+    const { data: importRow, error: importError } = await supabase
+      .from("partite_minutaggi_import")
+      .select("id, partita_id")
+      .eq("id", importId)
+      .eq("club_id", clubId)
+      .maybeSingle();
+
+    if (importError || !importRow) {
+      return { success: false, message: "Minutaggio non trovato." };
+    }
+
+    const durataMinuti =
+      Number.isFinite(input.durataMinuti) && input.durataMinuti > 0
+        ? input.durataMinuti
+        : 80;
+
+    const eventi = filtraEventiValidi(input.eventi);
+
+    const { data: cambiPrecedenti } = await supabase
+      .from("partite_minutaggi_cambi")
+      .select("import_id, club_id, giocatore_id, nome_testo, minuto, tipo")
+      .eq("import_id", importId);
+
+    const { error: deleteError } = await supabase
+      .from("partite_minutaggi_cambi")
+      .delete()
+      .eq("import_id", importId)
+      .eq("club_id", clubId);
+
+    if (deleteError) {
+      return { success: false, message: deleteError.message };
+    }
+
+    if (eventi.length > 0) {
+      const righeCambi = await costruisciRigheCambi(
+        supabase,
+        clubId,
+        importId,
+        eventi,
+      );
+
+      const { error: cambiError } = await supabase
+        .from("partite_minutaggi_cambi")
+        .insert(righeCambi);
+
+      if (cambiError) {
+        console.error("Errore aggiornamento cambi minutaggio:", cambiError);
+
+        if (cambiPrecedenti && cambiPrecedenti.length > 0) {
+          await supabase
+            .from("partite_minutaggi_cambi")
+            .insert(cambiPrecedenti);
+        }
+
+        return { success: false, message: cambiError.message };
+      }
+    }
+
+    const { error: updateError } = await supabase
+      .from("partite_minutaggi_import")
+      .update({
+        durata_minuti: durataMinuti,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", importId)
+      .eq("club_id", clubId);
+
+    if (updateError) {
+      return { success: false, message: updateError.message };
+    }
+
+    revalidatePath("/partite");
+    revalidatePath("/performance");
+
+    if (importRow.partita_id) {
+      revalidatePath(`/partite/${importRow.partita_id}`);
+    }
+
+    return { success: true, message: "Minutaggio aggiornato." };
+  } catch (error) {
+    console.error("Errore aggiornaMinutaggioManuale:", error);
 
     return {
       success: false,

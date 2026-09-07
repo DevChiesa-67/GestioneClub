@@ -15,6 +15,7 @@ import {
   Link2,
   Loader2,
   MapPin,
+  Pencil,
   Shield,
   Sparkles,
   Timer,
@@ -34,7 +35,9 @@ import type {
   Partita,
   TipoEvento,
 } from "@/app/(dashboard)/partite/page";
-import AggiungiMinutaggioModal from "@/components/partite/AggiungiMinutaggioModal";
+import AggiungiMinutaggioModal, {
+  type MinutaggioDaModificare,
+} from "@/components/partite/AggiungiMinutaggioModal";
 import SelettorePartita, {
   formatDataPartita,
 } from "@/components/partite/SelettorePartita";
@@ -608,11 +611,13 @@ function MinutaggioCard({
   partite,
   coloreClub,
   onChanged,
+  onModifica,
 }: {
   minutaggio: MinutaggioImport;
   partite: Partita[];
   coloreClub: string;
   onChanged: () => void;
+  onModifica: () => void;
 }) {
   const { showToast } = useToast();
   const router = useRouter();
@@ -716,6 +721,17 @@ function MinutaggioCard({
             </a>
           )}
 
+          {associato && (
+            <button
+              type="button"
+              onClick={onModifica}
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 transition hover:border-zinc-600 hover:text-white"
+              title="Modifica durata e cambi"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleElimina}
@@ -774,6 +790,10 @@ export function PartiteTabs({
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>("prossime");
   const [modalMinutaggioAperto, setModalMinutaggioAperto] = useState(false);
+  // Valorizzato quando il popup è aperto per modificare un minutaggio
+  // già salvato invece che per crearne uno nuovo.
+  const [minutaggioInModifica, setMinutaggioInModifica] =
+    useState<MinutaggioDaModificare | null>(null);
   const [filtroTipoEvento, setFiltroTipoEvento] = useState("tutti");
 
   const oggi = new Date();
@@ -1079,7 +1099,10 @@ export function PartiteTabs({
           <div className="flex justify-end">
             <button
               type="button"
-              onClick={() => setModalMinutaggioAperto(true)}
+              onClick={() => {
+                setMinutaggioInModifica(null);
+                setModalMinutaggioAperto(true);
+              }}
               className="flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-white transition hover:brightness-110"
               style={{ backgroundColor: coloreClub }}
             >
@@ -1103,6 +1126,16 @@ export function PartiteTabs({
                   partite={partite}
                   coloreClub={coloreClub}
                   onChanged={() => router.refresh()}
+                  onModifica={() => {
+                    setMinutaggioInModifica({
+                      id: minutaggio.id,
+                      partitaId: minutaggio.partita_id,
+                      durataMinuti: minutaggio.durata_minuti,
+                      nomeFile: minutaggio.nome_file,
+                      daFile: Boolean(minutaggio.file_path),
+                    });
+                    setModalMinutaggioAperto(true);
+                  }}
                 />
               ))}
             </div>
@@ -1112,11 +1145,16 @@ export function PartiteTabs({
 
       {modalMinutaggioAperto && (
         <AggiungiMinutaggioModal
-          onClose={() => setModalMinutaggioAperto(false)}
+          key={minutaggioInModifica?.id ?? "nuovo"}
+          onClose={() => {
+            setModalMinutaggioAperto(false);
+            setMinutaggioInModifica(null);
+          }}
           onSaved={() => router.refresh()}
           themeColor={coloreClub}
           giocatori={giocatori}
           partite={partite}
+          minutaggioDaModificare={minutaggioInModifica}
         />
       )}
     </div>
