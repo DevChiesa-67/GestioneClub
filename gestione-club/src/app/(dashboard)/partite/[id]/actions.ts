@@ -103,7 +103,7 @@ async function getContestoUtente() {
   };
 }
 
-export async function salvaStatistichePartita(input: SalvaStatisticheInput) {
+async function salvaStatistichePartitaInterna(input: SalvaStatisticheInput) {
   const { supabase, user, clubId } = await getContestoUtente();
 
   const { data: partita, error: partitaError } = await supabase
@@ -126,8 +126,7 @@ export async function salvaStatistichePartita(input: SalvaStatisticheInput) {
    * SELECT: in precedenza l'upsert poteva terminare senza restituire la riga,
    * mentre al refresh la statistica risultava invisibile all'utente.
    */
-  const { data: statisticheSalvate, error: statisticheError } =
-    await supabase
+  const { error: statisticheError } = await supabase
     .from("partite_statistiche")
     .upsert(
       {
@@ -161,15 +160,10 @@ export async function salvaStatistichePartita(input: SalvaStatisticheInput) {
       {
         onConflict: "partita_id",
       }
-    )
-    .select("partita_id")
-    .single();
-
-  if (statisticheError || !statisticheSalvate) {
-    throw new Error(
-      statisticheError?.message ||
-        "Il database non ha confermato il salvataggio delle statistiche."
     );
+
+  if (statisticheError) {
+    throw new Error(statisticheError.message);
   }
 
   const { error: partitaUpdateError } = await supabase
@@ -189,6 +183,21 @@ export async function salvaStatistichePartita(input: SalvaStatisticheInput) {
 
   revalidatePath(`/partite/${input.partita_id}`);
   revalidatePath("/partite");
+}
+
+export async function salvaStatistichePartita(input: SalvaStatisticheInput) {
+  try {
+    await salvaStatistichePartitaInterna(input);
+    return { ok: true as const };
+  } catch (error) {
+    return {
+      ok: false as const,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Errore durante il salvataggio delle statistiche.",
+    };
+  }
 }
 
 export async function salvaConvocazioniPartita(

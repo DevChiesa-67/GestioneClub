@@ -1149,11 +1149,16 @@ function giocatoriPerPosizione(
 
     startTransition(async () => {
       try {
-        await salvaStatistichePartita({
+        const risultato = await salvaStatistichePartita({
           partita_id: partita.id,
           ...stats,
           note: stats.note,
         });
+
+        if (!risultato.ok) {
+          setMessage(risultato.error);
+          return;
+        }
 
         setMessage(
           "Statistiche salvate correttamente."
