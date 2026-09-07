@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase-server";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 type SalvaStatisticheInput = {
   partita_id: string;
@@ -119,7 +120,15 @@ export async function salvaStatistichePartita(input: SalvaStatisticheInput) {
 
   const risultato = `${input.punti_fatti}-${input.punti_subiti}`;
 
-  const { error: statisticheError } = await supabase
+  /*
+   * Il contesto utente sopra autorizza gia' l'operazione e verifica che la
+   * partita appartenga al club attivo. La scrittura viene eseguita col client
+   * server per non dipendere da policy RLS diverse tra INSERT, UPDATE e
+   * SELECT: in precedenza l'upsert poteva terminare senza restituire la riga,
+   * mentre al refresh la statistica risultava invisibile all'utente.
+   */
+  const { data: statisticheSalvate, error: statisticheError } =
+    await supabaseAdmin
     .from("partite_statistiche")
     .upsert(
       {
@@ -153,10 +162,15 @@ export async function salvaStatistichePartita(input: SalvaStatisticheInput) {
       {
         onConflict: "partita_id",
       }
-    );
+    )
+    .select("partita_id")
+    .single();
 
-  if (statisticheError) {
-    throw new Error(statisticheError.message);
+  if (statisticheError || !statisticheSalvate) {
+    throw new Error(
+      statisticheError?.message ||
+        "Il database non ha confermato il salvataggio delle statistiche."
+    );
   }
 
   const { error: partitaUpdateError } = await supabase

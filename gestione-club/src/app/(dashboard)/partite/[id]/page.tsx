@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase-server";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 import { AppCard } from "@/components/ui/AppCard";
 import PartitaEditorClient from "@/components/partite/PartitaEditorClient";
 
@@ -100,7 +101,13 @@ export default async function PartitaDetailPage({ params }: PageProps) {
       .eq("id", id)
       .eq("club_id", profilo.last_club_id)
       .single(),
-    supabase
+    /*
+     * L'accesso alla pagina e al club e' gia' stato autorizzato sopra. Le
+     * statistiche vengono lette lato server con il service client per evitare
+     * che una policy RLS SELECT non allineata a quella di scrittura le nasconda
+     * dopo il refresh. I filtri partita + club impediscono letture fuori scope.
+     */
+    supabaseAdmin
       .from("partite_statistiche")
       .select("*")
       .eq("partita_id", id)
