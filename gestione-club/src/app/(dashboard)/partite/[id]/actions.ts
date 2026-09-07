@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase-server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { creaSupabaseAdminOpzionale } from "@/lib/supabase-admin";
 
 type SalvaStatisticheInput = {
   partita_id: string;
@@ -119,6 +119,7 @@ export async function salvaStatistichePartita(input: SalvaStatisticheInput) {
   }
 
   const risultato = `${input.punti_fatti}-${input.punti_subiti}`;
+  const statisticheClient = creaSupabaseAdminOpzionale() ?? supabase;
 
   /*
    * Il contesto utente sopra autorizza gia' l'operazione e verifica che la
@@ -128,7 +129,7 @@ export async function salvaStatistichePartita(input: SalvaStatisticheInput) {
    * mentre al refresh la statistica risultava invisibile all'utente.
    */
   const { data: statisticheSalvate, error: statisticheError } =
-    await supabaseAdmin
+    await statisticheClient
     .from("partite_statistiche")
     .upsert(
       {
