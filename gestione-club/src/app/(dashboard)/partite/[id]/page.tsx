@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase-server";
-import { creaSupabaseAdminOpzionale } from "@/lib/supabase-admin";
 import { AppCard } from "@/components/ui/AppCard";
 import PartitaEditorClient from "@/components/partite/PartitaEditorClient";
 
@@ -30,7 +29,6 @@ export default async function PartitaDetailPage({ params }: PageProps) {
   }
 
   const isAdmin = String(profilo.tipo_profilo || "").toLowerCase() === "admin";
-  const statisticheClient = creaSupabaseAdminOpzionale() ?? supabase;
 
   /*
    * Tutte le query seguenti dipendono solo dal profilo (club/squadra) e
@@ -108,7 +106,7 @@ export default async function PartitaDetailPage({ params }: PageProps) {
      * che una policy RLS SELECT non allineata a quella di scrittura le nasconda
      * dopo il refresh. I filtri partita + club impediscono letture fuori scope.
      */
-    statisticheClient
+    supabase
       .from("partite_statistiche")
       .select("*")
       .eq("partita_id", id)
