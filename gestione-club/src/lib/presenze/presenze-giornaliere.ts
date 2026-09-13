@@ -209,13 +209,32 @@ export async function caricaPresenzeGiornaliere(
     orariPerGiorno.set(seduta.data_allenamento, orari);
   }
 
-  const giorni = new Set<string>(orariPerGiorno.keys());
+  /*
+   * Giornate in cui qualcuno ha effettivamente registrato qualcosa.
+   *
+   * Una giornata senza NESSUNA riga non e' una giornata con tutti
+   * assenti: e' una giornata in cui le presenze non sono mai state prese.
+   * Dedurre l'assenza dell'intera rosa la farebbe comparire nei report
+   * come uno 0% che non e' mai successo e abbasserebbe ogni media, quindi
+   * quei giorni vengono saltati del tutto. Basta registrare una presenza
+   * perche' la data ricompaia, e cancellare la registrazione dal modal
+   * "Registra presenze" perche' torni a sparire.
+   */
+  const giorniRegistrati = new Set<string>();
 
-  // Una presenza registrata in un giorno senza sedute (correzione manuale,
-  // amichevole non a calendario...) non va persa.
   for (const riga of righe) {
-    if (riga.data) giorni.add(riga.data);
+    if (riga.data) giorniRegistrati.add(riga.data);
   }
+
+  /*
+   * Le sedute servono ancora a sapere a che ora si e' iniziato (vedi
+   * giornataConclusa) e quindi se le assenze dei singoli si possono
+   * dedurre, ma non aggiungono giornate: il calendario dei conteggi e'
+   * quello delle giornate registrate. Cosi' una presenza salvata in un
+   * giorno senza sedute a calendario (correzione manuale, amichevole)
+   * non va comunque persa.
+   */
+  const giorni = giorniRegistrati;
 
   const perChiave = new Map<string, RigaPresenza>();
 

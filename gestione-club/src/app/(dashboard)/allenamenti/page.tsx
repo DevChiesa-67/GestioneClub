@@ -889,6 +889,50 @@ export default function Page() {
     );
   }
 
+  /**
+   * Quante righe di presenza risultano salvate in una giornata. Zero
+   * significa "registrazione mai fatta": e' la condizione che tiene la
+   * data fuori dai report (vedi lib/presenze/presenze-giornaliere.ts).
+   */
+  function presenzeRegistrateInData(data: string) {
+    return presenze.filter((presenza) => presenza.data === data).length;
+  }
+
+  /**
+   * Cancella la registrazione di un'INTERA giornata, non del singolo
+   * giocatore: serve quando le presenze sono state messe sul giorno
+   * sbagliato, caso in cui togliere lo stato a uno a uno e' una tortura.
+   *
+   * Il filtro e' club + data (+ squadra quando ce n'e' una selezionata):
+   * senza il filtro sulla squadra, due squadre che si allenano lo stesso
+   * giorno si cancellerebbero i dati a vicenda.
+   */
+  async function eliminaRegistrazioneGiornata(data: string) {
+    if (!isAdmin) return;
+    if (!profilo?.last_club_id || !data) return;
+
+    let query = supabase
+      .from("presenze_giornaliere")
+      .delete()
+      .eq("club_id", profilo.last_club_id)
+      .eq("data", data);
+
+    if (profilo.last_squadra_id) {
+      query = query.eq("squadra_id", profilo.last_squadra_id);
+    }
+
+    const { error } = await query;
+
+    if (error) {
+      console.error("Errore eliminazione registrazione presenze:", error);
+      return;
+    }
+
+    setPresenze((current) =>
+      current.filter((presenza) => presenza.data !== data),
+    );
+  }
+
   async function apriAnteprimaPdf(allenamento: Allenamento) {
     setGenerandoPdfId(allenamento.id);
 
@@ -3179,6 +3223,8 @@ export default function Page() {
             giustificazioneGiocatore={giustificazioneGiocatore}
             salvaPresenza={salvaPresenza}
             eliminaPresenza={eliminaPresenza}
+            presenzeRegistrateInData={presenzeRegistrateInData}
+            eliminaRegistrazioneGiornata={eliminaRegistrazioneGiornata}
             onClose={() => setOpenRegistraPresenze(false)}
           />
         </div>

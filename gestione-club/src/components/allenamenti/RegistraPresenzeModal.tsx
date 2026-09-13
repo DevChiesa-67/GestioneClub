@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
-import { Clock, Dumbbell, Pencil, X } from "lucide-react";
+import { Clock, Dumbbell, Pencil, Trash2, X } from "lucide-react";
 
 import { DateInput } from "@/components/ui/DateInput";
 
@@ -71,6 +71,10 @@ type Props = {
     allenamentoId: string,
     giocatoreId: string,
   ) => void | Promise<void>;
+  /** Quante presenze risultano salvate in quella giornata. */
+  presenzeRegistrateInData: (data: string) => number;
+  /** Cancella in un colpo solo tutta la registrazione della giornata. */
+  eliminaRegistrazioneGiornata: (data: string) => void | Promise<void>;
   onClose: () => void;
 };
 
@@ -86,6 +90,8 @@ export default function RegistraPresenzeModal({
   salvaPresenza,
   giustificazioneGiocatore,
   eliminaPresenza,
+  presenzeRegistrateInData,
+  eliminaRegistrazioneGiornata,
   onClose,
 }: Props) {
   /*
@@ -133,6 +139,35 @@ export default function RegistraPresenzeModal({
 
   const [salvandoGiustificazione, setSalvandoGiustificazione] =
     useState(false);
+
+  const [eliminandoGiornata, setEliminandoGiornata] = useState(false);
+
+  const registrateNelGiorno = data ? presenzeRegistrateInData(data) : 0;
+
+  /*
+   * Elimina la registrazione dell'intera giornata. La conferma dice
+   * quante righe spariscono e cosa comporta: senza righe la data esce
+   * anche dai report presenze, non resta a zero per cento.
+   */
+  async function confermaEliminaGiornata() {
+    if (!data || registrateNelGiorno === 0) return;
+
+    const conferma = window.confirm(
+      `Eliminare la registrazione delle presenze del ${formattaData(
+        data,
+      )}? Verranno cancellate ${registrateNelGiorno} presenze e la giornata tornera' "non registrata", quindi non comparira' piu' nei report. L'operazione non e' reversibile.`,
+    );
+
+    if (!conferma) return;
+
+    setEliminandoGiornata(true);
+
+    try {
+      await eliminaRegistrazioneGiornata(data);
+    } finally {
+      setEliminandoGiornata(false);
+    }
+  }
 
   function apriGiustificazione(giocatore: Giocatore) {
     if (!allenamentoRiferimento) return;
@@ -278,10 +313,37 @@ export default function RegistraPresenzeModal({
           </div>
         )}
 
-        <p className="text-xs text-zinc-600">
-          Le presenze valgono per l&apos;intera giornata: usa PM, PP o P per
-          indicare a quali sedute il giocatore ha partecipato.
-        </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <p className="text-xs text-zinc-600">
+              Le presenze valgono per l&apos;intera giornata: usa PM, PP o P
+              per indicare a quali sedute il giocatore ha partecipato.
+            </p>
+
+            {data && (
+              <p className="text-xs font-semibold text-zinc-500">
+                {registrateNelGiorno === 0
+                  ? "Nessuna presenza registrata in questa data: la giornata non compare nei report."
+                  : `${registrateNelGiorno} presenze registrate in questa data.`}
+              </p>
+            )}
+          </div>
+
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={confermaEliminaGiornata}
+              disabled={registrateNelGiorno === 0 || eliminandoGiornata}
+              title="Cancella tutte le presenze registrate in questa data"
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-red-900/70 bg-red-950/30 px-4 py-2.5 text-sm font-bold text-red-300 transition hover:bg-red-950/60 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Trash2 className="h-4 w-4" />
+              {eliminandoGiornata
+                ? "Eliminazione..."
+                : "Elimina registrazione"}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="max-h-[60vh] space-y-3 overflow-y-auto p-5">

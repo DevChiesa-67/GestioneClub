@@ -16,6 +16,7 @@ import {
   CircleDot,
   Eraser,
   Eye,
+  FileText,
   Goal,
   Layers,
   Megaphone,
@@ -43,6 +44,13 @@ import {
 import ModificaDettagliPartitaModal, {
   type SquadraPartitaOption,
 } from "@/components/partite/ModificaDettagliPartitaModal";
+import PdfPreviewModal from "@/components/allenamenti/PdfPreviewModal";
+import {
+  generaPdfConvocazioni,
+  scaricaPdfConvocazioni,
+  type PdfConvocazioniGenerato,
+  type RigaFormazionePdf,
+} from "@/lib/pdf-convocazioni";
 import { supabase } from "@/lib/supabase-client";
 import { useToast } from "@/components/ui/Toast";
 
@@ -132,6 +140,7 @@ type Giocatore = {
   reparto: string | null;
   foto_url?: string | null;
   numero_maglia?: number | null;
+  data_nascita?: string | null;
   attivo: boolean;
 };
 
@@ -249,6 +258,51 @@ function nomeGiocatore(giocatore?: Giocatore | null) {
   return `${giocatore.nome ?? ""} ${giocatore.cognome ?? ""}`.trim();
 }
 
+/*
+ * ANNO DI NASCITA NELLE CONVOCAZIONI
+ * ===================================
+ * `data_nascita` arriva da Postgres come stringa ISO ("2008-04-17"):
+ * i primi quattro caratteri sono l'anno, non serve costruire una Date
+ * (che introdurrebbe anche problemi di fuso orario sulle date "nude").
+ *
+ * La soglia serve al controllo di regolamento: in una convocazione non
+ * possono esserci più di MAX_ANNO_SOGLIA giocatori nati nell'anno
+ * ANNO_SOGLIA. Sono due costanti proprio per poterle spostare l'anno
+ * prossimo senza rileggere tutto il file.
+ */
+const ANNO_SOGLIA = 2008;
+const MAX_ANNO_SOGLIA = 8;
+
+function annoNascita(giocatore?: Giocatore | null) {
+  if (!giocatore?.data_nascita) return null;
+
+  const anno = Number(String(giocatore.data_nascita).slice(0, 4));
+
+  return Number.isFinite(anno) && anno > 0 ? anno : null;
+}
+
+/**
+ * Cognome prima del nome: è l'ordine con cui si legge una distinta,
+ * usato solo nel PDF della formazione. A video resta "Nome Cognome".
+ */
+function cognomeNome(giocatore?: Giocatore | null) {
+  if (!giocatore) return "Non assegnato";
+
+  const composto = `${giocatore.cognome ?? ""} ${giocatore.nome ?? ""}`.trim();
+
+  return composto || "Senza nome";
+}
+
+function nomeGiocatoreConAnno(giocatore?: Giocatore | null) {
+  if (!giocatore) return "Non assegnato";
+
+  const anno = annoNascita(giocatore);
+
+  return anno
+    ? `${nomeGiocatore(giocatore)} (${anno})`
+    : nomeGiocatore(giocatore);
+}
+
 function AvatarGiocatore({
   giocatore,
   size = 24,
@@ -306,8 +360,16 @@ function GiocatoreTooltip({
     >
       <AvatarGiocatore giocatore={giocatore} size={44} />
 
-      <span className="whitespace-nowrap text-sm font-bold text-white">
-        {nomeGiocatore(giocatore)}
+      <span className="flex flex-col">
+        <span className="whitespace-nowrap text-sm font-bold text-white">
+          {nomeGiocatore(giocatore)}
+        </span>
+
+        {annoNascita(giocatore) && (
+          <span className="whitespace-nowrap text-xs font-semibold text-zinc-400">
+            {annoNascita(giocatore)}
+          </span>
+        )}
       </span>
     </div>,
     document.body
@@ -441,9 +503,28 @@ function GiocatoreSelect({
         }`}
       >
         {selezionato ? (
-          <span className="min-w-0 flex-1 truncate font-semibold">
-            {nomeGiocatore(selezionato)}
-          </span>
+          <>
+            <span className="min-w-0 flex-1 truncate font-semibold">
+              {nomeGiocatore(selezionato)}
+            </span>
+
+            {/*
+              L'anno resta fuori dal truncate del nome: su una card del
+              campo lo spazio e' pochissimo e a tagliarsi deve essere il
+              cognome, non l'informazione che serve al controllo 2008.
+            */}
+            {annoNascita(selezionato) && (
+              <span
+                className={`shrink-0 font-bold ${
+                  annoNascita(selezionato) === ANNO_SOGLIA
+                    ? "text-amber-400"
+                    : "text-zinc-500"
+                } ${compact ? "text-[9px]" : "text-[10px] sm:text-xs"}`}
+              >
+                {annoNascita(selezionato)}
+              </span>
+            )}
+          </>
         ) : (
           <span className="min-w-0 flex-1 truncate text-zinc-500">
             {placeholder}
@@ -499,6 +580,18 @@ function GiocatoreSelect({
                 <span className="min-w-0 flex-1 truncate">
                   {nomeGiocatore(giocatore)}
                 </span>
+
+                {annoNascita(giocatore) && (
+                  <span
+                    className={`shrink-0 text-[10px] font-bold ${
+                      annoNascita(giocatore) === ANNO_SOGLIA
+                        ? "text-amber-400"
+                        : "text-zinc-500"
+                    }`}
+                  >
+                    {annoNascita(giocatore)}
+                  </span>
+                )}
               </button>
             ))}
 
@@ -626,6 +719,17 @@ export default function PartitaEditorClient({
 
   const [showAnteprima, setShowAnteprima] = useState(false);
   const [inviandoComunicazione, setInviandoComunicazione] = useState(false);
+
+  /*
+   * PDF della formazione: si tiene in stato il documento generato
+   * insieme al blob url mostrato nell'iframe, così il pulsante "Scarica"
+   * dell'anteprima salva esattamente lo stesso documento senza
+   * rigenerarlo. Il blob url va revocato alla chiusura, altrimenti ogni
+   * apertura lascia un blob appeso in memoria.
+   */
+  const [pdfInAnteprima, setPdfInAnteprima] = useState<
+    (PdfConvocazioniGenerato & { blobUrl: string }) | null
+  >(null);
 
   const [tab, setTab] = useState<"risultato" | "convocazioni">(
     "risultato"
@@ -1233,6 +1337,24 @@ function giocatoriPerPosizione(
     (item) => item.convocato
   ).length;
 
+  /*
+   * CONTROLLO GIOCATORI 2008
+   * =========================
+   * Conta i convocati (titolari + panchina) nati nell'anno soglia.
+   * Il conteggio parte da `convocazioniState`, non dalla lista dei
+   * titolari: un giocatore in panchina pesa sul limite esattamente
+   * come uno schierato in campo.
+   */
+  const convocatiAnnoSoglia = convocazioniState.filter(
+    (item) =>
+      item.convocato &&
+      annoNascita(giocatoriMap.get(item.giocatore_id)) === ANNO_SOGLIA
+  ).length;
+
+  const troppiAnnoSoglia = convocatiAnnoSoglia > MAX_ANNO_SOGLIA;
+
+  const messaggioAnnoSoglia = `Presenti ${convocatiAnnoSoglia} ${ANNO_SOGLIA} nella formazione`;
+
   const giocatoriPanchina = giocatori.filter(
     (giocatore) => {
       const convocazione =
@@ -1278,6 +1400,104 @@ function giocatoriPerPosizione(
   });
 
   const titoloComunicazioneFormazione = `Formazione per partita ${nomeSquadraCasa} vs ${nomeSquadraFuori}`;
+
+  /*
+   * PDF DELLA FORMAZIONE
+   * =====================
+   * Stesse righe che si vedono a schermo, nello stesso ordine: i
+   * titolari seguono la numerazione 1-15 delle posizioni, la panchina
+   * l'ordine per numero di maglia già calcolato sopra.
+   */
+  const dataPartitaEstesa = partita.data_partita
+    ? new Date(partita.data_partita).toLocaleDateString("it-IT", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      })
+    : "";
+
+  function gradoConvocazione(convocazione?: ConvocazioneState | null) {
+    if (convocazione?.capitano) return "C";
+
+    if (convocazione?.vicecapitano) return "V";
+
+    return "";
+  }
+
+  function annoPerPdf(giocatore?: Giocatore | null) {
+    const anno = annoNascita(giocatore);
+
+    return anno ? String(anno) : "";
+  }
+
+  function apriAnteprimaPdfFormazione() {
+    const righeTitolari: RigaFormazionePdf[] = titolari.map((slot) => ({
+      numero: slot.numero,
+      nominativo: slot.giocatore
+        ? cognomeNome(slot.giocatore)
+        : "Non assegnato",
+      grado: gradoConvocazione(slot.convocazione),
+      anno: annoPerPdf(slot.giocatore),
+    }));
+
+    const righePanchina: RigaFormazionePdf[] = panchinaOrdinata.map(
+      (giocatore) => {
+        const convocazione = convocazioniState.find(
+          (item) => item.giocatore_id === giocatore.id
+        );
+
+        return {
+          numero: convocazione?.numero_maglia ?? null,
+          nominativo: cognomeNome(giocatore),
+          grado: gradoConvocazione(convocazione),
+          anno: annoPerPdf(giocatore),
+        };
+      }
+    );
+
+    const generato = generaPdfConvocazioni({
+      titolo: `${nomeSquadraCasa} vs ${nomeSquadraFuori}`,
+      dettagli: [
+        { label: "Data", value: dataPartitaEstesa },
+        { label: "Ora", value: partita.ora_partita ?? "" },
+        { label: "Luogo", value: partita.luogo ?? "" },
+        {
+          label: "Casa / Fuori",
+          value:
+            partita.casa_fuori === "casa"
+              ? "In casa"
+              : partita.casa_fuori === "fuori"
+              ? "In trasferta"
+              : "",
+        },
+        { label: "Tipo partita", value: partita.tipo_partita ?? "" },
+        { label: "Convocati", value: String(numeroConvocati) },
+      ],
+      titolari: righeTitolari,
+      panchina: righePanchina,
+      coloreClub,
+      nomeFile: `formazione-${nomeSquadraCasa}-${nomeSquadraFuori}-${
+        partita.data_partita ?? ""
+      }`
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .concat(".pdf"),
+    });
+
+    const blobUrl = URL.createObjectURL(generato.doc.output("blob"));
+
+    setPdfInAnteprima({ ...generato, blobUrl });
+  }
+
+  function chiudiAnteprimaPdfFormazione() {
+    if (pdfInAnteprima) {
+      URL.revokeObjectURL(pdfInAnteprima.blobUrl);
+    }
+
+    setPdfInAnteprima(null);
+  }
 
   function testoFormazione() {
     const righeTitolari = titolari
@@ -2007,6 +2227,30 @@ function giocatoriPerPosizione(
                   campo rugby. Mobile: elenco
                   ordinato da 1 a 15.
                 </p>
+
+                {/* AVVISO LIMITE GIOCATORI 2008 */}
+                {troppiAnnoSoglia && (
+                  <p
+                    role="alert"
+                    className="
+                      mt-3
+                      inline-flex
+                      items-center
+                      gap-2
+                      rounded-xl
+                      border border-red-900/70
+                      bg-red-950/40
+                      px-3
+                      py-2
+                      text-sm
+                      font-bold
+                      text-red-300
+                    "
+                  >
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />
+                    {messaggioAnnoSoglia}
+                  </p>
+                )}
               </div>
 
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -2034,6 +2278,36 @@ function giocatoriPerPosizione(
                 >
                   <Eye className="h-4 w-4" />
                   Anteprima
+                </button>
+
+                <button
+                  type="button"
+                  onClick={apriAnteprimaPdfFormazione}
+                  disabled={numeroConvocati === 0}
+                  title="Anteprima del PDF della formazione, con download"
+                  className="
+                    inline-flex
+                    w-full
+                    shrink-0
+                    items-center
+                    justify-center
+                    gap-2
+                    rounded-xl
+                    border border-zinc-800
+                    px-5
+                    py-3
+                    text-sm
+                    font-bold
+                    text-zinc-200
+                    transition
+                    hover:bg-white/5
+                    disabled:cursor-not-allowed
+                    disabled:opacity-40
+                    sm:w-auto
+                  "
+                >
+                  <FileText className="h-4 w-4" />
+                  PDF formazione
                 </button>
 
                 {isAdmin && (
@@ -2373,7 +2647,7 @@ function giocatoriPerPosizione(
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-black text-white">
-                                  {nomeGiocatore(
+                                  {nomeGiocatoreConAnno(
                                     giocatore
                                   )}
                                 </p>
@@ -2882,7 +3156,7 @@ function giocatoriPerPosizione(
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <p className="truncate font-black text-white">
-                                {nomeGiocatore(
+                                {nomeGiocatoreConAnno(
                                   giocatore
                                 )}
                               </p>
@@ -3124,6 +3398,29 @@ function giocatoriPerPosizione(
       )}
 
       {/* =====================================================
+          ANTEPRIMA PDF FORMAZIONE
+      ====================================================== */}
+      {pdfInAnteprima && (
+        <div className="fixed inset-0 z-[110] overflow-y-auto bg-black/80 px-3 py-4 backdrop-blur-sm sm:px-6 sm:py-8">
+          <div
+            className="mx-auto min-w-0 max-w-4xl overflow-x-hidden rounded-3xl border bg-[#090909] p-4 shadow-2xl sm:p-6"
+            style={{
+              borderColor: `${coloreClub}55`,
+              boxShadow: `0 30px 80px ${coloreClub}22`,
+            }}
+          >
+            <PdfPreviewModal
+              blobUrl={pdfInAnteprima.blobUrl}
+              nomeFile={pdfInAnteprima.nomeFile}
+              themeColor={coloreClub}
+              onDownload={() => scaricaPdfConvocazioni(pdfInAnteprima)}
+              onClose={chiudiAnteprimaPdfFormazione}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================
           ANTEPRIMA CONVOCAZIONI
       ====================================================== */}
       {showAnteprima && (
@@ -3153,6 +3450,17 @@ function giocatoriPerPosizione(
 
             {/* CONTENUTO */}
             <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+              {/* AVVISO LIMITE GIOCATORI 2008 */}
+              {troppiAnnoSoglia && (
+                <p
+                  role="alert"
+                  className="mb-4 flex items-center gap-2 rounded-xl border border-red-900/70 bg-red-950/40 px-3 py-2 text-sm font-bold text-red-300"
+                >
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />
+                  {messaggioAnnoSoglia}
+                </p>
+              )}
+
               <h4 className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-zinc-500">
                 <Shirt className="h-3.5 w-3.5" style={{ color: coloreClub }} />
                 Formazione titolare
@@ -3175,7 +3483,7 @@ function giocatoriPerPosizione(
                       <div className="min-w-0">
                         <p className="truncate text-sm font-bold text-white">
                           {slot.giocatore
-                            ? nomeGiocatore(slot.giocatore)
+                            ? nomeGiocatoreConAnno(slot.giocatore)
                             : "Non assegnato"}
                         </p>
 
@@ -3225,7 +3533,7 @@ function giocatoriPerPosizione(
                         {convocazione?.numero_maglia
                           ? `${convocazione.numero_maglia}. `
                           : ""}
-                        {nomeGiocatore(giocatore)}
+                        {nomeGiocatoreConAnno(giocatore)}
                       </span>
                     );
                   })}

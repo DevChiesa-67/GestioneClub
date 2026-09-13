@@ -8,3 +8,46 @@ body {
   margin: 0;
   background: #080808;
 }
+
+/*
+ * BARRA DI SCORRIMENTO
+ * =====================
+ * Le barre di sistema su Windows sono chiare e spesse: dentro una card
+ * nera stonano parecchio. Questa classe le rende sottili e in scala di
+ * grigi, coerenti con i bordi zinc-800 usati ovunque nel gestionale.
+ *
+ * Si applica dove serve (`className="scrollbar-gestionale"`) e non
+ * globalmente: la barra della pagina resta quella del sistema, che gli
+ * utenti si aspettano di trovare com'e'.
+ *
+ * Servono entrambe le sintassi: `scrollbar-width`/`scrollbar-color` e'
+ * lo standard (Firefox e Chrome recenti), `::-webkit-scrollbar` copre i
+ * browser WebKit dove lo standard non basta a dare l'aspetto voluto.
+ */
+.scrollbar-gestionale {
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f46 transparent;
+}
+
+.scrollbar-gestionale::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.scrollbar-gestionale::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 999px;
+}
+
+.scrollbar-gestionale::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 999px;
+}
+
+.scrollbar-gestionale::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}
+
+.scrollbar-gestionale::-webkit-scrollbar-corner {
+  background: transparent;
+}

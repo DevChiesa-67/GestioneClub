@@ -1,6 +1,15 @@
 // src/components/charts/LineChart.tsx
 
+"use client";
+
 import { AppCard } from "@/components/ui/AppCard";
+import {
+  LineaHover,
+  PuntoHover,
+  TooltipGrafico,
+  formatValore,
+  useHoverGrafico,
+} from "@/components/charts/hover-grafico";
 
 export type ChartRow = {
   id: string;
@@ -76,80 +85,133 @@ export default function LineChart<T extends ChartRow>({
 
   const labelStep = Math.max(1, Math.ceil(rows.length / 10));
 
+  /*
+   * Su una linea i punti stanno SUI bordi dell'area, non al centro di
+   * una fascia: si aggancia il punto piu' vicino al cursore.
+   */
+  const { ref, indice, handlers, proiettaX, larghezzaSvg } = useHoverGrafico({
+    viewBoxWidth: width,
+    left,
+    chartW,
+    count: rows.length,
+    modo: "punti",
+  });
+
+  const rigaAttiva = indice !== null ? rows[indice] : null;
+  const valoreAttivo = rigaAttiva ? toNumber(rigaAttiva[valueKey]) : null;
+
   return (
     <AppCard title={title}>
-      <div className="overflow-x-auto">
-        <svg viewBox={`0 0 ${width} ${height}`} className="min-w-[760px]">
-          {[0, 1, 2, 3, 4].map((tick) => {
-            const value = min + (range / 4) * tick;
-            const yy = y(value);
+      <div className="scrollbar-gestionale overflow-x-auto">
+        <div className="relative min-w-[760px]">
+          <svg
+            ref={ref}
+            viewBox={`0 0 ${width} ${height}`}
+            className="w-full"
+            {...handlers}
+          >
+            {[0, 1, 2, 3, 4].map((tick) => {
+              const value = min + (range / 4) * tick;
+              const yy = y(value);
 
-            return (
-              <g key={tick}>
-                <line
-                  x1={left}
-                  x2={width - right}
-                  y1={yy}
-                  y2={yy}
-                  stroke="rgba(255,255,255,0.12)"
-                />
+              return (
+                <g key={tick}>
+                  <line
+                    x1={left}
+                    x2={width - right}
+                    y1={yy}
+                    y2={yy}
+                    stroke="rgba(255,255,255,0.12)"
+                  />
 
+                  <text
+                    x={left - 12}
+                    y={yy + 4}
+                    textAnchor="end"
+                    fontSize="12"
+                    fill="#a1a1aa"
+                  >
+                    {value.toFixed(0)}
+                  </text>
+                </g>
+              );
+            })}
+
+            {/*
+              La riga bianca si disegna PRIMA della serie: cosi' il
+              tratto del grafico resta sopra e leggibile.
+            */}
+            {rigaAttiva && indice !== null && (
+              <LineaHover x={x(indice)} top={top} bottom={top + chartH} />
+            )}
+
+            {points && (
+              <polyline
+                points={points}
+                fill="none"
+                stroke={coloreFlag}
+                strokeWidth="4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            )}
+
+            {valoreAttivo !== null && indice !== null && (
+              <PuntoHover
+                x={x(indice)}
+                y={y(valoreAttivo)}
+                colore={coloreFlag}
+              />
+            )}
+
+            {rows.map((row, index) => {
+              if (index % labelStep !== 0) return null;
+
+              const xx = x(index);
+              const yy = height - 35;
+
+              return (
                 <text
-                  x={left - 12}
-                  y={yy + 4}
+                  key={row.id}
+                  x={xx}
+                  y={yy}
                   textAnchor="end"
-                  fontSize="12"
+                  fontSize="11"
                   fill="#a1a1aa"
+                  transform={`rotate(-45 ${xx} ${yy})`}
                 >
-                  {value.toFixed(0)}
+                  {formatDate(row.date)}
                 </text>
-              </g>
-            );
-          })}
+              );
+            })}
 
-          {points && (
-            <polyline
-              points={points}
-              fill="none"
-              stroke={coloreFlag}
-              strokeWidth="4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+            <text
+              x={20}
+              y={height / 2}
+              textAnchor="middle"
+              fontSize="12"
+              fill="#d4d4d8"
+              transform={`rotate(-90 20 ${height / 2})`}
+            >
+              {yLabel}
+            </text>
+          </svg>
+
+          {rigaAttiva && indice !== null && (
+            <TooltipGrafico
+              xPixel={proiettaX(x(indice))}
+              larghezza={larghezzaSvg()}
+              titolo={formatDate(rigaAttiva.date)}
+              voci={[
+                {
+                  label: yLabel,
+                  valore: formatValore(valoreAttivo),
+                  colore: coloreFlag,
+                },
+              ]}
             />
           )}
-
-          {rows.map((row, index) => {
-            if (index % labelStep !== 0) return null;
-
-            const xx = x(index);
-            const yy = height - 35;
-
-            return (
-              <text
-                key={row.id}
-                x={xx}
-                y={yy}
-                textAnchor="end"
-                fontSize="11"
-                fill="#a1a1aa"
-                transform={`rotate(-45 ${xx} ${yy})`}
-              >
-                {formatDate(row.date)}
-              </text>
-            );
-          })}
-
-          <text
-            x={20}
-            y={height / 2}
-            textAnchor="middle"
-            fontSize="12"
-            fill="#d4d4d8"
-            transform={`rotate(-90 20 ${height / 2})`}
-          >
-            {yLabel}
-          </text>
-        </svg>
+        </div>
       </div>
     </AppCard>
   );

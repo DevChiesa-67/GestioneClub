@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { supabase } from "@/lib/supabase-client";
@@ -8,6 +8,12 @@ import {
   aggregaPresenzePerGiorno,
   caricaPresenzeGiornaliere,
 } from "@/lib/presenze/presenze-giornaliere";
+import {
+  LineaHover,
+  PuntoHover,
+  TooltipGrafico,
+  useHoverGrafico,
+} from "@/components/charts/hover-grafico";
 
 type Metrica = "presenze" | "acwr" | "rpe" | "srpe";
 type Vista = "mese_attuale" | "per_mese" | "per_settimana" | "per_seduta" | "stagione";
@@ -274,16 +280,69 @@ function GraficoLineare({
   decimali: number;
   dominioFisso?: [number, number];
 }) {
-  if (punti.length === 0) {
-    return (
-      <div className="flex h-72 items-center justify-center rounded-xl bg-black/20 text-center text-sm text-zinc-500">
-        Nessun dato disponibile per questa vista.
-      </div>
-    );
-  }
+  /*
+   * LARGHEZZA REALE, NON UN viewBox FISSO
+   * ======================================
+   * Prima il viewBox era largo 1000 unita' e l'SVG aveva anche
+   * un'altezza imposta: con `preserveAspectRatio` di default il disegno
+   * veniva rimpicciolito per starci dentro e centrato, lasciando due
+   * bande vuote ai lati della card.
+   *
+   * Adesso il viewBox e' largo quanto il contenitore misurato a runtime
+   * e l'altezza dell'SVG e' esattamente `height`: il rapporto combacia,
+   * niente bande, e una unita' del disegno vale un pixel (comodo perche'
+   * testi e pallini restano della stessa dimensione a ogni larghezza).
+   */
+  const contenitoreRef = useRef<HTMLDivElement | null>(null);
 
-  const width = 1000;
-  const height = 280;
+  // 1000 e' solo il valore del primo render (e del render sul server):
+  // il ResizeObserver lo corregge appena il grafico e' nel DOM.
+  const [larghezzaMisurata, setLarghezzaMisurata] = useState(1000);
+
+  useEffect(() => {
+    const elemento = contenitoreRef.current;
+
+    if (!elemento || typeof ResizeObserver === "undefined") return;
+
+    const osservatore = new ResizeObserver((voci) => {
+      const larghezza = voci[0]?.contentRect.width ?? 0;
+
+      if (larghezza > 0) setLarghezzaMisurata(Math.round(larghezza));
+    });
+
+    osservatore.observe(elemento);
+
+    return () => osservatore.disconnect();
+  }, []);
+
+  /*
+   * PARTENZA A DESTRA
+   * ==================
+   * Il dato che interessa e' l'ultimo: all'apertura il contenitore viene
+   * portato in fondo, e da li' si scorre indietro per guardare lo
+   * storico.
+   *
+   * Le dipendenze sono solo quelle che cambiano il contenuto (numero di
+   * punti, prima chiave, larghezze): l'hover fa ri-renderizzare il
+   * componente in continuazione e riposizionare lo scroll a ogni
+   * movimento del mouse renderebbe il grafico inusabile.
+   */
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+
+  // Estratta in una variabile perche' un'espressione dentro l'array
+  // delle dipendenze fa storcere il naso a eslint (e non e' leggibile).
+  const primaChiave = punti[0]?.key;
+
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+
+    if (!scroller) return;
+
+    scroller.scrollLeft = scroller.scrollWidth;
+  }, [punti.length, primaChiave, larghezzaMisurata]);
+
+  const width = Math.max(320, larghezzaMisurata);
+  const height = 300;
   const paddingLeft = 46;
   const paddingRight = 46;
   const paddingTop = 34;
@@ -291,6 +350,28 @@ function GraficoLineare({
 
   const chartWidth = width - paddingLeft - paddingRight;
   const chartHeight = height - paddingTop - paddingBottom;
+
+  /*
+   * Hover: riga bianca verticale e riquadro con etichetta e valore, lo
+   * stesso comportamento dei grafici della sezione Performance.
+   * L'hook sta prima del return anticipato sui dati vuoti, altrimenti
+   * cambierebbe il numero di hook fra un render e l'altro.
+   */
+  const { ref, indice, handlers, proiettaX, larghezzaSvg } = useHoverGrafico({
+    viewBoxWidth: width,
+    left: paddingLeft,
+    chartW: chartWidth,
+    count: punti.length,
+    modo: "punti",
+  });
+
+  if (punti.length === 0) {
+    return (
+      <div className="flex h-72 items-center justify-center rounded-xl bg-black/20 text-center text-sm text-zinc-500">
+        Nessun dato disponibile per questa vista.
+      </div>
+    );
+  }
 
   const valori = punti.map((p) => p.value);
   const minValore = Math.min(...valori);
@@ -326,32 +407,35 @@ function GraficoLineare({
   );
 
   /*
-   * Su mobile lo schermo è troppo stretto per comprimere il viewBox da
-   * 1000 unità: etichette e punti diventerebbero illeggibili. Diamo
-   * quindi al grafico una larghezza minima proporzionale al numero di
-   * rilevazioni e lasciamo scorrere orizzontalmente il contenitore.
-   * Da "sm" in su la larghezza minima viene azzerata e il grafico torna
-   * ad adattarsi alla card come prima.
+   * Larghezza minima del disegno: con tante rilevazioni i punti
+   * finirebbero uno sull'altro, quindi si riserva uno spazio fisso a
+   * ciascuno e si lascia scorrere il contenitore in orizzontale. Vale a
+   * ogni dimensione di schermo, non solo su mobile: quando le giornate
+   * sono poche il minimo non scatta e il grafico riempie la card.
    */
-  const larghezzaMinimaMobile = Math.min(
-    2400,
-    Math.max(560, punti.length * 64)
-  );
+  const larghezzaMinima = Math.min(4000, Math.max(560, punti.length * 64));
 
   return (
     <div className="rounded-xl bg-black/20 p-3 sm:p-6">
-      <div className="-mx-1 overflow-x-auto overscroll-x-contain px-1 sm:mx-0 sm:overflow-x-visible sm:px-0">
+      <div
+        ref={scrollerRef}
+        className="scrollbar-gestionale -mx-1 overflow-x-auto overscroll-x-contain px-1 pb-2 sm:mx-0 sm:px-0"
+      >
         <div
-          className="min-w-[var(--larghezza-grafico)] sm:min-w-0"
+          ref={contenitoreRef}
+          className="relative min-w-[var(--larghezza-grafico)]"
           style={
             {
-              "--larghezza-grafico": `${larghezzaMinimaMobile}px`,
+              "--larghezza-grafico": `${larghezzaMinima}px`,
             } as React.CSSProperties
           }
         >
       <svg
+        ref={ref}
         viewBox={`0 0 ${width} ${height}`}
-        className="h-[260px] w-full sm:h-[300px]"
+        className="block w-full"
+        style={{ height }}
+        {...handlers}
       >
         {yTicks.map((tick, i) => {
           const y = yForValue(tick);
@@ -380,6 +464,14 @@ function GraficoLineare({
             </g>
           );
         })}
+
+        {indice !== null && puntiSvg[indice] && (
+          <LineaHover
+            x={puntiSvg[indice].x}
+            top={paddingTop}
+            bottom={paddingTop + chartHeight}
+          />
+        )}
 
         <polyline
           fill="none"
@@ -423,13 +515,43 @@ function GraficoLineare({
             </text>
           );
         })}
+
+        {indice !== null && puntiSvg[indice] && (
+          <PuntoHover
+            x={puntiSvg[indice].x}
+            y={puntiSvg[indice].y}
+            colore={coloreFlag}
+          />
+        )}
       </svg>
+
+          {indice !== null && puntiSvg[indice] && (
+            <TooltipGrafico
+              xPixel={proiettaX(puntiSvg[indice].x)}
+              larghezza={larghezzaSvg()}
+              titolo={puntiSvg[indice].label}
+              voci={[
+                {
+                  label: puntiSvg[indice].sottotitolo ?? "Valore",
+                  valore: `${puntiSvg[indice].value.toFixed(decimali)}${unita}`,
+                  colore: coloreFlag,
+                },
+              ]}
+            />
+          )}
         </div>
       </div>
 
-      <p className="mt-2 text-center text-[10px] text-zinc-600 sm:hidden">
-        Scorri il grafico lateralmente per vedere tutte le rilevazioni.
-      </p>
+      {/*
+        L'avviso compare solo quando il disegno e' davvero piu' largo
+        dello spazio disponibile, cioe' quando c'e' qualcosa da scorrere.
+      */}
+      {width <= larghezzaMinima && (
+        <p className="mt-1 text-center text-[10px] text-zinc-600">
+          Il grafico parte dalle rilevazioni piu&apos; recenti: scorri
+          verso sinistra per vedere quelle precedenti.
+        </p>
+      )}
     </div>
   );
 }

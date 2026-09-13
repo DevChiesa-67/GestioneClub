@@ -249,9 +249,21 @@ function Grafico({
               <CartesianGrid stroke="#27272a" strokeDasharray="4 4" />
               <XAxis dataKey="label" tick={{ fill: "#a1a1aa", fontSize: 11 }} tickLine={false} axisLine={false} />
               <YAxis domain={dominio} tick={{ fill: "#a1a1aa", fontSize: 11 }} tickLine={false} axisLine={false} width={44} />
+              {/*
+                `cursor` e' la riga verticale che segue il mouse: recharts
+                la disegna grigia e spessa di default, qui e' bianca e
+                tratteggiata come negli altri grafici della sezione.
+              */}
               <Tooltip
                 formatter={(value) => Number(value).toFixed(decimali)}
+                cursor={{
+                  stroke: "#ffffff",
+                  strokeWidth: 1.5,
+                  strokeDasharray: "5 4",
+                  opacity: 0.85,
+                }}
                 contentStyle={{ background: "#18181b", border: "1px solid #3f3f46", borderRadius: 12 }}
+                labelStyle={{ color: "#a1a1aa", fontWeight: 700 }}
               />
               <Line type="monotone" dataKey={dataKey} name={title} stroke={colore} strokeWidth={3} dot={{ r: 4, fill: colore, strokeWidth: 0 }} connectNulls={false} />
             </LineChart>

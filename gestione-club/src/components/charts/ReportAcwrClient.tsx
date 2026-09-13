@@ -10,6 +10,13 @@ import {
   type TipoSedutaSingolo,
 } from "@/lib/performance/catapult-filtri";
 import { sceglieColoreSecondario } from "@/lib/colore-report";
+import {
+  LineaHover,
+  PuntoHover,
+  TooltipGrafico,
+  formatValore,
+  useHoverGrafico,
+} from "@/components/charts/hover-grafico";
 
 type AcwrRow = {
   id: string;
@@ -212,6 +219,20 @@ function AcwrChart({
 
   const labelStep = Math.max(1, Math.ceil(rows.length / 14));
 
+  /*
+   * Hover: riga bianca verticale sul giorno sotto il cursore e riquadro
+   * con la data e i due valori ACWR. Gli hook stanno prima del return
+   * anticipato sul dataset vuoto, altrimenti cambierebbe il numero di
+   * hook fra un render e l'altro.
+   */
+  const { ref, indice, handlers, proiettaX, larghezzaSvg } = useHoverGrafico({
+    viewBoxWidth: width,
+    left: paddingLeft,
+    chartW: chartWidth,
+    count: rows.length,
+    modo: "punti",
+  });
+
   if (rows.length === 0) {
     return (
       <div className="flex min-h-[360px] items-center justify-center text-sm font-semibold text-zinc-500">
@@ -220,14 +241,18 @@ function AcwrChart({
     );
   }
 
+  const rigaAttiva = indice !== null ? rows[indice] : null;
+
   return (
-    <div className="w-full overflow-x-auto">
-      <div className="min-w-[900px]">
+    <div className="scrollbar-gestionale w-full overflow-x-auto">
+      <div className="relative min-w-[900px]">
         <svg
+          ref={ref}
           viewBox={`0 0 ${width} ${height}`}
           className="h-auto w-full"
           role="img"
           aria-label="ACWR nel tempo"
+          {...handlers}
         >
           {yTicks.map((tick) => {
             const y = yForValue(tick);
@@ -271,6 +296,14 @@ function AcwrChart({
             y2={height - paddingBottom}
             stroke="rgba(255,255,255,0.25)"
           />
+
+          {indice !== null && (
+            <LineaHover
+              x={xForIndex(indice)}
+              top={paddingTop}
+              bottom={height - paddingBottom}
+            />
+          )}
 
           {mediaMobileSegments.map((segment, index) => (
             <polyline
@@ -316,7 +349,47 @@ function AcwrChart({
               </g>
             );
           })}
+
+          {indice !== null &&
+            rigaAttiva !== null &&
+            rigaAttiva.acwr_media_mobile !== null && (
+              <PuntoHover
+                x={xForIndex(indice)}
+                y={yForValue(rigaAttiva.acwr_media_mobile)}
+                colore={coloreFlag}
+              />
+            )}
+
+          {indice !== null &&
+            rigaAttiva !== null &&
+            rigaAttiva.acwr_ewma !== null && (
+              <PuntoHover
+                x={xForIndex(indice)}
+                y={yForValue(rigaAttiva.acwr_ewma)}
+                colore={coloreEwma}
+              />
+            )}
         </svg>
+
+        {rigaAttiva && indice !== null && (
+          <TooltipGrafico
+            xPixel={proiettaX(xForIndex(indice))}
+            larghezza={larghezzaSvg()}
+            titolo={formatDate(rigaAttiva.data)}
+            voci={[
+              {
+                label: "Media mobile",
+                valore: formatValore(rigaAttiva.acwr_media_mobile),
+                colore: coloreFlag,
+              },
+              {
+                label: "EWMA",
+                valore: formatValore(rigaAttiva.acwr_ewma),
+                colore: coloreEwma,
+              },
+            ]}
+          />
+        )}
 
         <div className="mt-2 flex flex-wrap items-center justify-center gap-6">
           <div className="flex items-center gap-2">
@@ -354,7 +427,7 @@ function AcwrTable({
   nomiGiocatori: Map<string, string>;
 }) {
   return (
-    <div className="overflow-x-auto rounded-2xl border border-white/10">
+    <div className="scrollbar-gestionale overflow-x-auto rounded-2xl border border-white/10">
       <table className="w-full min-w-[1350px] border-collapse">
         <thead>
           <tr className="bg-zinc-950">

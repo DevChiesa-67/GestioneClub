@@ -1,6 +1,14 @@
 // src/components/charts/DistanceVsSprintChart.tsx
 
+"use client";
+
 import { AppCard } from "@/components/ui/AppCard";
+import {
+  LineaHover,
+  TooltipGrafico,
+  formatValore,
+  useHoverGrafico,
+} from "@/components/charts/hover-grafico";
 import { sceglieColoreSecondario } from "@/lib/colore-report";
 
 export type ChartRow = {
@@ -59,130 +67,182 @@ export default function DistanceVsSprintChart<T extends ChartRow>({
     return top + chartH - (value / max) * chartH;
   }
 
+  // Due barre per giornata: si aggancia la giornata, e il tooltip mostra
+  // tutte e due le serie insieme.
+  const { ref, indice, handlers, proiettaX, larghezzaSvg } = useHoverGrafico({
+    viewBoxWidth: width,
+    left,
+    chartW,
+    count: rows.length,
+    modo: "fasce",
+  });
+
+  const rigaAttiva = indice !== null ? rows[indice] : null;
+
   return (
     <AppCard title={title}>
-      <div className="overflow-x-auto">
-        <svg
-          viewBox={`0 0 ${width} ${height}`}
-          className="min-w-[760px]"
-          role="img"
-          aria-label={title}
-        >
-          {[0, 1, 2, 3, 4].map((tick) => {
-            const value = (max / 4) * tick;
-            const yy = y(value);
+      <div className="scrollbar-gestionale overflow-x-auto">
+        <div className="relative min-w-[760px]">
+          <svg
+            ref={ref}
+            viewBox={`0 0 ${width} ${height}`}
+            className="w-full"
+            role="img"
+            aria-label={title}
+            {...handlers}
+          >
+            {[0, 1, 2, 3, 4].map((tick) => {
+              const value = (max / 4) * tick;
+              const yy = y(value);
 
-            return (
-              <g key={tick}>
-                <line
-                  x1={left}
-                  x2={width - right}
-                  y1={yy}
-                  y2={yy}
-                  stroke="rgba(255,255,255,0.12)"
+              return (
+                <g key={tick}>
+                  <line
+                    x1={left}
+                    x2={width - right}
+                    y1={yy}
+                    y2={yy}
+                    stroke="rgba(255,255,255,0.12)"
+                  />
+
+                  <text
+                    x={left - 12}
+                    y={yy + 4}
+                    textAnchor="end"
+                    fontSize="12"
+                    fill="#a1a1aa"
+                  >
+                    {value.toFixed(0)}
+                  </text>
+                </g>
+              );
+            })}
+
+            {indice !== null && (
+              <>
+                <rect
+                  x={left + indice * groupW}
+                  y={top}
+                  width={groupW}
+                  height={chartH}
+                  fill="rgba(255,255,255,0.06)"
+                  style={{ pointerEvents: "none" }}
                 />
 
-                <text
-                  x={left - 12}
-                  y={yy + 4}
-                  textAnchor="end"
-                  fontSize="12"
-                  fill="#a1a1aa"
-                >
-                  {value.toFixed(0)}
-                </text>
-              </g>
-            );
-          })}
+                <LineaHover
+                  x={left + indice * groupW + groupW / 2}
+                  top={top}
+                  bottom={top + chartH}
+                />
+              </>
+            )}
 
-          {rows.map((row, index) => {
-            const groupX = left + index * groupW + groupW / 2;
-            const distance = row.distance ?? 0;
-            const sprint = row.sprint_distance ?? 0;
+            {rows.map((row, index) => {
+              const groupX = left + index * groupW + groupW / 2;
+              const distance = row.distance ?? 0;
+              const sprint = row.sprint_distance ?? 0;
 
-            const distanceH = top + chartH - y(distance);
-            const sprintH = top + chartH - y(sprint);
+              const distanceH = top + chartH - y(distance);
+              const sprintH = top + chartH - y(sprint);
 
-            const distanceX = groupX - barW - 2;
-            const sprintX = groupX + 2;
+              const distanceX = groupX - barW - 2;
+              const sprintX = groupX + 2;
 
-            return (
-              <g key={row.id}>
-                <rect
-                  x={distanceX}
-                  y={y(distance)}
-                  width={barW}
-                  height={distanceH}
-                  rx={Math.min(4, barW / 2)}
-                  fill={coloreFlag}
-                >
-                  <title>
-                    {`${formatDate(row.date)} - Distanza: ${distance}`}
-                  </title>
-                </rect>
+              const opacita =
+                indice === null || indice === index ? 1 : 0.55;
 
-                <rect
-                  x={sprintX}
-                  y={y(sprint)}
-                  width={barW}
-                  height={sprintH}
-                  rx={Math.min(4, barW / 2)}
-                  fill={coloreSprint}
-                >
-                  <title>
-                    {`${formatDate(row.date)} - Sprint Distance: ${sprint}`}
-                  </title>
-                </rect>
+              return (
+                <g key={row.id}>
+                  <rect
+                    x={distanceX}
+                    y={y(distance)}
+                    width={barW}
+                    height={distanceH}
+                    rx={Math.min(4, barW / 2)}
+                    fill={coloreFlag}
+                    opacity={opacita}
+                  />
 
-                {index % labelStep === 0 && (
-                  <text
-                    x={groupX}
-                    y={height - 35}
-                    textAnchor="end"
-                    fontSize="11"
-                    fill="#a1a1aa"
-                    transform={`rotate(-45 ${groupX} ${height - 35})`}
-                  >
-                    {formatDate(row.date)}
-                  </text>
-                )}
-              </g>
-            );
-          })}
+                  <rect
+                    x={sprintX}
+                    y={y(sprint)}
+                    width={barW}
+                    height={sprintH}
+                    rx={Math.min(4, barW / 2)}
+                    fill={coloreSprint}
+                    opacity={opacita}
+                  />
 
-          <g transform={`translate(${width - 220}, 35)`}>
-            <rect width="10" height="10" fill={coloreFlag} rx="2" />
+                  {index % labelStep === 0 && (
+                    <text
+                      x={groupX}
+                      y={height - 35}
+                      textAnchor="end"
+                      fontSize="11"
+                      fill="#a1a1aa"
+                      transform={`rotate(-45 ${groupX} ${height - 35})`}
+                    >
+                      {formatDate(row.date)}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
 
-            <text x="18" y="10" fontSize="12" fill="#d4d4d8">
-              Distanza (m)
+            <g transform={`translate(${width - 220}, 35)`}>
+              <rect width="10" height="10" fill={coloreFlag} rx="2" />
+
+              <text x="18" y="10" fontSize="12" fill="#d4d4d8">
+                Distanza (m)
+              </text>
+
+              <rect y="24" width="10" height="10" fill={coloreSprint} rx="2" />
+
+              <text x="18" y="34" fontSize="12" fill="#d4d4d8">
+                Sprint Distance (m)
+              </text>
+            </g>
+
+            <text
+              x={20}
+              y={height / 2}
+              textAnchor="middle"
+              fontSize="12"
+              fill="#d4d4d8"
+              transform={`rotate(-90 20 ${height / 2})`}
+            >
+              Metri
             </text>
 
-            <rect y="24" width="10" height="10" fill={coloreSprint} rx="2" />
+            <line
+              x1={left}
+              x2={width - right}
+              y1={top + chartH}
+              y2={top + chartH}
+              stroke="rgba(255,255,255,0.18)"
+            />
+          </svg>
 
-            <text x="18" y="34" fontSize="12" fill="#d4d4d8">
-              Sprint Distance (m)
-            </text>
-          </g>
-
-          <text
-            x={20}
-            y={height / 2}
-            textAnchor="middle"
-            fontSize="12"
-            fill="#d4d4d8"
-            transform={`rotate(-90 20 ${height / 2})`}
-          >
-            Metri
-          </text>
-
-          <line
-            x1={left}
-            x2={width - right}
-            y1={top + chartH}
-            y2={top + chartH}
-            stroke="rgba(255,255,255,0.18)"
-          />
-        </svg>
+          {rigaAttiva && indice !== null && (
+            <TooltipGrafico
+              xPixel={proiettaX(left + indice * groupW + groupW / 2)}
+              larghezza={larghezzaSvg()}
+              titolo={formatDate(rigaAttiva.date)}
+              voci={[
+                {
+                  label: "Distanza",
+                  valore: `${formatValore(rigaAttiva.distance)} m`,
+                  colore: coloreFlag,
+                },
+                {
+                  label: "Sprint",
+                  valore: `${formatValore(rigaAttiva.sprint_distance)} m`,
+                  colore: coloreSprint,
+                },
+              ]}
+            />
+          )}
+        </div>
       </div>
     </AppCard>
   );

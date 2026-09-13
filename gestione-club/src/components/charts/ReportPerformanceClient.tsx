@@ -155,9 +155,17 @@ const statiDaMostrare = statoAttivo
 ? STATI.filter((stato) => stato.key === statoAttivo)
 : STATI;
 
+/*
+ * Colonna sotto il cursore: riga bianca verticale + riquadro con data e
+ * composizione della giornata, come negli altri grafici della sezione.
+ * Qui le colonne sono div (non un SVG), quindi l'hover si tiene per
+ * data invece che per indice.
+ */
+const [dataHover, setDataHover] = useState<string | null>(null);
+
 return (
 <>
-<div className="-mx-3 flex h-80 min-w-0 items-end gap-3 overflow-x-auto overscroll-x-contain px-3 [touch-action:pan-x_pan-y] sm:-mx-5 sm:px-5">
+<div className="scrollbar-gestionale -mx-3 flex h-80 min-w-0 items-end gap-3 overflow-x-auto overscroll-x-contain px-3 [touch-action:pan-x_pan-y] sm:-mx-5 sm:px-5">
 {dati.length === 0 && ( <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">
 Nessun dato disponibile. </div>
 )}
@@ -168,11 +176,55 @@ Nessun dato disponibile. </div>
     const altezza =
       totaleColonna > 0 ? Math.max((totaleColonna / max) * 240, 8) : 0;
 
+    const inHover = dataHover === item.data;
+
     return (
       <div
         key={item.data}
-        className="flex min-w-20 flex-col items-center justify-end gap-2"
+        onMouseEnter={() => setDataHover(item.data)}
+        onMouseLeave={() => setDataHover(null)}
+        className="relative flex h-full min-w-20 flex-col items-center justify-end gap-2"
       >
+        {inHover && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-1/2 w-0 -translate-x-1/2 border-l-2 border-dashed border-white/80"
+          />
+        )}
+
+        {inHover && (
+          <div className="pointer-events-none absolute top-0 left-1/2 z-10 -translate-x-1/2 rounded-xl border border-zinc-700 bg-zinc-950/95 px-3 py-2 shadow-2xl">
+            <p className="whitespace-nowrap text-[11px] font-black uppercase tracking-wider text-zinc-400">
+              {formatData(item.data)}
+            </p>
+
+            {statiDaMostrare.map((stato) => {
+              const valore = item.perStato[stato.key] ?? 0;
+
+              if (valore <= 0) return null;
+
+              return (
+                <p
+                  key={stato.key}
+                  className="mt-1 flex items-center gap-2 whitespace-nowrap text-xs font-bold text-white"
+                >
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: stato.color }}
+                  />
+
+                  <span className="text-zinc-400">{stato.title}</span>
+                  <span>{valore}</span>
+                </p>
+              );
+            })}
+
+            <p className="mt-1.5 whitespace-nowrap border-t border-zinc-800 pt-1.5 text-xs font-black text-white">
+              Totale {totaleColonna}
+            </p>
+          </div>
+        )}
+
         <p className="text-sm font-bold text-white">
           {totaleColonna}
         </p>
@@ -192,7 +244,6 @@ Nessun dato disponibile. </div>
             return (
               <div
                 key={stato.key}
-                title={`${stato.title}: ${valore}`}
                 style={{
                   height: `${quota}%`,
                   backgroundColor: stato.color,
@@ -310,7 +361,7 @@ function TabellaPresenzePerGiocatore({
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-white/10">
+    <div className="scrollbar-gestionale overflow-x-auto rounded-2xl border border-white/10">
       <table className="w-full border-collapse">
         <thead>
           <tr className="bg-black/30">
