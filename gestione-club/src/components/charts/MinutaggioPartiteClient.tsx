@@ -264,6 +264,90 @@ export default function MinutaggioPartiteClient({
     return new Map(giocatori.map((g) => [g.id, g]));
   }, [giocatori]);
 
+  /*
+   * FILTRO PARTITA
+   * ===============
+   * Vive qui dentro e non fra i filtri comuni della pagina report: le
+   * altre tab lavorano su intervalli di date e sessioni Catapult, una
+   * singola partita non vuol dire niente per loro.
+   *
+   * Il valore e' l'importId (una partita puo' avere piu' import, ed e'
+   * l'import che porta i cambi). "tutte" e' il default.
+   */
+  const [partitaScelta, setPartitaScelta] = useState<string>("tutte");
+
+  // Se cambiano i filtri a monte la partita scelta puo' non esserci piu':
+  // senza questo si resterebbe su un elenco vuoto senza capire perche'.
+  useEffect(() => {
+    if (
+      partitaScelta !== "tutte" &&
+      !partite.some((partita) => partita.importId === partitaScelta)
+    ) {
+      setPartitaScelta("tutte");
+    }
+  }, [partite, partitaScelta]);
+
+  const partiteVisibili = useMemo(
+    () =>
+      partitaScelta === "tutte"
+        ? partite
+        : partite.filter((partita) => partita.importId === partitaScelta),
+    [partite, partitaScelta]
+  );
+
+  /*
+   * RIEPILOGO PER GIOCATORE
+   * ========================
+   * Partite giocate e minuti totali sulle partite attualmente visibili:
+   * con il filtro su una partita sola diventa il riepilogo di quella
+   * partita, che e' il comportamento che ci si aspetta da un filtro.
+   *
+   * Una partita conta come "giocata" solo con minuti > 0: un convocato
+   * rimasto in panchina tutta la gara non ha giocato.
+   */
+  const riepilogo = useMemo(() => {
+    const per = new Map<
+      string,
+      { giocatoreId: string; partite: number; minuti: number }
+    >();
+
+    for (const partita of partiteVisibili) {
+      const righe = righePerPartita.get(partita.importId) ?? [];
+
+      for (const riga of righe) {
+        if (
+          giocatoreIds.length > 0 &&
+          !giocatoreIds.includes(riga.giocatoreId)
+        ) {
+          continue;
+        }
+
+        if (riga.minutiGiocati <= 0) continue;
+
+        const corrente = per.get(riga.giocatoreId) ?? {
+          giocatoreId: riga.giocatoreId,
+          partite: 0,
+          minuti: 0,
+        };
+
+        corrente.partite += 1;
+        corrente.minuti += riga.minutiGiocati;
+
+        per.set(riga.giocatoreId, corrente);
+      }
+    }
+
+    return Array.from(per.values()).sort((a, b) => {
+      if (b.minuti !== a.minuti) return b.minuti - a.minuti;
+
+      return nomeCompleto(giocatoriMap.get(a.giocatoreId)).localeCompare(
+        nomeCompleto(giocatoriMap.get(b.giocatoreId))
+      );
+    });
+  }, [partiteVisibili, righePerPartita, giocatoreIds, giocatoriMap]);
+
+  const minutiTotali = riepilogo.reduce((somma, r) => somma + r.minuti, 0);
+
   if (loading) {
     return (
       <AppCard>
@@ -293,131 +377,111 @@ export default function MinutaggioPartiteClient({
 
   return (
     <div className="space-y-5">
-      {partite.map((partita) => {
-        const righe = (righePerPartita.get(partita.importId) ?? []).filter(
-          (riga) =>
-            giocatoreIds.length === 0 || giocatoreIds.includes(riga.giocatoreId)
-        );
+      {/* FILTRO PARTITA (solo in questa tab) */}
+      <AppCard>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <label className="min-w-0 flex-1 sm:max-w-md">
+            <span className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-zinc-500">
+              Partita
+            </span>
 
-        return (
-          <AppCard key={partita.importId}>
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h3 className="text-lg font-bold text-white">
+            <select
+              value={partitaScelta}
+              onChange={(evento) => setPartitaScelta(evento.target.value)}
+              className="w-full rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm font-semibold text-white outline-none transition focus:border-zinc-600"
+            >
+              <option value="tutte">
+                Tutte le partite ({partite.length})
+              </option>
+
+              {partite.map((partita) => (
+                <option key={partita.importId} value={partita.importId}>
+                  {formatDataPartita(partita.dataPartita)} ·{" "}
                   {partita.squadraCasa} vs {partita.squadraFuori}
-                </h3>
-                <p className="mt-1 text-sm text-zinc-400">
-                  {formatDataPartita(partita.dataPartita)} · Durata{" "}
-                  {partita.durataMinuti} min
-                </p>
-              </div>
-            </div>
+                </option>
+              ))}
+            </select>
+          </label>
 
-            {righe.length === 0 ? (
-              <p className="text-sm text-zinc-500">
-                Nessun giocatore da mostrare per questa partita.
-              </p>
-            ) : (
-              <div className="overflow-x-auto rounded-xl border border-zinc-800">
-                <table className="w-full min-w-[560px] border-collapse text-sm">
-                  <thead style={{ backgroundColor: coloreFlag }}>
-                    <tr className="text-left text-white">
-                      <th className="px-3 py-2.5 font-semibold">Giocatore</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">
-                        Ingresso
-                      </th>
-                      <th className="px-3 py-2.5 text-right font-semibold">
-                        Uscita
-                      </th>
-                      <th className="px-3 py-2.5 text-right font-semibold">
-                        Minuti giocati
-                      </th>
+          <p className="text-sm text-zinc-400">
+            {partiteVisibili.length}{" "}
+            {partiteVisibili.length === 1 ? "partita" : "partite"} ·{" "}
+            {riepilogo.length}{" "}
+            {riepilogo.length === 1 ? "giocatore" : "giocatori"} ·{" "}
+            {minutiTotali} min totali
+          </p>
+        </div>
+      </AppCard>
+
+      {/* RIEPILOGO: NOME, PARTITE GIOCATE, MINUTI TOTALI */}
+      <AppCard title="Riepilogo giocatori">
+        {riepilogo.length === 0 ? (
+          <p className="text-sm text-zinc-500">
+            Nessun minutaggio da riepilogare con i filtri attivi.
+          </p>
+        ) : (
+          <div className="scrollbar-gestionale overflow-x-auto rounded-xl border border-zinc-800">
+            <table className="w-full min-w-[460px] border-collapse text-sm">
+              <thead style={{ backgroundColor: coloreFlag }}>
+                <tr className="text-left text-white">
+                  <th className="px-3 py-2.5 font-semibold">Giocatore</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">
+                    Partite giocate
+                  </th>
+                  <th className="px-3 py-2.5 text-right font-semibold">
+                    Minuti totali
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {riepilogo.map((riga, index) => {
+                  const giocatore = giocatoriMap.get(riga.giocatoreId);
+
+                  return (
+                    <tr
+                      key={riga.giocatoreId}
+                      className={
+                        index % 2 === 0 ? "bg-zinc-950" : "bg-zinc-900/40"
+                      }
+                    >
+                      <td className="border-t border-zinc-800 px-3 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          {giocatore?.foto_url ? (
+                            <Image
+                              src={giocatore.foto_url}
+                              alt={nomeCompleto(giocatore)}
+                              width={32}
+                              height={32}
+                              className="h-8 w-8 rounded-full object-cover ring-2 ring-white/10"
+                            />
+                          ) : (
+                            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-zinc-300 ring-2 ring-white/10">
+                              <UserRound size={15} />
+                            </span>
+                          )}
+
+                          <span className="font-medium text-zinc-200">
+                            {nomeCompleto(giocatore)}
+                          </span>
+                        </div>
+                      </td>
+
+                      <td className="border-t border-zinc-800 px-3 py-2.5 text-right text-zinc-300">
+                        {riga.partite}
+                      </td>
+
+                      <td className="border-t border-zinc-800 px-3 py-2.5 text-right font-bold text-white">
+                        {riga.minuti} min
+                      </td>
                     </tr>
-                  </thead>
-
-                  <tbody>
-                    {righe.map((riga, index) => {
-                      const giocatore = giocatoriMap.get(riga.giocatoreId);
-
-                      return (
-                        <tr
-                          key={riga.giocatoreId}
-                          className={
-                            index % 2 === 0 ? "bg-zinc-950" : "bg-zinc-900/40"
-                          }
-                        >
-                          <td className="border-t border-zinc-800 px-3 py-2.5">
-                            <div className="flex items-center gap-2.5">
-                              {giocatore?.foto_url ? (
-                                <Image
-                                  src={giocatore.foto_url}
-                                  alt={nomeCompleto(giocatore)}
-                                  width={32}
-                                  height={32}
-                                  className="h-8 w-8 rounded-full object-cover ring-2 ring-white/10"
-                                />
-                              ) : (
-                                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-zinc-300 ring-2 ring-white/10">
-                                  <UserRound size={15} />
-                                </span>
-                              )}
-
-                              <span className="font-medium text-zinc-200">
-                                {nomeCompleto(giocatore)}
-                              </span>
-
-                              {riga.titolare && (
-                                <span className="rounded-full border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-[10px] font-bold uppercase text-zinc-400">
-                                  Titolare
-                                </span>
-                              )}
-
-                              {riga.intervalli.length > 1 && (
-                                <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-300">
-                                  Rientro
-                                </span>
-                              )}
-                            </div>
-
-                            {riga.intervalli.length > 1 && (
-                              <p className="mt-1 pl-[42px] text-[11px] text-zinc-500">
-                                {riga.intervalli
-                                  .map(
-                                    (i) =>
-                                      `${i.minutoIngresso}'-${
-                                        i.minutoUscita >= partita.durataMinuti
-                                          ? "fine"
-                                          : `${i.minutoUscita}'`
-                                      }`,
-                                  )
-                                  .join(" · ")}
-                              </p>
-                            )}
-                          </td>
-
-                          <td className="border-t border-zinc-800 px-3 py-2.5 text-right text-zinc-300">
-                            {riga.minutoIngresso}&apos;
-                          </td>
-
-                          <td className="border-t border-zinc-800 px-3 py-2.5 text-right text-zinc-300">
-                            {riga.minutoUscita >= partita.durataMinuti
-                              ? "Fine"
-                              : `${riga.minutoUscita}'`}
-                          </td>
-
-                          <td className="border-t border-zinc-800 px-3 py-2.5 text-right font-bold text-white">
-                            {riga.minutiGiocati} min
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </AppCard>
-        );
-      })}
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </AppCard>
     </div>
   );
 }
