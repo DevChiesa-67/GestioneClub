@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Paperclip, Pencil, Plus, Trash2, X } from "lucide-react";
 import { supabase } from "@/lib/supabase-client";
 import { AppCard } from "@/components/ui/AppCard";
 import Link from "next/link";
 import { comunicazioneVisibilePerProfilo } from "@/lib/comunicazioni/destinatari";
 import { useToast } from "@/components/ui/Toast";
+import { preparaUploadFile } from "@/app/(dashboard)/file/actions";
+import { LIMITE_FILE_MB, tipoFileConsentito } from "@/lib/file-video";
 
 type Profilo = {
   id: string;
@@ -43,6 +45,34 @@ type Lettura = {
   comunicazione_id: string;
 };
 
+/*
+ * ALLEGATI
+ * =========
+ * I file vivono nel bucket "file-video" (gia' privato, con le policy che
+ * si aspettano il club_id come primo segmento del percorso): qui si
+ * tiene solo il collegamento comunicazione → file, con il nome scelto
+ * dall'utente, che nello storage andrebbe perso perche' il file diventa
+ * un uuid.
+ */
+type Allegato = {
+  id: string;
+  comunicazione_id: string;
+  nome: string;
+  path: string;
+  mime_type: string | null;
+  dimensione: number | null;
+};
+
+function formattaPeso(byte: number | null) {
+  if (!byte || byte <= 0) return "";
+
+  const mega = byte / (1024 * 1024);
+
+  if (mega >= 1) return `${mega.toFixed(1)} MB`;
+
+  return `${Math.max(1, Math.round(byte / 1024))} KB`;
+}
+
 const categorie = ["Tutti", "Allenatori", "Preparatori", "Giocatori"];
 
 function normalize(value: string | null | undefined) {
@@ -73,6 +103,21 @@ export default function ComunicazioniClient() {
   const [giocatori, setGiocatori] = useState<Giocatore[]>([]);
   const [comunicazioni, setComunicazioni] = useState<Comunicazione[]>([]);
   const [letture, setLetture] = useState<Lettura[]>([]);
+
+  // Allegati di tutte le comunicazioni del club, raggruppati per id.
+  const [allegati, setAllegati] = useState<Record<string, Allegato[]>>({});
+
+  // Allegati in lavorazione dentro il modale: quelli gia' salvati (solo
+  // in modifica) e quelli scelti ma non ancora caricati.
+  const [allegatiEsistenti, setAllegatiEsistenti] = useState<Allegato[]>([]);
+  const [fileDaCaricare, setFileDaCaricare] = useState<File[]>([]);
+  const [erroreAllegati, setErroreAllegati] = useState<string | null>(null);
+  const [avanzamentoUpload, setAvanzamentoUpload] = useState<string | null>(
+    null
+  );
+  const [salvataggioInCorso, setSalvataggioInCorso] = useState(false);
+
+  const inputAllegatiRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     loadInitialData();
@@ -246,7 +291,188 @@ export default function ComunicazioniClient() {
     setComunicazioni((comunicazioniRes.data ?? []) as Comunicazione[]);
     setLetture((lettureRes.data ?? []) as Lettura[]);
 
+    /*
+     * Gli allegati si leggono in una query sola per tutto il club e si
+     * raggruppano qui: una query per comunicazione avrebbe significato
+     * decine di richieste all'apertura della pagina.
+     *
+     * L'errore non blocca il resto: se la tabella non esiste ancora
+     * (migrazione non eseguita) le comunicazioni si devono comunque
+     * vedere, semplicemente senza allegati.
+     */
+    const { data: allegatiData, error: allegatiError } = await supabase
+      .from("comunicazioni_allegati")
+      .select("id, comunicazione_id, nome, path, mime_type, dimensione")
+      .eq("club_id", activeClubId)
+      .order("created_at", { ascending: true });
+
+    if (allegatiError) {
+      console.error("Errore allegati comunicazioni:", allegatiError);
+    }
+
+    setAllegati(
+      ((allegatiData ?? []) as Allegato[]).reduce<Record<string, Allegato[]>>(
+        (acc, allegato) => {
+          const lista = acc[allegato.comunicazione_id] ?? [];
+          lista.push(allegato);
+          acc[allegato.comunicazione_id] = lista;
+
+          return acc;
+        },
+        {}
+      )
+    );
+
     setLoading(false);
+  }
+
+  /**
+   * Il bucket e' privato: il link si crea al momento del click e vale
+   * un'ora. Generarli tutti al caricamento della pagina vorrebbe dire
+   * una richiesta per allegato, per file che quasi nessuno aprira'.
+   */
+  async function apriAllegato(allegato: Allegato) {
+    const { data, error } = await supabase.storage
+      .from("file-video")
+      .createSignedUrl(allegato.path, 60 * 60);
+
+    if (error || !data?.signedUrl) {
+      showToast({
+        type: "error",
+        title: "Allegato non disponibile",
+        message: error?.message ?? "Impossibile aprire il file.",
+      });
+
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }
+
+  function selezionaAllegati(elenco: FileList | null) {
+    const scelti = Array.from(elenco ?? []).filter((file) => file.size > 0);
+
+    if (scelti.length === 0) return;
+
+    const troppoGrande = scelti.find(
+      (file) => file.size > LIMITE_FILE_MB * 1024 * 1024
+    );
+
+    if (troppoGrande) {
+      setErroreAllegati(
+        `"${troppoGrande.name}" supera il limite di ${LIMITE_FILE_MB} MB per file.`
+      );
+      return;
+    }
+
+    const nonValido = scelti.find((file) => !tipoFileConsentito(file.type));
+
+    if (nonValido) {
+      setErroreAllegati(
+        `Formato non supportato per "${nonValido.name}". Puoi allegare PDF, immagini o video.`
+      );
+      return;
+    }
+
+    setErroreAllegati(null);
+    setFileDaCaricare((prima) => [...prima, ...scelti]);
+
+    // Azzerare l'input permette di riselezionare lo stesso file dopo
+    // averlo tolto dall'elenco.
+    if (inputAllegatiRef.current) inputAllegatiRef.current.value = "";
+  }
+
+  function rimuoviFileDaCaricare(indice: number) {
+    setFileDaCaricare((prima) => prima.filter((_, i) => i !== indice));
+  }
+
+  /** Elimina un allegato gia' salvato: prima il file, poi la riga. */
+  async function eliminaAllegato(allegato: Allegato) {
+    if (!isAdmin) return;
+
+    if (!window.confirm(`Eliminare l'allegato "${allegato.nome}"?`)) return;
+
+    await supabase.storage.from("file-video").remove([allegato.path]);
+
+    const { error } = await supabase
+      .from("comunicazioni_allegati")
+      .delete()
+      .eq("id", allegato.id);
+
+    if (error) {
+      setErroreAllegati(error.message);
+      return;
+    }
+
+    setAllegatiEsistenti((prima) =>
+      prima.filter((item) => item.id !== allegato.id)
+    );
+
+    setAllegati((prima) => ({
+      ...prima,
+      [allegato.comunicazione_id]: (
+        prima[allegato.comunicazione_id] ?? []
+      ).filter((item) => item.id !== allegato.id),
+    }));
+  }
+
+  /**
+   * Carica su Storage i file scelti e registra le righe in
+   * comunicazioni_allegati. Il file NON passa dal server: come nella
+   * pagina File, si chiede un signed upload URL e si carica direttamente
+   * su Supabase, perche' su Vercel una richiesta al server si ferma a
+   * ~4,5 MB.
+   */
+  async function caricaAllegati(comunicazioneId: string) {
+    if (fileDaCaricare.length === 0) return;
+
+    const righe: {
+      comunicazione_id: string;
+      club_id: string;
+      nome: string;
+      path: string;
+      mime_type: string;
+      dimensione: number;
+      created_by: string | null;
+    }[] = [];
+
+    for (const [indice, file] of fileDaCaricare.entries()) {
+      setAvanzamentoUpload(
+        `Caricamento allegato ${indice + 1} di ${fileDaCaricare.length}...`
+      );
+
+      const preparazione = await preparaUploadFile({
+        nome: file.name,
+        tipoMime: file.type,
+        dimensione: file.size,
+      });
+
+      if (!preparazione.ok) throw new Error(preparazione.message);
+
+      const { error: uploadError } = await supabase.storage
+        .from("file-video")
+        .uploadToSignedUrl(preparazione.path, preparazione.token, file, {
+          contentType: file.type,
+        });
+
+      if (uploadError) throw new Error(`${file.name}: ${uploadError.message}`);
+
+      righe.push({
+        comunicazione_id: comunicazioneId,
+        club_id: clubId as string,
+        nome: file.name,
+        path: preparazione.path,
+        mime_type: file.type,
+        dimensione: file.size,
+        created_by: profiloId,
+      });
+    }
+
+    const { error } = await supabase
+      .from("comunicazioni_allegati")
+      .insert(righe);
+
+    if (error) throw new Error(error.message);
   }
 
   const lettureIds = useMemo(
@@ -349,6 +575,10 @@ export default function ComunicazioniClient() {
     setDestinatariTipo([]);
     setDestinatariProfili([]);
     setDestinatariGiocatori([]);
+    setAllegatiEsistenti([]);
+    setFileDaCaricare([]);
+    setErroreAllegati(null);
+    setAvanzamentoUpload(null);
   }
 
   function openCreate() {
@@ -363,6 +593,10 @@ export default function ComunicazioniClient() {
     setDestinatariTipo(comunicazione.destinatari_tipo ?? []);
     setDestinatariProfili(comunicazione.destinatari_profili ?? []);
     setDestinatariGiocatori(comunicazione.destinatari_giocatori ?? []);
+    setAllegatiEsistenti(allegati[comunicazione.id] ?? []);
+    setFileDaCaricare([]);
+    setErroreAllegati(null);
+    setAvanzamentoUpload(null);
     setOpen(true);
   }
 
@@ -387,6 +621,9 @@ export default function ComunicazioniClient() {
       updated_at: new Date().toISOString(),
     };
 
+    setSalvataggioInCorso(true);
+    setErroreAllegati(null);
+
     if (editing) {
       const { error } = await supabase
         .from("comunicazioni")
@@ -395,6 +632,25 @@ export default function ComunicazioniClient() {
 
       if (error) {
         console.error("Errore modifica comunicazione:", error);
+        setSalvataggioInCorso(false);
+        return;
+      }
+
+      /*
+       * Gli allegati si caricano DOPO il salvataggio della
+       * comunicazione: servono il suo id per collegarli, e un upload
+       * andato storto non deve lasciare in giro file orfani.
+       */
+      try {
+        await caricaAllegati(editing.id);
+      } catch (errore) {
+        setErroreAllegati(
+          errore instanceof Error
+            ? errore.message
+            : "Impossibile caricare gli allegati."
+        );
+        setAvanzamentoUpload(null);
+        setSalvataggioInCorso(false);
         return;
       }
     } else {
@@ -406,7 +662,24 @@ export default function ComunicazioniClient() {
 
       if (error) {
         console.error("Errore creazione comunicazione:", error);
+        setSalvataggioInCorso(false);
         return;
+      }
+
+      if (creata?.id) {
+        try {
+          await caricaAllegati(creata.id);
+        } catch (errore) {
+          setErroreAllegati(
+            errore instanceof Error
+              ? errore.message
+              : "Comunicazione creata, ma il caricamento degli allegati e' fallito."
+          );
+          setAvanzamentoUpload(null);
+          setSalvataggioInCorso(false);
+          await loadInitialData();
+          return;
+        }
       }
 
       // Invia notifiche in-app + push ai destinatari, senza bloccare la UI.
@@ -464,6 +737,8 @@ export default function ComunicazioniClient() {
       }
     }
 
+    setAvanzamentoUpload(null);
+    setSalvataggioInCorso(false);
     setOpen(false);
     resetForm();
     await loadInitialData();
@@ -482,6 +757,19 @@ export default function ComunicazioniClient() {
     if (!conferma) return;
 
     setDeletingId(comunicazioneId);
+
+    /*
+     * I file degli allegati vanno tolti a mano dallo Storage: la riga
+     * della tabella sparisce da sola (ON DELETE CASCADE), il file no, e
+     * resterebbe a occupare spazio per sempre.
+     */
+    const allegatiDaRimuovere = allegati[comunicazioneId] ?? [];
+
+    if (allegatiDaRimuovere.length > 0) {
+      await supabase.storage
+        .from("file-video")
+        .remove(allegatiDaRimuovere.map((allegato) => allegato.path));
+    }
 
     // Rimuove prima le letture collegate, così l'eliminazione della
     // comunicazione non fallisce per eventuali vincoli di chiave esterna.
@@ -714,6 +1002,34 @@ export default function ComunicazioniClient() {
                     >
                       {comunicazione.descrizione}
                     </p>
+
+                    {/* ALLEGATI */}
+                    {(allegati[comunicazione.id]?.length ?? 0) > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {allegati[comunicazione.id].map((allegato) => (
+                          <button
+                            key={allegato.id}
+                            type="button"
+                            onClick={(event) => {
+                              // La card e' un Link: senza questo, aprire
+                              // l'allegato porterebbe anche al dettaglio.
+                              event.preventDefault();
+                              event.stopPropagation();
+                              apriAllegato(allegato);
+                            }}
+                            className="
+                              inline-flex max-w-full items-center gap-2
+                              rounded-full border border-zinc-800 bg-zinc-900
+                              px-3 py-1.5 text-xs text-zinc-300
+                              transition-colors hover:border-zinc-600 hover:text-white
+                            "
+                          >
+                            <Paperclip size={14} className="shrink-0" />
+                            <span className="truncate">{allegato.nome}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
                     {/* DESTINATARI */}
                     {comunicazione.destinatari_tipo?.length > 0 && (
@@ -970,6 +1286,104 @@ export default function ComunicazioniClient() {
                     placeholder="Scrivi il testo della comunicazione..."
                   />
                 </div>
+
+                {/* ALLEGATI */}
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-zinc-300">
+                    Allegati
+                  </label>
+
+                  <div className="space-y-2">
+                    {allegatiEsistenti.map((allegato) => (
+                      <div
+                        key={allegato.id}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2.5"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => apriAllegato(allegato)}
+                          className="flex min-w-0 items-center gap-2 text-left"
+                        >
+                          <Paperclip
+                            size={16}
+                            className="shrink-0 text-zinc-500"
+                          />
+                          <span className="truncate text-sm text-white underline-offset-2 hover:underline">
+                            {allegato.nome}
+                          </span>
+                          <span className="shrink-0 text-xs text-zinc-500">
+                            {formattaPeso(allegato.dimensione)}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => eliminaAllegato(allegato)}
+                          className="shrink-0 rounded-lg p-2 text-zinc-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                          title="Elimina allegato"
+                          aria-label={`Elimina ${allegato.nome}`}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+
+                    {fileDaCaricare.map((file, indice) => (
+                      <div
+                        key={`${file.name}-${indice}`}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-zinc-700 bg-zinc-900/60 px-3 py-2.5"
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Paperclip
+                            size={16}
+                            className="shrink-0 text-zinc-500"
+                          />
+                          <span className="truncate text-sm text-zinc-300">
+                            {file.name}
+                          </span>
+                          <span className="shrink-0 text-xs text-zinc-500">
+                            {formattaPeso(file.size)} · da caricare
+                          </span>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => rimuoviFileDaCaricare(indice)}
+                          className="shrink-0 rounded-lg p-2 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+                          title="Togli dall'elenco"
+                          aria-label={`Togli ${file.name}`}
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <input
+                    ref={inputAllegatiRef}
+                    type="file"
+                    multiple
+                    accept="application/pdf,image/*,video/*"
+                    onChange={(e) => selezionaAllegati(e.target.files)}
+                    className="
+                      mt-3 w-full text-sm text-zinc-400
+                      file:mr-3 file:rounded-lg file:border-0
+                      file:bg-zinc-800 file:px-4 file:py-2
+                      file:text-sm file:font-medium file:text-white
+                    "
+                  />
+
+                  <p className="mt-2 text-xs text-zinc-500">
+                    PDF, immagini o video, massimo {LIMITE_FILE_MB} MB per
+                    file. I file vengono caricati al salvataggio.
+                  </p>
+
+                  {erroreAllegati && (
+                    <p className="mt-2 rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                      {erroreAllegati}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1011,6 +1425,7 @@ export default function ComunicazioniClient() {
                   type="button"
                   onClick={salvaComunicazione}
                   disabled={
+                    salvataggioInCorso ||
                     !titolo.trim() ||
                     !descrizione.trim() ||
                     destinatariTipo.length === 0
@@ -1025,7 +1440,16 @@ export default function ComunicazioniClient() {
                     sm:px-4 sm:py-2
                   "
                 >
-                  {editing ? "Salva modifiche" : "Crea comunicazione"}
+                  {salvataggioInCorso ? (
+                    <span className="inline-flex items-center justify-center gap-2">
+                      <Loader2 size={16} className="animate-spin" />
+                      {avanzamentoUpload ?? "Salvataggio..."}
+                    </span>
+                  ) : editing ? (
+                    "Salva modifiche"
+                  ) : (
+                    "Crea comunicazione"
+                  )}
                 </button>
               </div>
             </div>

@@ -583,6 +583,49 @@ export type RigaAssenzaGiustificataPdf = {
 };
 
 /**
+ * Nero o bianco a seconda di quanto e' chiaro lo sfondo. Formula di
+ * luminanza percepita: l'occhio pesa molto il verde e pochissimo il blu,
+ * per questo i coefficienti non sono uguali fra loro.
+ */
+function testoSuSfondo(
+  colore: [number, number, number]
+): [number, number, number] {
+  const [r, g, b] = colore;
+
+  const luminanza = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+
+  return luminanza > 0.6 ? [25, 25, 25] : [255, 255, 255];
+}
+
+/**
+ * Una cella della matrice presenze: la sigla dello stato (P, PM, PP, I,
+ * AG, AI) con il colore della legenda. `null` = nessun dato per quel
+ * giocatore in quella giornata.
+ */
+export type CellaMatricePresenzePdf = {
+  sigla: string;
+  colore: [number, number, number];
+} | null;
+
+export type RigaMatricePresenzePdf = {
+  giocatore: string;
+  /** Stessa lunghezza (e stesso ordine) di `MatricePresenzePdf.date`. */
+  celle: CellaMatricePresenzePdf[];
+  presenze: number;
+  giornate: number;
+};
+
+/**
+ * Spaccato giocatore x giornata: la stessa griglia che si vede a schermo
+ * nella tab Presenze.
+ */
+export type MatricePresenzePdf = {
+  /** Etichette di colonna gia' formattate (gg/mm). */
+  date: string[];
+  righe: RigaMatricePresenzePdf[];
+};
+
+/**
  * Genera e scarica un PDF con l'andamento delle presenze in base ai filtri
  * applicati nella tab "Presenze" (inclusa l'eventuale card di stato
  * selezionata): riepilogo con % di presenza, grafico a barre impilate con
@@ -602,7 +645,9 @@ export async function generaPdfPresenze(
   nomeFile = "presenze.pdf",
   // In coda per non rompere le chiamate esistenti: senza assenze
   // giustificate nel periodo la sezione non viene nemmeno disegnata.
-  assenzeGiustificate: RigaAssenzaGiustificataPdf[] = []
+  assenzeGiustificate: RigaAssenzaGiustificataPdf[] = [],
+  // Idem: senza matrice la sezione non compare.
+  matrice: MatricePresenzePdf | null = null
 ): Promise<PdfPerformanceGenerato> {
   const doc = new jsPDF({ orientation: "landscape" });
   const larghezzaPagina = doc.internal.pageSize.getWidth();
@@ -721,15 +766,178 @@ export async function generaPdfPresenze(
     },
   });
 
+  /*
+   * SPACCATO GIOCATORE x GIORNATA
+   * ==============================
+   * La stessa griglia che si vede a schermo: una riga per giocatore, una
+   * colonna per giornata, la sigla dello stato colorata come la legenda.
+   *
+   * Sta PRIMA delle assenze giustificate: prima si guarda il quadro
+   * d'insieme, poi si leggono i motivi delle assenze.
+   *
+   * Le giornate si spezzano in blocchi da MAX_COLONNE_MATRICE: su un A4
+   * orizzontale oltre quella soglia le colonne diventano cosi' strette
+   * che la sigla non ci sta piu'. La colonna dei totali compare solo
+   * nell'ultimo blocco, perche' e' il totale del periodo intero e
+   * ripeterla a ogni blocco farebbe pensare a un totale parziale.
+   */
+  if (matrice && matrice.date.length > 0 && matrice.righe.length > 0) {
+    // Copia in una const: dentro le callback qui sotto TypeScript
+    // perderebbe il controllo di nullita' fatto sul parametro.
+    const griglia = matrice;
+
+    const MAX_COLONNE_MATRICE = 26;
+
+    const blocchi: number[][] = [];
+
+    for (let i = 0; i < griglia.date.length; i += MAX_COLONNE_MATRICE) {
+      blocchi.push(
+        griglia.date.map((_, indice) => indice).slice(i, i + MAX_COLONNE_MATRICE)
+      );
+    }
+
+    blocchi.forEach((indiciColonna, indiceBlocco) => {
+      const ultimoBlocco = indiceBlocco === blocchi.length - 1;
+
+      /*
+       * Una pagina tutta sua (e una per ogni blocco di giornate). La
+       * griglia si legge solo se sta intera sotto gli occhi: accodata al
+       * riepilogo si spezzava a meta' fra due pagine, con i primi
+       * giocatori in fondo alla prima e il resto sulla seconda.
+       */
+      doc.addPage();
+      startY = margine + 6;
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(0, 0, 0);
+      doc.text(
+        blocchi.length > 1
+          ? `PRESENZE PER GIOCATORE (${indiceBlocco + 1} di ${blocchi.length})`
+          : "PRESENZE PER GIOCATORE",
+        margine,
+        startY
+      );
+      startY += 3;
+
+      const intestazione = [
+        "Giocatore",
+        ...indiciColonna.map((indice) => griglia.date[indice]),
+        ...(ultimoBlocco ? ["Presenze"] : []),
+      ];
+
+      const corpo = griglia.righe.map((riga) => [
+        riga.giocatore,
+        ...indiciColonna.map((indice) => riga.celle[indice]?.sigla ?? ""),
+        ...(ultimoBlocco ? [`${riga.presenze}/${riga.giornate}`] : []),
+      ]);
+
+      /*
+       * Larghezza fissa per le colonne-data, uguale in tutti i blocchi:
+       * senza, l'ultimo blocco (quasi sempre corto) allargherebbe le sue
+       * poche colonne fino a riempire la pagina, e i due blocchi non si
+       * leggerebbero piu' come la stessa griglia. `tableWidth: "wrap"`
+       * serve allo stesso scopo: la tabella e' larga quanto le colonne.
+       */
+      const larghezzaNome = 34;
+      const larghezzaTotali = 16;
+
+      /*
+       * Con un blocco solo le colonne si spartiscono tutta la pagina.
+       * Con piu' blocchi si dividono invece per il massimo teorico, cosi'
+       * l'ultimo blocco (quasi sempre corto) non allarga le sue poche
+       * colonne fino a riempire la pagina: i blocchi devono leggersi come
+       * la stessa griglia spezzata, non come due tabelle diverse.
+       */
+      const colonneDaSpartire =
+        blocchi.length > 1 ? MAX_COLONNE_MATRICE : indiciColonna.length;
+
+      const larghezzaColonnaData =
+        (larghezzaPagina - margine * 2 - larghezzaNome - larghezzaTotali) /
+        colonneDaSpartire;
+
+      const stiliColonne: Record<number, { cellWidth: number }> = {};
+
+      indiciColonna.forEach((_, posizione) => {
+        stiliColonne[posizione + 1] = { cellWidth: larghezzaColonnaData };
+      });
+
+      autoTable(doc, {
+        startY,
+        head: [intestazione],
+        body: corpo,
+        theme: "grid",
+        tableWidth: "wrap",
+        margin: { left: margine, right: margine },
+        styles: {
+          fontSize: 6,
+          cellPadding: 1,
+          lineColor: [210, 210, 210],
+          lineWidth: 0.1,
+          textColor: [0, 0, 0],
+          halign: "center",
+          valign: "middle",
+          overflow: "hidden",
+        },
+        columnStyles: {
+          0: { cellWidth: larghezzaNome, halign: "left", fontStyle: "bold" },
+          ...stiliColonne,
+          ...(ultimoBlocco
+            ? {
+                [indiciColonna.length + 1]: {
+                  cellWidth: larghezzaTotali,
+                  fontStyle: "bold" as const,
+                },
+              }
+            : {}),
+        },
+        headStyles: {
+          fillColor: COLORE_RIEPILOGO_HEADER,
+          textColor: [255, 255, 255],
+          fontStyle: "bold",
+          fontSize: 6,
+          halign: "center",
+        },
+        /*
+         * Il colore non puo' stare nei dati (autoTable accetta solo
+         * stringhe nelle celle): si applica qui, leggendo la cella
+         * corrispondente della matrice. Il testo bianco o nero lo decide
+         * la luminosita' dello sfondo: "PM" e' giallo, e in bianco su
+         * giallo la sigla sparisce.
+         */
+        didParseCell: (dati) => {
+          if (dati.section !== "body") return;
+
+          // La colonna 0 e' il nome, le ultime possono essere i totali.
+          const posizione = dati.column.index - 1;
+
+          if (posizione < 0 || posizione >= indiciColonna.length) return;
+
+          const cella =
+            griglia.righe[dati.row.index]?.celle[indiciColonna[posizione]];
+
+          if (!cella) return;
+
+          dati.cell.styles.fillColor = cella.colore;
+          dati.cell.styles.textColor = testoSuSfondo(cella.colore);
+          dati.cell.styles.fontStyle = "bold";
+        },
+      });
+    });
+  }
+
   // Sezione "Assenze giustificate": elenco per data con il motivo scritto
   // in Registra presenze. Larghezza piena, perche' i motivi sono testo
   // libero e in una colonna stretta andrebbero a capo di continuo.
   if (assenzeGiustificate.length > 0) {
-    const distribuzioneFinalY = (
-      doc as unknown as { lastAutoTable: { finalY: number } }
-    ).lastAutoTable.finalY;
-
-    startY = distribuzioneFinalY + 8;
+    /*
+     * Anche le assenze giustificate partono da una pagina nuova: e'
+     * l'elenco che si stampa e si passa in giro, e cominciare a meta'
+     * pagina sotto la coda di un'altra tabella lo rende scomodo da
+     * leggere. Se sono tante, autoTable prosegue sulle pagine dopo.
+     */
+    doc.addPage();
+    startY = margine + 6;
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);

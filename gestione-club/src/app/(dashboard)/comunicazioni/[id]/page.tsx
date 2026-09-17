@@ -4,6 +4,7 @@ import {
   CalendarDays,
   Clock3,
   Megaphone,
+  Paperclip,
   Send,
   Users,
 } from "lucide-react";
@@ -27,6 +28,16 @@ function formatData(value: string | null) {
     month: "long",
     year: "numeric",
   }).format(new Date(value));
+}
+
+function formatPeso(byte: number | null) {
+  if (!byte || byte <= 0) return "";
+
+  const mega = byte / (1024 * 1024);
+
+  if (mega >= 1) return `${mega.toFixed(1)} MB`;
+
+  return `${Math.max(1, Math.round(byte / 1024))} KB`;
 }
 
 function formatOra(value: string | null) {
@@ -103,6 +114,29 @@ const { data: comunicazione, error: comunicazioneError } = await supabase
   ) {
     notFound();
   }
+
+  /*
+   * 3-bis. Allegati.
+   * Il bucket e' privato, quindi ogni file ha bisogno di un link firmato
+   * (vale un'ora). Si generano qui, lato server, insieme alla pagina:
+   * sono pochi e l'utente li vede gia' pronti da scaricare.
+   */
+  const { data: allegatiRaw } = await supabase
+    .from("comunicazioni_allegati")
+    .select("id, nome, path, mime_type, dimensione")
+    .eq("comunicazione_id", comunicazione.id)
+    .eq("club_id", profilo.last_club_id)
+    .order("created_at", { ascending: true });
+
+  const allegati = await Promise.all(
+    (allegatiRaw ?? []).map(async (allegato) => {
+      const { data } = await supabase.storage
+        .from("file-video")
+        .createSignedUrl(allegato.path, 60 * 60);
+
+      return { ...allegato, url: data?.signedUrl ?? null };
+    })
+  );
 
   // 4. Destinatari reali della comunicazione
   const destinatariProfili = comunicazione.destinatari_profili ?? [];
@@ -208,6 +242,56 @@ const numeroDestinatari = isTutti
         <div className="whitespace-pre-wrap text-sm leading-7 text-zinc-300">
 {comunicazione.descrizione || "Nessun contenuto disponibile."}        </div>
       </section>
+
+      {/* ALLEGATI */}
+      {allegati.length > 0 && (
+        <section className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">
+          <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-5">
+            <div>
+              <h2 className="font-semibold text-white">Allegati</h2>
+
+              <p className="mt-1 text-sm text-zinc-500">
+                {allegati.length}{" "}
+                {allegati.length === 1 ? "file allegato" : "file allegati"}
+              </p>
+            </div>
+
+            <div
+              className="flex h-10 min-w-10 items-center justify-center rounded-xl px-3 text-sm font-semibold"
+              style={{
+                backgroundColor: `${coloreClub}18`,
+                color: coloreClub,
+              }}
+            >
+              {allegati.length}
+            </div>
+          </div>
+
+          <div className="space-y-2 p-6">
+            {allegati.map((allegato) => (
+              <a
+                key={allegato.id}
+                href={allegato.url ?? "#"}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-between gap-4 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3 transition hover:border-zinc-600"
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  <Paperclip size={16} className="shrink-0 text-zinc-500" />
+
+                  <span className="truncate text-sm text-white">
+                    {allegato.nome}
+                  </span>
+                </span>
+
+                <span className="shrink-0 text-xs text-zinc-500">
+                  {formatPeso(allegato.dimensione)}
+                </span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* DESTINATARI */}
      {/* DESTINATARI */}

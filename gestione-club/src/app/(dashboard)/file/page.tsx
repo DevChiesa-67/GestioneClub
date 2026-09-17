@@ -124,6 +124,7 @@ export default async function Page() {
     titolo,
     video_path,
     video_mime_type,
+    video_size,
     tipo_evento,
     partita_id,
     allenamento_id,

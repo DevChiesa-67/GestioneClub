@@ -579,6 +579,25 @@ export async function fetchParametriPubblicati(
     .contains("tipi_profilo_visibili", [tipoProfilo]);
 
   if (error) {
+    /*
+     * 42703 = "colonna inesistente". Vuol dire che la migrazione
+     * `potenzia-report-personalizzati.sql` non e' stata eseguita su
+     * questo database: le colonne campo_catapult, aggregazione_catapult,
+     * pubblicato e tipi_profilo_visibili non ci sono ancora.
+     *
+     * Non e' un errore del codice, quindi non va urlato a ogni
+     * caricamento della pagina: si avvisa una volta con l'istruzione
+     * per risolverlo e si prosegue senza parametri pubblicati, che e'
+     * esattamente lo stato di chi non ne ha configurato nessuno.
+     */
+    if (error.code === "42703") {
+      console.warn(
+        "Parametri pubblicati non disponibili: esegui potenzia-report-personalizzati.sql sul database Supabase."
+      );
+
+      return [];
+    }
+
     console.error(
       "Errore caricamento parametri pubblicati:",
       JSON.stringify(error, null, 2)

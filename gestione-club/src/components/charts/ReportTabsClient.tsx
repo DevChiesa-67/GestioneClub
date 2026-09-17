@@ -15,6 +15,7 @@ import ReportAcwrClient from "@/components/charts/ReportAcwrClient";
 import { AppCard } from "@/components/ui/AppCard";
 import { DateInput } from "@/components/ui/DateInput";
 import { formatDataIT } from "@/lib/date";
+import { isPresente } from "@/lib/presenze/presenze-giornaliere";
 import ReportPerformanceSessioniClient, {
   COLONNE_PDF,
   fetchPerformanceRows,
@@ -570,6 +571,63 @@ export default function ReportTabsClient({
         motivo: riga.giustificazione,
       }));
 
+    /*
+     * SPACCATO GIOCATORE x GIORNATA
+     * ==============================
+     * La stessa griglia della tab Presenze: una riga per giocatore, una
+     * colonna per giornata, la sigla dello stato.
+     *
+     * Non risente della card di stato selezionata: quella isola
+     * l'istogramma su un singolo stato, mentre qui il senso e' proprio
+     * vedere tutti gli stati uno accanto all'altro.
+     */
+    const dateMatrice = Array.from(
+      new Set(presenzeRows.map((riga) => riga.data))
+    ).sort();
+
+    const statoPerChiave = new Map(
+      presenzeRows.map((riga) => [
+        `${riga.giocatore_id}|${riga.data}`,
+        riga.stato,
+      ])
+    );
+
+    const idGiocatoriConPresenze = Array.from(
+      new Set(presenzeRows.map((riga) => riga.giocatore_id))
+    ).sort((a, b) =>
+      (nomiGiocatori.get(a) ?? "").localeCompare(nomiGiocatori.get(b) ?? "")
+    );
+
+    const matricePresenze = {
+      date: dateMatrice.map((data) => formatDataIT(data).slice(0, 5)),
+      righe: idGiocatoriConPresenze.map((giocatoreId) => {
+        const celle = dateMatrice.map((data) => {
+          const stato = statoPerChiave.get(`${giocatoreId}|${data}`);
+
+          if (!stato) return null;
+
+          const info = STATI.find((voce) => voce.key === stato);
+
+          if (!info) return null;
+
+          return { sigla: info.label, colore: hexToRgb(info.color) };
+        });
+
+        const presenze = dateMatrice.filter((data) => {
+          const stato = statoPerChiave.get(`${giocatoreId}|${data}`);
+
+          return stato ? isPresente(stato) : false;
+        }).length;
+
+        return {
+          giocatore: nomiGiocatori.get(giocatoreId) ?? "Giocatore non in rosa",
+          celle,
+          presenze,
+          giornate: dateMatrice.length,
+        };
+      }),
+    };
+
     const titolo = statoInfo
       ? `ANDAMENTO PRESENZE — ${statoInfo.title.toUpperCase()}`
       : "ANDAMENTO PRESENZE";
@@ -587,7 +645,8 @@ export default function ReportTabsClient({
       legenda,
       { logo_url: clubLogoUrl },
       `presenze-${new Date().toISOString().slice(0, 10)}.pdf`,
-      assenzeGiustificate
+      assenzeGiustificate,
+      matricePresenze
     );
   }
 

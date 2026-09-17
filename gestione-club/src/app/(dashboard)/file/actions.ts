@@ -201,6 +201,120 @@ export async function registraFileVideo(input: {
   }
 }
 
+/*
+ * MODIFICA DI UN BLOCCO
+ * ======================
+ * Un "blocco" non e' una riga del database: e' l'insieme dei file
+ * caricati insieme, che condividono il titolo (e' con il titolo che il
+ * client li raggruppa). I metadati - titolo, evento, visibilita', note -
+ * appartengono quindi al blocco, non al singolo file, ed e' giusto
+ * cambiarli in una volta sola: modificarli file per file portava solo a
+ * blocchi che si spezzavano in due perche' un titolo era stato corretto
+ * e l'altro no.
+ *
+ * L'aggiornamento e' un solo UPDATE su tutti gli id, non un ciclo: se
+ * fallisce a meta' strada lascerebbe il blocco spaccato.
+ */
+export async function aggiornaBloccoFile(input: {
+  videoIds: string[];
+  titolo: string;
+  tipoEvento: string;
+  eventoId: string;
+  note: string;
+  visibilita: string;
+  personaId: string;
+  giocatoreIds: string[];
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const { supabase, profilo } = await profiloAdmin();
+
+    if (input.videoIds.length === 0) throw new Error("Nessun file da aggiornare");
+    if (!input.titolo.trim()) throw new Error("Il titolo e' obbligatorio");
+
+    if (input.tipoEvento === "evento" && input.eventoId) {
+      const { data: eventoValido } = await supabase
+        .from("eventi")
+        .select("id")
+        .eq("id", input.eventoId)
+        .eq("club_id", profilo.last_club_id)
+        .maybeSingle();
+
+      if (!eventoValido) throw new Error("Evento non valido");
+    }
+
+    const { error } = await supabase
+      .from("file_video")
+      .update({
+        titolo: input.titolo,
+        tipo_evento: input.tipoEvento,
+        partita_id:
+          input.tipoEvento === "partita" && input.eventoId ? input.eventoId : null,
+        allenamento_id:
+          input.tipoEvento === "allenamento" && input.eventoId
+            ? input.eventoId
+            : null,
+        evento_id:
+          input.tipoEvento === "evento" && input.eventoId ? input.eventoId : null,
+        note: input.note,
+        visibilita: input.visibilita,
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", input.videoIds)
+      .eq("club_id", profilo.last_club_id);
+
+    if (error) throw error;
+
+    // I destinatari si riscrivono da zero: calcolare la differenza fra
+    // vecchi e nuovi, per tutti i file del blocco, costerebbe piu' codice
+    // di quanto valga.
+    const { error: deleteDestError } = await supabase
+      .from("file_video_destinatari")
+      .delete()
+      .in("video_id", input.videoIds);
+
+    if (deleteDestError) throw deleteDestError;
+
+    if (input.visibilita === "persona" && input.personaId) {
+      const righe = input.videoIds.map((videoId) => ({
+        video_id: videoId,
+        profilo_id: input.personaId,
+        giocatore_id: null,
+      }));
+
+      const { error: destError } = await supabase
+        .from("file_video_destinatari")
+        .insert(righe);
+
+      if (destError) throw destError;
+    }
+
+    if (input.visibilita === "giocatori" && input.giocatoreIds.length > 0) {
+      const righe = input.videoIds.flatMap((videoId) =>
+        input.giocatoreIds.map((giocatoreId) => ({
+          video_id: videoId,
+          profilo_id: null,
+          giocatore_id: giocatoreId,
+        }))
+      );
+
+      const { error: destError } = await supabase
+        .from("file_video_destinatari")
+        .insert(righe);
+
+      if (destError) throw destError;
+    }
+
+    revalidatePath("/file");
+
+    return { ok: true };
+  } catch (errore) {
+    return {
+      ok: false,
+      message: errore instanceof Error ? errore.message : "Errore imprevisto.",
+    };
+  }
+}
+
 export async function eliminaVideoFile(videoId: string, videoPath: string) {
   const supabase = await createClient();
 
