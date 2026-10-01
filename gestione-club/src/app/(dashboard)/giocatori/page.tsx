@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase-server";
-import { Plus, User, ChevronRight } from "lucide-react";
+import { Plus, User, ChevronRight, Cake } from "lucide-react";
 import { impostaAccademiaGiocatore } from "./actions";
 
 function getGoogleDriveImageUrl(url: string | null) {
@@ -18,6 +18,20 @@ function getAnnoNascita(dataNascita: string | null) {
   const anno = Number(dataNascita.slice(0, 4));
 
   return Number.isFinite(anno) ? anno : null;
+}
+
+function isCompleannoOggi(dataNascita: string | null) {
+  if (!dataNascita || dataNascita.length < 10) return false;
+
+  const oggi = new Intl.DateTimeFormat("it-IT", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "Europe/Rome",
+  }).formatToParts(new Date());
+  const giorno = oggi.find((part) => part.type === "day")?.value;
+  const mese = oggi.find((part) => part.type === "month")?.value;
+
+  return dataNascita.slice(5, 7) === mese && dataNascita.slice(8, 10) === giorno;
 }
 
 async function getPageContext() {
@@ -142,6 +156,7 @@ export default async function GiocatoriPage() {
         {giocatori?.map((g) => {
           const imageUrl = getGoogleDriveImageUrl(g.foto_url);
           const annoNascita = getAnnoNascita(g.data_nascita);
+          const compleannoOggi = isCompleannoOggi(g.data_nascita);
 
           return (
             <div
@@ -184,9 +199,21 @@ export default async function GiocatoriPage() {
 
               <div className="p-5">
                 <div className="flex items-start justify-between gap-2">
-                  <h2 className="text-xl font-black text-white">
-                    {g.nome} {g.cognome}
-                  </h2>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <h2 className="text-xl font-black text-white">
+                      {g.nome} {g.cognome}
+                    </h2>
+
+                    {compleannoOggi && (
+                      <span
+                        className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-amber-300 text-amber-950 shadow-lg shadow-amber-400/25 ring-2 ring-amber-100"
+                        title={`Oggi è il compleanno di ${g.nome} ${g.cognome}`}
+                        aria-label={`Oggi è il compleanno di ${g.nome} ${g.cognome}`}
+                      >
+                        <Cake size={26} strokeWidth={2.5} aria-hidden="true" />
+                      </span>
+                    )}
+                  </div>
 
                   {annoNascita && (
                     <span className="shrink-0 rounded-full bg-white/10 px-2.5 py-1 text-xs font-bold text-zinc-300">

@@ -20,6 +20,7 @@ export async function POST(req: Request) {
 
     const squadraCasaId = String(body.squadra_casa_id || "");
     const squadraFuoriId = String(body.squadra_fuori_id || "");
+    const casaFuori = body.casa_fuori === "fuori" ? "fuori" : "casa";
     const dataPartita = String(body.data_partita || "");
     const oraPartita = String(body.ora_partita || "");
     const luogo = String(body.luogo || "");
@@ -101,6 +102,7 @@ export async function POST(req: Request) {
         squadra_id: profilo.last_squadra_id,
         squadra_casa_id: squadraCasaId,
         squadra_fuori_id: squadraFuoriId,
+        casa_fuori: casaFuori,
         data_partita: dataPartita,
         ora_partita: oraPartita,
         luogo: luogo || null,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, Save, Loader2 } from "lucide-react";
 
 import { modificaDettagliPartita } from "@/app/(dashboard)/partite/[id]/actions";
@@ -34,6 +34,7 @@ type Props = {
     data_partita: string;
     ora_partita: string;
     luogo: string;
+    casa_fuori: "casa" | "fuori" | null;
     tipo_partita: string;
     note: string;
   };
@@ -57,6 +58,9 @@ export default function ModificaDettagliPartitaModal({
   const [squadraFuoriId, setSquadraFuoriId] = useState(
     valoriIniziali.squadra_fuori_id
   );
+  const [casaFuori, setCasaFuori] = useState<"casa" | "fuori">(
+    valoriIniziali.casa_fuori ?? "casa"
+  );
   const [dataPartita, setDataPartita] = useState(valoriIniziali.data_partita);
   const [oraPartita, setOraPartita] = useState(valoriIniziali.ora_partita);
   const [luogo, setLuogo] = useState(valoriIniziali.luogo);
@@ -64,6 +68,10 @@ export default function ModificaDettagliPartitaModal({
     valoriIniziali.tipo_partita
   );
   const [note, setNote] = useState(valoriIniziali.note);
+
+  useEffect(() => {
+    if (open) setCasaFuori(valoriIniziali.casa_fuori ?? "casa");
+  }, [open, valoriIniziali.casa_fuori]);
 
   if (!open) return null;
 
@@ -88,6 +96,7 @@ export default function ModificaDettagliPartitaModal({
         partita_id: partitaId,
         squadra_casa_id: squadraCasaId,
         squadra_fuori_id: squadraFuoriId,
+        casa_fuori: casaFuori,
         data_partita: dataPartita,
         ora_partita: oraPartita,
         luogo,
@@ -176,6 +185,36 @@ export default function ModificaDettagliPartitaModal({
               </select>
             </div>
           </div>
+
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-semibold text-zinc-300">
+              La squadra del club gioca
+            </legend>
+            <div className="flex flex-wrap gap-3">
+              {([
+                { value: "casa", label: "In Casa" },
+                { value: "fuori", label: "Fuori Casa" },
+              ] as const).map((opzione) => {
+                const active = casaFuori === opzione.value;
+
+                return (
+                  <button
+                    key={opzione.value}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setCasaFuori(opzione.value)}
+                    className="rounded-xl border px-4 py-2 text-sm font-bold text-white transition hover:opacity-90"
+                    style={{
+                      borderColor: active ? brand : `${brand}35`,
+                      backgroundColor: active ? brand : `${brand}12`,
+                    }}
+                  >
+                    {opzione.label}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
 
           <div className="grid gap-4 md:grid-cols-2">
             <div>

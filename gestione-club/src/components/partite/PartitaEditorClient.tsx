@@ -192,6 +192,7 @@ type Props = {
   squadreDisponibili: SquadraPartitaOption[];
   coloreClub: string;
   isAdmin: boolean;
+  canViewConvocazioni: boolean;
 };
 
 const formazione: {
@@ -713,6 +714,7 @@ export default function PartitaEditorClient({
   squadreDisponibili,
   coloreClub,
   isAdmin,
+  canViewConvocazioni,
 }: Props) {
   const router = useRouter();
   const { showToast } = useToast();
@@ -734,6 +736,10 @@ export default function PartitaEditorClient({
   const [tab, setTab] = useState<"risultato" | "convocazioni">(
     "risultato"
   );
+
+  useEffect(() => {
+    if (!canViewConvocazioni) setTab("risultato");
+  }, [canViewConvocazioni]);
 
   const [isPending, startTransition] = useTransition();
   const [isDeleting, startDeleteTransition] = useTransition();
@@ -1319,6 +1325,15 @@ function giocatoriPerPosizione(
     squadraFuori?.nome ??
     "Squadra fuori";
 
+  const puntiSquadraCasa =
+    partita.casa_fuori === "fuori"
+      ? stats.punti_subiti
+      : stats.punti_fatti;
+  const puntiSquadraFuori =
+    partita.casa_fuori === "fuori"
+      ? stats.punti_fatti
+      : stats.punti_subiti;
+
   const titolari = formazione.map((slot) => {
   const convocazione = convocazioniState.find(
     (item) => item.posizione === slot.posizione
@@ -1829,13 +1844,13 @@ function giocatoriPerPosizione(
             </p>
 
             <p className="text-2xl font-black text-white sm:text-3xl">
-              {stats.punti_fatti}
+              {puntiSquadraCasa}
 
               <span className="mx-2 text-zinc-600">
                 -
               </span>
 
-              {stats.punti_subiti}
+              {puntiSquadraFuori}
             </p>
           </div>
         </div>
@@ -1899,6 +1914,7 @@ function giocatoriPerPosizione(
             </span>
           </button>
 
+          {canViewConvocazioni && (
           <button
             type="button"
             onClick={() => setTab("convocazioni")}
@@ -1933,6 +1949,7 @@ function giocatoriPerPosizione(
 
             Convocazioni
           </button>
+          )}
         </div>
       </div>
 
@@ -2200,7 +2217,7 @@ function giocatoriPerPosizione(
       {/* =====================================================
           TAB CONVOCAZIONI
       ====================================================== */}
-      {tab === "convocazioni" && (
+      {canViewConvocazioni && tab === "convocazioni" && (
         <div className="space-y-4 sm:space-y-6">
           <div
             className="
@@ -3388,6 +3405,7 @@ function giocatoriPerPosizione(
           valoriIniziali={{
             squadra_casa_id: partita.squadra_casa_id ?? "",
             squadra_fuori_id: partita.squadra_fuori_id ?? "",
+            casa_fuori: partita.casa_fuori,
             data_partita: partita.data_partita ?? "",
             ora_partita: partita.ora_partita ?? "",
             luogo: partita.luogo ?? "",
@@ -3400,7 +3418,7 @@ function giocatoriPerPosizione(
       {/* =====================================================
           ANTEPRIMA PDF FORMAZIONE
       ====================================================== */}
-      {pdfInAnteprima && (
+      {canViewConvocazioni && pdfInAnteprima && (
         <div className="fixed inset-0 z-[110] overflow-y-auto bg-black/80 px-3 py-4 backdrop-blur-sm sm:px-6 sm:py-8">
           <div
             className="mx-auto min-w-0 max-w-4xl overflow-x-hidden rounded-3xl border bg-[#090909] p-4 shadow-2xl sm:p-6"
@@ -3423,7 +3441,7 @@ function giocatoriPerPosizione(
       {/* =====================================================
           ANTEPRIMA CONVOCAZIONI
       ====================================================== */}
-      {showAnteprima && (
+      {canViewConvocazioni && showAnteprima && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
           <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950 shadow-2xl sm:rounded-3xl">
             {/* HEADER */}

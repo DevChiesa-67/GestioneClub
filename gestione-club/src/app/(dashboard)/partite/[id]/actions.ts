@@ -33,6 +33,7 @@ type ModificaDettagliInput = {
   partita_id: string;
   squadra_casa_id: string;
   squadra_fuori_id: string;
+  casa_fuori: "casa" | "fuori";
   data_partita: string;
   ora_partita: string;
   luogo?: string | null;
@@ -108,7 +109,7 @@ async function salvaStatistichePartitaInterna(input: SalvaStatisticheInput) {
 
   const { data: partita, error: partitaError } = await supabase
     .from("partite")
-    .select("id,club_id,squadra_id")
+    .select("id,club_id,squadra_id,casa_fuori")
     .eq("id", input.partita_id)
     .eq("club_id", clubId)
     .single();
@@ -117,7 +118,13 @@ async function salvaStatistichePartitaInterna(input: SalvaStatisticheInput) {
     throw new Error("Partita non trovata.");
   }
 
-  const risultato = `${input.punti_fatti}-${input.punti_subiti}`;
+  // Il risultato visualizzato segue l'ordine Squadra 1 (casa) - Squadra 2
+  // (fuori), mentre le statistiche inserite sono sempre dal punto di vista
+  // della squadra del club.
+  const risultato =
+    partita.casa_fuori === "fuori"
+      ? `${input.punti_subiti}-${input.punti_fatti}`
+      : `${input.punti_fatti}-${input.punti_subiti}`;
 
   /*
    * Il contesto utente sopra autorizza gia' l'operazione e verifica che la
@@ -439,9 +446,13 @@ export async function modificaDettagliPartita(input: ModificaDettagliInput) {
     throw new Error("Inserisci data e ora della partita.");
   }
 
+  if (input.casa_fuori !== "casa" && input.casa_fuori !== "fuori") {
+    throw new Error("Seleziona se la squadra del club gioca in casa o fuori casa.");
+  }
+
   const { data: partita, error: partitaError } = await supabase
     .from("partite")
-    .select("id,club_id")
+    .select("id,club_id,casa_fuori,punti_fatti,punti_subiti,risultato")
     .eq("id", input.partita_id)
     .eq("club_id", clubId)
     .single();
@@ -466,11 +477,31 @@ export async function modificaDettagliPartita(input: ModificaDettagliInput) {
     );
   }
 
+  let risultato = partita.risultato;
+  if (partita.punti_fatti != null && partita.punti_subiti != null) {
+    risultato =
+      input.casa_fuori === "fuori"
+        ? `${partita.punti_subiti}-${partita.punti_fatti}`
+        : `${partita.punti_fatti}-${partita.punti_subiti}`;
+  } else {
+    const casaFuoriPrecedente =
+      partita.casa_fuori === "fuori" ? "fuori" : "casa";
+    const punteggio = String(partita.risultato ?? "").match(
+      /^(\d+)\s*[-–]\s*(\d+)$/
+    );
+
+    if (punteggio && casaFuoriPrecedente !== input.casa_fuori) {
+      risultato = `${punteggio[2]}-${punteggio[1]}`;
+    }
+  }
+
   const { error: updateError } = await supabase
     .from("partite")
     .update({
       squadra_casa_id: input.squadra_casa_id,
       squadra_fuori_id: input.squadra_fuori_id,
+      casa_fuori: input.casa_fuori,
+      risultato,
       data_partita: input.data_partita,
       ora_partita: input.ora_partita,
       luogo: input.luogo?.trim() || null,

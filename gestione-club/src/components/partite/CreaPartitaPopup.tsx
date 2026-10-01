@@ -136,6 +136,7 @@ export function CreaPartitaPopup({ squadre, coloreClub }: Props) {
 
   const [squadraCasaId, setSquadraCasaId] = useState("");
   const [squadraFuoriId, setSquadraFuoriId] = useState("");
+  const [casaFuori, setCasaFuori] = useState<"casa" | "fuori">("casa");
 
   const [dataPartita, setDataPartita] = useState("");
   const [oraPartita, setOraPartita] = useState("");
@@ -192,6 +193,7 @@ export function CreaPartitaPopup({ squadre, coloreClub }: Props) {
   function resetForm() {
     setSquadraCasaId("");
     setSquadraFuoriId("");
+    setCasaFuori("casa");
     setDataPartita("");
     setOraPartita("");
     setLuogo("");
@@ -285,6 +287,7 @@ export function CreaPartitaPopup({ squadre, coloreClub }: Props) {
         body: JSON.stringify({
           squadra_casa_id: squadraCasaId,
           squadra_fuori_id: squadraFuoriId,
+          casa_fuori: casaFuori,
           data_partita: dataPartita,
           ora_partita: oraPartita,
           luogo,
@@ -407,6 +410,39 @@ if (!res.ok) {
                   onChange={setSquadraFuoriId}
                 />
               </div>
+
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-medium text-zinc-300">
+                  La squadra del club gioca
+                </legend>
+                <div className="flex flex-wrap gap-3">
+                  {([
+                    { value: "casa", label: "In Casa" },
+                    { value: "fuori", label: "Fuori Casa" },
+                  ] as const).map((opzione) => {
+                    const active = casaFuori === opzione.value;
+
+                    return (
+                      <button
+                        key={opzione.value}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setCasaFuori(opzione.value)}
+                        className="rounded-xl border px-4 py-2 text-sm font-bold text-white transition"
+                        style={{
+                          borderColor: active ? clubColor : `${clubColor}35`,
+                          backgroundColor: active ? clubColor : `${clubColor}12`,
+                        }}
+                      >
+                        {opzione.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-zinc-500">
+                  Serve per assegnare i punti fatti dalla squadra del club alla squadra corretta nel risultato.
+                </p>
+              </fieldset>
 
               <div className="flex justify-end">
                 <button

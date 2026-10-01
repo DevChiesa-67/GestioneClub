@@ -29,6 +29,28 @@ export default async function PartitaDetailPage({ params }: PageProps) {
   }
 
   const isAdmin = String(profilo.tipo_profilo || "").toLowerCase() === "admin";
+  let canViewConvocazioni = isAdmin;
+
+  if (!isAdmin) {
+    const { data: permessoConvocazioni, error: permessoConvocazioniError } =
+      await supabase
+        .from("permessi_pagine_tipo_profilo")
+        .select("can_view")
+        .eq("club_id", profilo.last_club_id)
+        .eq("tipo_profilo", String(profilo.tipo_profilo ?? "").toLowerCase())
+        .eq("pagina_key", "convocazioni")
+        .maybeSingle();
+
+    if (permessoConvocazioniError) {
+      console.error(
+        "Errore verifica accesso convocazioni partita:",
+        permessoConvocazioniError
+      );
+    }
+
+    canViewConvocazioni =
+      !permessoConvocazioniError && permessoConvocazioni?.can_view === true;
+  }
 
   /*
    * Tutte le query seguenti dipendono solo dal profilo (club/squadra) e
@@ -53,7 +75,6 @@ export default async function PartitaDetailPage({ params }: PageProps) {
     { data: club },
     { data: partita, error: partitaError },
     { data: statistiche },
-    { data: convocazioni },
     { data: giocatori },
     { data: squadreDisponibili },
   ] = await Promise.all([
@@ -114,33 +135,6 @@ export default async function PartitaDetailPage({ params }: PageProps) {
       .eq("partita_id", id)
       .eq("club_id", profilo.last_club_id)
       .maybeSingle(),
-    supabase
-      .from("partite_convocazioni")
-      .select(
-        `
-        id,
-        partita_id,
-        giocatore_id,
-        convocato,
-        titolare,
-        capitano,
-        vicecapitano,
-        posizione,
-        numero_maglia,
-        ordine,
-        ruolo_panchina,
-        note,
-        giocatori:giocatore_id (
-          id,
-          nome,
-          cognome
-        )
-      `
-      )
-      .eq("partita_id", id)
-      .eq("club_id", profilo.last_club_id)
-      .order("ordine", { ascending: true })
-      .order("numero_maglia", { ascending: true }),
     giocatoriQuery,
     supabase
       .from("squadre_partite")
@@ -155,6 +149,36 @@ export default async function PartitaDetailPage({ params }: PageProps) {
   if (partitaError || !partita) {
     return <AppCard>Partita non trovata.</AppCard>;
   }
+
+  const { data: convocazioni } = canViewConvocazioni
+    ? await supabase
+        .from("partite_convocazioni")
+        .select(
+          `
+          id,
+          partita_id,
+          giocatore_id,
+          convocato,
+          titolare,
+          capitano,
+          vicecapitano,
+          posizione,
+          numero_maglia,
+          ordine,
+          ruolo_panchina,
+          note,
+          giocatori:giocatore_id (
+            id,
+            nome,
+            cognome
+          )
+        `
+        )
+        .eq("partita_id", id)
+        .eq("club_id", profilo.last_club_id)
+        .order("ordine", { ascending: true })
+        .order("numero_maglia", { ascending: true })
+    : { data: [] };
 
   /*
    * La query principale filtra per squadra interna + attivo = true.
@@ -186,6 +210,7 @@ export default async function PartitaDetailPage({ params }: PageProps) {
       squadreDisponibili={squadreDisponibili ?? []}
       coloreClub={coloreClub}
       isAdmin={isAdmin}
+      canViewConvocazioni={canViewConvocazioni}
     />
   );
 }
