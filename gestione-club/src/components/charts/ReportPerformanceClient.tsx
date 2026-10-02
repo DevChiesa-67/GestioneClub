@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { Loader2 } from "lucide-react";
 import { AppCard } from "@/components/ui/AppCard";
@@ -162,10 +162,16 @@ const statiDaMostrare = statoAttivo
  * data invece che per indice.
  */
 const [dataHover, setDataHover] = useState<string | null>(null);
+const scrollRef = useRef<HTMLDivElement>(null);
+
+useEffect(() => {
+  const contenitore = scrollRef.current;
+  if (contenitore) contenitore.scrollLeft = contenitore.scrollWidth;
+}, [dati]);
 
 return (
 <>
-<div className="scrollbar-gestionale -mx-3 flex h-80 min-w-0 items-end gap-3 overflow-x-auto overscroll-x-contain px-3 [touch-action:pan-x_pan-y] sm:-mx-5 sm:px-5">
+<div ref={scrollRef} className="scrollbar-gestionale -mx-3 flex h-80 min-w-0 items-end gap-3 overflow-x-auto overscroll-x-contain px-3 [touch-action:pan-x_pan-y] sm:-mx-5 sm:px-5">
 {dati.length === 0 && ( <div className="flex h-full w-full items-center justify-center text-sm text-zinc-500">
 Nessun dato disponibile. </div>
 )}
@@ -308,6 +314,7 @@ function TabellaPresenzePerGiocatore({
   giocatori: GiocatoreAnagrafica[];
   themeColor: string;
 }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const date = useMemo(
     () =>
       Array.from(new Set(presenze.map((riga) => riga.data)))
@@ -315,6 +322,11 @@ function TabellaPresenzePerGiocatore({
         .sort((a, b) => a.localeCompare(b)),
     [presenze]
   );
+
+  useEffect(() => {
+    const contenitore = scrollRef.current;
+    if (contenitore) contenitore.scrollLeft = contenitore.scrollWidth;
+  }, [date]);
 
   const perGiocatore = useMemo(() => {
     const mappa = new Map<string, Map<string, PresenzaRow>>();
@@ -361,7 +373,7 @@ function TabellaPresenzePerGiocatore({
   }
 
   return (
-    <div className="scrollbar-gestionale overflow-x-auto rounded-2xl border border-white/10">
+    <div ref={scrollRef} className="scrollbar-gestionale overflow-x-auto rounded-2xl border border-white/10">
       <table className="w-full border-collapse">
         <thead>
           <tr className="bg-black/30">
