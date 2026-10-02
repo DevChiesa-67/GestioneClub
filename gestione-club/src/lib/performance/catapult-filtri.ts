@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase-client";
+import { fetchAllSupabaseRows } from "@/lib/fetch-all-supabase-rows";
 
 export type TipoSedutaSingolo = "allenamento" | "partita";
 
@@ -101,11 +102,14 @@ export async function dateCatapultPerTipiSeduta(params: {
 
   if (tags === null) return null;
 
-  const { data, error } = await supabase
+  const query = supabase
     .from("catapult_data")
     .select("date")
     .eq("club_id", params.clubId)
     .or(filtroTagIlike(tags));
+  const { data, error } = await fetchAllSupabaseRows(
+    query.order("date", { ascending: true }).order("id", { ascending: true })
+  );
 
   if (error) {
     console.error(

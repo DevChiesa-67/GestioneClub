@@ -13,6 +13,7 @@ import { EyeOff, GripVertical, Loader2, Pin, Plus, Trash2 } from "lucide-react";
 
 import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
+import { fetchAllSupabaseRows } from "@/lib/fetch-all-supabase-rows";
 import {
   colonneConsentitePerProfilo,
   TIPO_PROFILO_TUTTI,
@@ -457,9 +458,9 @@ export async function fetchPerformanceRows(params: {
     query = query.ilike("split_name", SPLIT_TUTTA_SEDUTA);
   }
 
-  query = query.order("date", { ascending: true });
-
-  const { data, error } = await query;
+  const { data, error } = await fetchAllSupabaseRows(
+    query.order("date", { ascending: true }).order("id", { ascending: true })
+  );
 
   if (error) {
     console.error(
@@ -647,7 +648,7 @@ async function fetchValoriCatapultPerCampi(params: {
 
   let query = supabase
     .from("catapult_data")
-    .select(["date", ...colonneUniche].join(","))
+    .select(["id", "date", ...colonneUniche].join(","))
     .eq("club_id", params.clubId);
 
   if (params.squadraId) {
@@ -680,7 +681,9 @@ async function fetchValoriCatapultPerCampi(params: {
     query = query.ilike("split_name", SPLIT_TUTTA_SEDUTA);
   }
 
-  const { data, error } = await query;
+  const { data, error } = await fetchAllSupabaseRows(
+    query.order("date", { ascending: true }).order("id", { ascending: true })
+  );
 
   if (error) {
     console.error(
@@ -2042,4 +2045,3 @@ export default function ReportPerformanceSessioniClient({
     />
   );
 }
-

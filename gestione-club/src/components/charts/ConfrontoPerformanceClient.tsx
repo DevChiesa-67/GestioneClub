@@ -5,6 +5,7 @@ import { ArrowRight, Loader2, Users } from "lucide-react";
 
 import { AppCard } from "@/components/ui/AppCard";
 import { supabase } from "@/lib/supabase-client";
+import { fetchAllSupabaseRows } from "@/lib/fetch-all-supabase-rows";
 import {
   tagsPerTipiSeduta,
   filtroTagIlike,
@@ -170,7 +171,9 @@ async function fetchCatapultRows(params: {
     query = query.ilike("split_name", SPLIT_TUTTA_SEDUTA);
   }
 
-  const { data, error } = await query.order("date", { ascending: false });
+  const { data, error } = await fetchAllSupabaseRows(
+    query.order("date", { ascending: false }).order("id", { ascending: true })
+  );
 
   if (error) {
     console.error("Errore caricamento confronto performance:", error);

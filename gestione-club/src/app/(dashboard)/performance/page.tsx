@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase-server";
 import ReportTabsClient from "@/components/charts/ReportTabsClient";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { fetchAllSupabaseRows } from "@/lib/fetch-all-supabase-rows";
 import type { RpePerformanceRow } from "@/components/charts/ReportRpeClient";
 
 export default async function Page() {
@@ -45,11 +46,17 @@ export default async function Page() {
    * client possa proporre solo gli split effettivamente presenti per
    * il tipo seduta selezionato, invece di mescolarli tutti insieme.
    */
-  const { data: splitRows } = await supabase
+  const splitQuery = supabase
     .from("catapult_data")
-    .select("split_name, tags")
+    .select("id, split_name, tags")
     .eq("club_id", profilo.last_club_id)
     .not("split_name", "is", null);
+  const { data: splitRows } = await fetchAllSupabaseRows(
+    splitQuery
+      .order("split_name", { ascending: true })
+      .order("tags", { ascending: true })
+      .order("id", { ascending: true })
+  );
 
   const splitOptionsMap = new Map<
     string,
@@ -79,7 +86,7 @@ export default async function Page() {
    */
   let sessioniQuery = supabase
     .from("catapult_data")
-    .select("session_title, date, tags")
+    .select("id, session_title, date, tags")
     .eq("club_id", profilo.last_club_id)
     .not("session_title", "is", null);
 
@@ -89,7 +96,12 @@ export default async function Page() {
     );
   }
 
-  const { data: sessioniRows } = await sessioniQuery;
+  const { data: sessioniRows } = await fetchAllSupabaseRows(
+    sessioniQuery
+      .order("date", { ascending: false })
+      .order("session_title", { ascending: true })
+      .order("id", { ascending: true })
+  );
 
   const sessioniMap = new Map<
     string,
