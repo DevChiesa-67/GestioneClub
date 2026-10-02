@@ -1,6 +1,7 @@
 // src/lib/presenze/presenze-giornaliere.ts
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fetchAllSupabaseRows } from "@/lib/fetch-all-supabase-rows";
 
 /*
  * Presenze per GIORNATA, non per seduta.
@@ -142,7 +143,7 @@ export async function caricaPresenzeGiornaliere(
   //    il calendario su cui misurare le presenze.
   let sedute = client
     .from("allenamenti")
-    .select("data_allenamento, ora_inizio")
+    .select("id, data_allenamento, ora_inizio")
     .eq("club_id", clubId);
 
   if (squadraId) sedute = sedute.eq("squadra_id", squadraId);
@@ -175,9 +176,17 @@ export async function caricaPresenzeGiornaliere(
   if (dataA) registrate = registrate.lte("data", dataA);
 
   const [seduteRes, rosaRes, registrateRes] = await Promise.all([
-    sedute,
-    rosa,
-    registrate,
+    fetchAllSupabaseRows(
+      sedute
+        .order("data_allenamento", { ascending: true })
+        .order("id", { ascending: true })
+    ),
+    fetchAllSupabaseRows(rosa.order("id", { ascending: true })),
+    fetchAllSupabaseRows(
+      registrate
+        .order("data", { ascending: true })
+        .order("id", { ascending: true })
+    ),
   ]);
 
   if (seduteRes.error) {
