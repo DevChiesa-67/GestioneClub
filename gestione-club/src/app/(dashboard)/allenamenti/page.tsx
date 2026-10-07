@@ -34,6 +34,7 @@ import {
   leggiFiltriAllenamenti,
   salvaFiltriAllenamenti,
 } from "@/lib/allenamenti/filtri-sezione";
+import { fetchAllSupabaseRows } from "@/lib/fetch-all-supabase-rows";
 
 type StatoPresenza = "PM" | "PP" | "P" | "I" | "AG" | "AI";
 
@@ -623,7 +624,8 @@ export default function Page() {
       .from("allenamenti")
       .select("*")
       .eq("club_id", profiloData.last_club_id)
-      .order("data_allenamento", { ascending: true });
+      .order("data_allenamento", { ascending: true })
+      .order("id", { ascending: true });
 
     if (profiloData.last_squadra_id) {
       allenamentiQuery = allenamentiQuery.eq(
@@ -637,7 +639,8 @@ export default function Page() {
       .select("id, nome, cognome, foto_url")
       .eq("club_id", profiloData.last_club_id)
       .eq("attivo", true)
-      .order("cognome", { ascending: true });
+      .order("cognome", { ascending: true })
+      .order("id", { ascending: true });
 
     if (profiloData.last_squadra_id) {
       giocatoriQuery = giocatoriQuery.eq(
@@ -690,8 +693,8 @@ export default function Page() {
     // dall'altro: richiesti in parallelo per ridurre il tempo di caricamento.
     const [
       { data: clubData },
-      { data: allenamentiData, error: allenamentiError },
-      { data: giocatoriData, error: giocatoriError },
+      allenamentiResult,
+      giocatoriResult,
       { data: programmazioniData, error: programmazioniError },
       { data: drillBankData, error: drillBankError },
     ] = await Promise.all([
@@ -700,8 +703,8 @@ export default function Page() {
         .select("colore_flag,logo_url,preferenza_vista_lavori")
         .eq("id", profiloData.last_club_id)
         .single(),
-      allenamentiQuery,
-      giocatoriQuery,
+      fetchAllSupabaseRows(allenamentiQuery),
+      fetchAllSupabaseRows(giocatoriQuery),
       programmazioniQuery,
       supabase
         .from("drill_bank")
@@ -709,6 +712,9 @@ export default function Page() {
         .eq("club_id", profiloData.last_club_id)
         .order("codice", { ascending: true }),
     ]);
+
+    const { data: allenamentiData, error: allenamentiError } = allenamentiResult;
+    const { data: giocatoriData, error: giocatoriError } = giocatoriResult;
 
     if (drillBankError) {
       console.error(drillBankError);
@@ -760,15 +766,22 @@ export default function Page() {
         { data: lavoriResult, error: lavoriError },
         { data: presenzeResult, error: presenzeError },
       ] = await Promise.all([
-        supabase
-          .from("lavori_allenamento")
-          .select("*")
-          .in("allenamento_id", idsAllenamenti)
-          .order("ordine", { ascending: true }),
-        supabase
-          .from("presenze_giornaliere")
-          .select("*")
-          .in("data", giorniAllenamenti),
+        fetchAllSupabaseRows(
+          supabase
+            .from("lavori_allenamento")
+            .select("*")
+            .in("allenamento_id", idsAllenamenti)
+            .order("ordine", { ascending: true })
+            .order("id", { ascending: true }),
+        ),
+        fetchAllSupabaseRows(
+          supabase
+            .from("presenze_giornaliere")
+            .select("*")
+            .in("data", giorniAllenamenti)
+            .order("data", { ascending: true })
+            .order("id", { ascending: true }),
+        ),
       ]);
 
       if (lavoriError) {
@@ -895,7 +908,12 @@ export default function Page() {
    * data fuori dai report (vedi lib/presenze/presenze-giornaliere.ts).
    */
   function presenzeRegistrateInData(data: string) {
-    return presenze.filter((presenza) => presenza.data === data).length;
+    return presenze.filter(
+      (presenza) =>
+        presenza.data === data &&
+        (!profilo?.last_squadra_id ||
+          presenza.squadra_id === profilo.last_squadra_id),
+    ).length;
   }
 
   /**
@@ -929,7 +947,12 @@ export default function Page() {
     }
 
     setPresenze((current) =>
-      current.filter((presenza) => presenza.data !== data),
+      current.filter(
+        (presenza) =>
+          presenza.data !== data ||
+          (profilo.last_squadra_id !== null &&
+            presenza.squadra_id !== profilo.last_squadra_id),
+      ),
     );
   }
 

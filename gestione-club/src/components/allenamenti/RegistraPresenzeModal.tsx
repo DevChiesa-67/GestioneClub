@@ -334,13 +334,13 @@ export default function RegistraPresenzeModal({
               type="button"
               onClick={confermaEliminaGiornata}
               disabled={registrateNelGiorno === 0 || eliminandoGiornata}
-              title="Cancella tutte le presenze registrate in questa data"
+              title="Cancella tutte le presenze registrate in questa giornata"
               className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-red-900/70 bg-red-950/30 px-4 py-2.5 text-sm font-bold text-red-300 transition hover:bg-red-950/60 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Trash2 className="h-4 w-4" />
               {eliminandoGiornata
                 ? "Eliminazione..."
-                : "Elimina registrazione"}
+                : "Ripulisci presenze giornata"}
             </button>
           )}
         </div>
