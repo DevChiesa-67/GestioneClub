@@ -238,10 +238,10 @@ const fieldPosition: Record<number, string> = {
 
   6: "left-[14%] top-[26%]",
   7: "left-[68%] top-[26%]",
-  8: "left-[38%] top-[31%]",
+  8: "left-[38%] top-[29%]",
 
-  9: "left-[38%] top-[42%]",
-  10: "left-[38%] top-[54%]",
+  9: "left-[38%] top-[44%]",
+  10: "left-[38%] top-[59%]",
 
   11: "left-[12%] top-[72%]",
   // 12 posizionato spazialmente a metà strada tra il 10 e il 13, sulla
@@ -3112,9 +3112,16 @@ function giocatoriPerPosizione(
                                 : slot.label}
                             </p>
                             {slot.giocatore && (
-                              <p className="mt-0.5 hidden truncate text-[8px] font-bold uppercase tracking-wide text-white/45 @md:block">
-                                {slot.label}
-                              </p>
+                              <>
+                                <p className="mt-0.5 hidden truncate text-[8px] font-bold uppercase tracking-wide text-white/45 @md:block">
+                                  {slot.label}
+                                </p>
+                                {annoNascita(slot.giocatore) && (
+                                  <p className="mt-0.5 text-[8px] font-black leading-none text-white/65">
+                                    {annoNascita(slot.giocatore)}
+                                  </p>
+                                )}
+                              </>
                             )}
                           </div>
 
