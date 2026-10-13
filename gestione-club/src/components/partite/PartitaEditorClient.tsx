@@ -243,14 +243,14 @@ const fieldPosition: Record<number, string> = {
   9: "left-[38%] top-[42%]",
   10: "left-[38%] top-[54%]",
 
-  11: "left-[12%] top-[75%]",
+  11: "left-[12%] top-[72%]",
   // 12 posizionato spazialmente a metà strada tra il 10 e il 13, sulla
   // linea diagonale che li collega.
   12: "left-[52%] top-[60%]",
   13: "left-[66%] top-[66%]",
-  14: "left-[88%] top-[75%]",
+  14: "left-[88%] top-[72%]",
 
-  15: "left-[50%] top-[90%]",
+  15: "left-[50%] top-[82%]",
 };
 
 function nomeGiocatore(giocatore?: Giocatore | null) {
@@ -400,6 +400,7 @@ function GiocatoreSelect({
   placeholder = "Seleziona giocatore",
   compact = false,
   openDirection = "down",
+  visualTrigger = false,
 }: {
   id: string;
   giocatori: Giocatore[];
@@ -409,6 +410,9 @@ function GiocatoreSelect({
   onOpenChange: (id: string | null) => void;
   placeholder?: string;
   compact?: boolean;
+  /** Rende invisibile il bottone nativo: il selettore copre la card
+   * grafica e si apre cliccando ritratto, numero o ruolo. */
+  visualTrigger?: boolean;
   /** "up" per le card vicine al bordo basso del campo (es. ali/estremo),
    * così l'elenco si apre sopra il bottone invece di finire tagliato dal
    * bordo del campo/della pagina. */
@@ -488,22 +492,38 @@ function GiocatoreSelect({
   }
 
   return (
-    <div ref={containerRef} className="relative min-w-0">
+    <div
+      ref={containerRef}
+      className={
+        visualTrigger
+          ? "absolute inset-0 z-10 min-w-0"
+          : "relative min-w-0"
+      }
+    >
       <button
         type="button"
+        aria-label={
+          visualTrigger
+            ? `Seleziona giocatore per ${placeholder}`
+            : undefined
+        }
         onClick={() => onOpenChange(open ? null : id)}
         onMouseEnter={(event) =>
           selezionato &&
           programmaTooltip(selezionato, event.currentTarget)
         }
         onMouseLeave={nascondiTooltip}
-        className={`flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-left text-white outline-none transition hover:border-zinc-600 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-zinc-800 ${
+        className={`${
+          visualTrigger
+            ? "h-full w-full cursor-pointer rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+            : "flex w-full min-w-0 items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 text-left text-white outline-none transition hover:border-zinc-600 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-zinc-800"
+        } ${
           compact
             ? "px-1.5 py-1.5 text-[10px]"
             : "px-2 py-2 text-xs sm:px-3 sm:py-2.5 sm:text-sm"
         }`}
       >
-        {selezionato ? (
+        {!visualTrigger && (selezionato ? (
           <>
             <span className="min-w-0 flex-1 truncate font-semibold">
               {nomeGiocatore(selezionato)}
@@ -530,14 +550,16 @@ function GiocatoreSelect({
           <span className="min-w-0 flex-1 truncate text-zinc-500">
             {placeholder}
           </span>
-        )}
+        ))}
 
-        <ChevronDown
-          size={compact ? 12 : 14}
-          className={`shrink-0 text-zinc-500 transition-transform ${
-            open ? "rotate-180" : ""
-          }`}
-        />
+        {!visualTrigger && (
+          <ChevronDown
+            size={compact ? 12 : 14}
+            className={`shrink-0 text-zinc-500 transition-transform ${
+              open ? "rotate-180" : ""
+            }`}
+          />
+        )}
       </button>
 
       {open && (
@@ -2843,79 +2865,80 @@ function giocatoriPerPosizione(
                   className="
                     @container
                     relative
-                    h-[900px]
+                    h-[800px]
                     w-full
                     overflow-hidden
                     rounded-[2rem]
-                    border border-white/20
-                    bg-[#68a51b]
-                    shadow-2xl
-                    2xl:h-[1050px]
+                    border border-emerald-300/15
+                    bg-[#031b16]
+                    shadow-[0_34px_90px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.08)]
+                    2xl:h-[920px]
                   "
                 >
-                  {/* LINEE CAMPO */}
-                  <div className="pointer-events-none absolute inset-0">
-                    {/* LINEA META ALTA */}
-                    <div className="absolute inset-x-0 top-[7%] border-t-4 border-white/80" />
+                  {/* FONDALE E CAMPO PROSPETTICO */}
+                  <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,rgba(16,185,129,0.18),transparent_38%),linear-gradient(180deg,#064236_0%,#032b23_52%,#021813_100%)]" />
+                    <div className="absolute inset-0 opacity-20 [background-image:repeating-linear-gradient(135deg,transparent_0,transparent_28px,rgba(255,255,255,0.045)_29px,transparent_30px)]" />
 
-                    {/* 5 METRI ALTA */}
-                    <div className="absolute inset-x-0 top-[13%] border-t-2 border-dashed border-white/70" />
-
-                    {/* 22 METRI ALTA */}
-                    <div className="absolute inset-x-0 top-[27%] border-t-2 border-white/70" />
-
-                    {/* 10 METRI ALTA */}
-                    <div className="absolute inset-x-0 top-[40%] border-t-2 border-dashed border-white/70" />
-
-                    {/* CENTRO */}
-                    <div className="absolute inset-x-0 top-[50%] border-t-4 border-white/80" />
-
-                    {/* 10 METRI BASSA */}
-                    <div className="absolute inset-x-0 bottom-[40%] border-t-2 border-dashed border-white/70" />
-
-                    {/* 22 METRI BASSA */}
-                    <div className="absolute inset-x-0 bottom-[27%] border-t-2 border-white/70" />
-
-                    {/* 5 METRI BASSA */}
-                    <div className="absolute inset-x-0 bottom-[13%] border-t-2 border-dashed border-white/80" />
-
-                    {/* LINEA META BASSA */}
-                    <div className="absolute inset-x-0 bottom-[7%] border-t-4 border-white/80" />
-
-                    {/* LINEE LATERALI */}
-                    <div className="absolute inset-y-0 left-[6%] border-l-2 border-dashed border-white/70" />
-
-                    <div className="absolute inset-y-0 right-[6%] border-l-2 border-dashed border-white/70" />
-
-                    {/* PALI ALTI */}
                     <div
-                      className="
-                        absolute
-                        left-1/2
-                        top-0
-                        h-[85px]
-                        w-[154px]
-                        -translate-x-1/2
-                        border-x-4
-                        border-b-4
-                        border-white/90
-                      "
-                    />
+                      className="absolute inset-x-[3%] inset-y-[3%] overflow-hidden border border-emerald-100/20 bg-[linear-gradient(180deg,rgba(16,100,67,0.62),rgba(4,54,42,0.78))] shadow-[0_28px_60px_rgba(0,0,0,0.45),inset_0_0_70px_rgba(16,185,129,0.12)]"
+                      style={{
+                        clipPath:
+                          "polygon(10% 0, 90% 0, 100% 100%, 0 100%)",
+                      }}
+                    >
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 1000 1000"
+                        preserveAspectRatio="none"
+                        className="absolute inset-0 h-full w-full"
+                      >
+                        <g
+                          fill="none"
+                          stroke="rgba(255,255,255,0.30)"
+                          strokeWidth="1.5"
+                          vectorEffect="non-scaling-stroke"
+                        >
+                          <path d="M100 0 L900 0 L1000 1000 L0 1000 Z" />
+                          <path d="M93 70 H907" strokeWidth="2" />
+                          <path d="M87 130 H913" strokeDasharray="5 5" />
+                          <path d="M73 270 H927" />
+                          <path d="M60 400 H940" strokeDasharray="5 5" />
+                          <path d="M50 500 H950" strokeWidth="2" />
+                          <path d="M40 600 H960" strokeDasharray="5 5" />
+                          <path d="M27 730 H973" />
+                          <path d="M13 870 H987" strokeDasharray="5 5" />
+                          <path d="M7 930 H993" strokeWidth="2" />
+                          {/* Linee dei 5 metri dalle touche */}
+                          <path d="M140 0 L50 1000" strokeDasharray="5 5" />
+                          <path d="M860 0 L950 1000" strokeDasharray="5 5" />
 
-                    {/* PALI BASSI */}
-                    <div
-                      className="
-                        absolute
-                        bottom-0
-                        left-1/2
-                        h-[85px]
-                        w-[154px]
-                        -translate-x-1/2
-                        border-x-4
-                        border-t-4
-                        border-white/90
-                      "
-                    />
+                          {/* Linee dei 15 metri dalle touche */}
+                          <path d="M220 0 L150 1000" strokeDasharray="5 5" />
+                          <path d="M780 0 L850 1000" strokeDasharray="5 5" />
+
+                          {/* Pali a H sulle due linee di meta */}
+                          <path d="M474 0 V48 M526 0 V48 M474 31 H526" strokeWidth="2.5" />
+                          <path d="M468 1000 V952 M532 1000 V952 M468 969 H532" strokeWidth="2.5" />
+                        </g>
+
+                        <g
+                          fill="rgba(255,255,255,0.48)"
+                          fontSize="15"
+                          fontWeight="800"
+                          letterSpacing="2"
+                        >
+                          <text x="760" y="34" textAnchor="middle">
+                            META AVVERSARIA
+                          </text>
+                          <text x="225" y="978" textAnchor="middle">
+                            META NOSTRA
+                          </text>
+                        </g>
+                      </svg>
+                    </div>
+
+                    <div className="absolute inset-x-[12%] bottom-0 h-24 bg-emerald-300/10 blur-3xl" />
                   </div>
 
                   {/* GIOCATORI */}
@@ -2926,51 +2949,83 @@ function giocatoriPerPosizione(
                         className={`
                           absolute
                           z-0
-                          w-[104px]
+                          w-[108px]
                           -translate-x-1/2
                           focus-within:z-50
-                          @xs:w-[116px]
-                          @sm:w-[128px]
-                          @md:w-[140px]
-                          @lg:w-[150px]
-                          @2xl:w-[162px]
-                          @4xl:w-[180px]
+                          @xs:w-[114px]
+                          @sm:w-[124px]
+                          @md:w-[134px]
+                          @lg:w-[144px]
+                          @2xl:w-[154px]
+                          @4xl:w-[166px]
                           ${fieldPosition[slot.numero]}
                         `}
                       >
                         <div
                           className="
-                            rounded-2xl
-                            border border-white/25
-                            bg-zinc-950/90
-                            p-1.5
-                            shadow-2xl
-                            backdrop-blur
-                            @sm:p-2
+                            relative
+                            flex
+                            flex-col
+                            items-center
                           "
                         >
-                          <div className="mb-1.5 flex items-center justify-between gap-1.5 @sm:mb-2 @sm:gap-2">
-                            <div className="min-w-0">
-                              <p
-                                className="text-sm font-black leading-none @sm:text-base @lg:text-lg @2xl:text-xl"
-                                style={{
-                                  color:
-                                    coloreClub,
-                                }}
-                              >
-                                <span
-                                    className="shrink-0 font-black"
-                                    style={{ color: coloreClub }}
-                                  >
-                                    #{slot.numero}
-                                  </span>
-                                 <span className="mt-1 hidden truncate text-[10px] font-bold uppercase text-zinc-400 @md:inline">
-                                   - {slot.label}
-                              </span>
-                              </p>
+                          <GiocatoreSelect
+                            id={`titolare-campo-${slot.posizione}`}
+                            openId={openGiocatoreSelectId}
+                            onOpenChange={setOpenGiocatoreSelectId}
+                            giocatori={giocatoriPerPosizione(
+                              giocatori,
+                              slot.posizione
+                            )}
+                            value={
+                              slot.convocazione?.giocatore_id ?? ""
+                            }
+                            onChange={(giocatoreId) => {
+                              if (!giocatoreId) return;
 
+                              assegnaGiocatore(
+                                slot.posizione,
+                                giocatoreId,
+                                slot.numero
+                              );
+                            }}
+                            placeholder={slot.label}
+                            compact
+                            visualTrigger
+                            openDirection={
+                              slot.numero >= 11 ? "up" : "down"
+                            }
+                          />
 
-                            </div>
+                          <div className="relative mb-[-7px] flex h-14 w-14 items-center justify-center @sm:h-16 @sm:w-16 @lg:h-[72px] @lg:w-[72px] @2xl:h-20 @2xl:w-20">
+                            <div
+                              className="absolute inset-[8%] rotate-6 rounded-[28%_28%_42%_42%] opacity-90 shadow-[0_12px_30px_rgba(0,0,0,0.55)]"
+                              style={{ backgroundColor: coloreClub }}
+                            />
+
+                            {slot.giocatore ? (
+                              <div className="relative h-full w-full overflow-hidden rounded-[45%_45%_38%_38%] border-2 border-white/20 bg-zinc-900 shadow-[0_14px_24px_rgba(0,0,0,0.55)]">
+                                {slot.giocatore.foto_url ? (
+                                  <Image
+                                    src={slot.giocatore.foto_url}
+                                    alt={nomeGiocatore(slot.giocatore)}
+                                    fill
+                                    unoptimized
+                                    sizes="96px"
+                                    className="object-cover object-top"
+                                  />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center bg-gradient-to-b from-zinc-700 to-zinc-950 text-zinc-400">
+                                    <UserRound className="h-1/2 w-1/2" />
+                                  </div>
+                                )}
+                                <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/75 to-transparent" />
+                              </div>
+                            ) : (
+                              <div className="relative flex h-full w-full items-center justify-center rounded-[45%_45%_38%_38%] border border-dashed border-white/25 bg-black/30 text-white/35 backdrop-blur-sm">
+                                <UserRound className="h-1/2 w-1/2" />
+                              </div>
+                            )}
 
                             <button
                               type="button"
@@ -2992,8 +3047,19 @@ function giocatoriPerPosizione(
                                   : "Imposta capitano"
                               }
                               className="
-                                relative
-                                shrink-0
+                                absolute
+                                -right-1
+                                top-0
+                                z-20
+                                flex
+                                h-7
+                                w-7
+                                items-center
+                                justify-center
+                                rounded-full
+                                border border-white/15
+                                bg-zinc-950/90
+                                shadow-lg
                                 disabled:cursor-not-allowed
                                 disabled:opacity-40
                               "
@@ -3035,36 +3101,23 @@ function giocatoriPerPosizione(
                             </button>
                           </div>
 
-                          <GiocatoreSelect
-                            id={`titolare-campo-${slot.posizione}`}
-                            openId={openGiocatoreSelectId}
-                            onOpenChange={setOpenGiocatoreSelectId}
-                            giocatori={giocatoriPerPosizione(
-                              giocatori,
-                              slot.posizione
+                          <div className="relative z-10 mb-1 w-full rounded-lg border border-white/10 bg-zinc-950/90 px-2 py-1 text-center shadow-[0_10px_24px_rgba(0,0,0,0.5)] backdrop-blur-md">
+                            <p className="truncate text-[9px] font-black uppercase leading-tight text-white @sm:text-[10px] @lg:text-xs">
+                              <span style={{ color: coloreClub }}>
+                                {slot.numero}
+                              </span>{" "}
+                              {slot.giocatore
+                                ? slot.giocatore.cognome ||
+                                  slot.giocatore.nome
+                                : slot.label}
+                            </p>
+                            {slot.giocatore && (
+                              <p className="mt-0.5 hidden truncate text-[8px] font-bold uppercase tracking-wide text-white/45 @md:block">
+                                {slot.label}
+                              </p>
                             )}
-                            value={
-                              slot.convocazione
-                                ?.giocatore_id ??
-                              ""
-                            }
-                            onChange={(giocatoreId) => {
-                              if (!giocatoreId) {
-                                return;
-                              }
+                          </div>
 
-                              assegnaGiocatore(
-                                slot.posizione,
-                                giocatoreId,
-                                slot.numero
-                              );
-                            }}
-                            placeholder="Giocatore"
-                            compact
-                            openDirection={
-                              slot.numero >= 11 ? "up" : "down"
-                            }
-                          />
                         </div>
                       </div>
                     ))}

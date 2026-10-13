@@ -18,6 +18,7 @@ export type ComunicazioneBell = {
   created_by: string | null;
   destinatari_tipo: string[] | null;
   destinatari_profili: string[] | null;
+  destinatari_giocatori: string[] | null;
 };
 
 /*
@@ -40,6 +41,7 @@ export function useComunicazioniBell(
   const [userId, setUserId] = useState<string | null>(null);
   const [profiloId, setProfiloId] = useState<string | null>(null);
   const [tipoProfilo, setTipoProfilo] = useState<string | null>(null);
+  const [giocatoreId, setGiocatoreId] = useState<string | null>(null);
   const [clubId, setClubId] = useState<string | null>(null);
 
   const [comunicazioni, setComunicazioni] = useState<ComunicazioneBell[]>([]);
@@ -65,17 +67,18 @@ export function useComunicazioniBell(
   const profiloRef = useRef<{
     id: string | null;
     tipoProfilo: string | null;
-  }>({ id: null, tipoProfilo: null });
+    giocatoreId: string | null;
+  }>({ id: null, tipoProfilo: null, giocatoreId: null });
 
   useEffect(() => {
-    profiloRef.current = { id: profiloId, tipoProfilo };
-  }, [profiloId, tipoProfilo]);
+    profiloRef.current = { id: profiloId, tipoProfilo, giocatoreId };
+  }, [profiloId, tipoProfilo, giocatoreId]);
 
   const loadComunicazioni = useCallback(async (attivoClubId: string) => {
     const { data, error } = await supabase
       .from("comunicazioni")
       .select(
-        "id,titolo,descrizione,created_at,created_by,destinatari_tipo,destinatari_profili"
+        "id,titolo,descrizione,created_at,created_by,destinatari_tipo,destinatari_profili,destinatari_giocatori"
       )
       .eq("club_id", attivoClubId)
       .order("created_at", { ascending: false })
@@ -137,6 +140,19 @@ export function useComunicazioniBell(
       setTipoProfilo(profilo.tipo_profilo);
       setClubId(profilo.last_club_id);
 
+      if (String(profilo.tipo_profilo ?? "").toLowerCase() === "giocatore") {
+        const { data: giocatore } = await supabase
+          .from("giocatori")
+          .select("id")
+          .eq("club_id", profilo.last_club_id)
+          .eq("id_atleta", profilo.id)
+          .maybeSingle();
+
+        setGiocatoreId(giocatore?.id ?? null);
+      } else {
+        setGiocatoreId(null);
+      }
+
       await Promise.all([
         loadComunicazioni(profilo.last_club_id),
         loadLetture(user.id),
@@ -189,10 +205,15 @@ export function useComunicazioniBell(
           const visibile = comunicazioneVisibilePerProfilo(nuova, {
             id: profiloCorrente.id,
             tipoProfilo: profiloCorrente.tipoProfilo,
+            giocatoreId: profiloCorrente.giocatoreId,
           });
 
           if (visibile) {
-            const scope = getComunicazioneScope(nuova, profiloCorrente.id);
+            const scope = getComunicazioneScope(
+              nuova,
+              profiloCorrente.id,
+              profiloCorrente.giocatoreId
+            );
             onNuovaComunicazioneRef.current?.(nuova, scope);
           }
         }
@@ -248,9 +269,10 @@ export function useComunicazioniBell(
       comunicazioneVisibilePerProfilo(comunicazione, {
         id: profiloId,
         tipoProfilo,
+        giocatoreId,
       })
     );
-  }, [comunicazioni, profiloId, tipoProfilo]);
+  }, [comunicazioni, profiloId, tipoProfilo, giocatoreId]);
 
   const nonLette = useMemo(
     () =>

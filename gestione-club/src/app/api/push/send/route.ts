@@ -39,6 +39,10 @@ const CATEGORIA_TIPO_PROFILO: Record<string, string> = {
   giocatori: "giocatore",
   allenatori: "allenatore",
   preparatori: "preparatore",
+  medici: "medico",
+  fisioterapisti: "fisioterapista",
+  accompagnatori: "accompagnatore",
+  "utenti esterni": "utente_esterno",
 };
 
 function normalizza(valore: string) {
@@ -133,7 +137,8 @@ export async function POST(request: Request) {
         titolo,
         descrizione,
         destinatari_tipo,
-        destinatari_profili
+        destinatari_profili,
+        destinatari_giocatori
       `
       )
       .eq("id", body.comunicazione_id)
@@ -180,12 +185,30 @@ export async function POST(request: Request) {
      */
     const destinatariProfiloIds = new Set<string>();
 
-    if (
+    const haProfiliSpecifici =
       Array.isArray(comunicazione.destinatari_profili) &&
-      comunicazione.destinatari_profili.length > 0
-    ) {
-      for (const id of comunicazione.destinatari_profili) {
+      comunicazione.destinatari_profili.length > 0;
+    const haGiocatoriSpecifici =
+      Array.isArray(comunicazione.destinatari_giocatori) &&
+      comunicazione.destinatari_giocatori.length > 0;
+
+    if (haProfiliSpecifici || haGiocatoriSpecifici) {
+      for (const id of comunicazione.destinatari_profili ?? []) {
         if (typeof id === "string") destinatariProfiloIds.add(id);
+      }
+
+      if (haGiocatoriSpecifici) {
+        const { data: giocatoriDestinatari } = await supabaseAdmin
+          .from("giocatori")
+          .select("id_atleta")
+          .eq("club_id", clubId)
+          .in("id", comunicazione.destinatari_giocatori);
+
+        giocatoriDestinatari?.forEach((giocatore) => {
+          if (giocatore.id_atleta) {
+            destinatariProfiloIds.add(giocatore.id_atleta);
+          }
+        });
       }
     } else {
       const categorie = Array.isArray(comunicazione.destinatari_tipo)

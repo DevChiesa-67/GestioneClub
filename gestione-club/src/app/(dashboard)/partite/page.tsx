@@ -32,6 +32,7 @@ export type SquadraPartitaVisual = SquadraPartitaRel & {
 
 type PartitaRaw = {
   id: string;
+  club_id: string;
   data_partita: string;
   ora_partita: string | null;
   luogo: string | null;
@@ -143,7 +144,7 @@ export default async function Page() {
   }
 
   const clubId = profilo.last_club_id;
-  const squadraId = profilo.last_squadra_id;
+  let squadraId = profilo.last_squadra_id;
   const isAdmin = String(profilo.tipo_profilo || "").toLowerCase() === "admin";
 
   const { data: clubAttivo } = await supabase
@@ -153,6 +154,21 @@ export default async function Page() {
     .single<ClubAttivo>();
 
   const coloreClub = clubAttivo?.colore_flag || "#d71920";
+
+  // Una squadra rimasta selezionata dopo il cambio club non deve mai essere
+  // usata come filtro. Il contesto autorevole e' il club attivo.
+  if (squadraId) {
+    const { data: squadraAttiva } = await supabase
+      .from("squadre")
+      .select("id")
+      .eq("id", squadraId)
+      .eq("club_id", clubId)
+      .maybeSingle();
+
+    if (!squadraAttiva) {
+      squadraId = null;
+    }
+  }
 
   // I loghi delle squadre vanno visti da tutti, non solo dall'admin: se lo
   // storage bucket "loghi-squadre" ha policy di lettura più restrittive del
@@ -187,6 +203,7 @@ export default async function Page() {
     .select(
       `
       id,
+      club_id,
       data_partita,
       ora_partita,
       luogo,
@@ -238,8 +255,12 @@ export default async function Page() {
   )
 ).filter((squadra): squadra is SquadraPartitaVisual => squadra !== null);
 
+  const partiteDelClub = ((partiteRaw ?? []) as PartitaRaw[]).filter(
+    (partita) => partita.club_id === clubId
+  );
+
   const tutteLePartite: Partita[] = await Promise.all(
-    ((partiteRaw ?? []) as PartitaRaw[]).map(async (partita) => {
+    partiteDelClub.map(async (partita) => {
       const squadraCasa = normalizeSquadraPartita(partita.squadra_casa);
       const squadraFuori = normalizeSquadraPartita(partita.squadra_fuori);
 
@@ -270,7 +291,7 @@ export default async function Page() {
     );
   }
 
-  let tipiEventiQuery = supabase
+  const tipiEventiQuery = supabase
     .from("tipi_eventi")
     .select("id, nome, colore")
     .eq("club_id", clubId)

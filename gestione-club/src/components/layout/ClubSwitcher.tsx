@@ -15,6 +15,7 @@ type Club = {
 type Profile = {
   club_id: string[] | null;
   last_club_id: string | null;
+  last_squadra_id: string | null;
   tipo_profilo: string | null;
 };
 
@@ -23,10 +24,6 @@ export default function ClubSwitcher() {
   const [activeClub, setActiveClub] = useState<Club | null>(null);
   const [open, setOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
-
-  useEffect(() => {
-    loadClubs();
-  }, []);
 
   async function loadClubs() {
     const {
@@ -38,7 +35,7 @@ export default function ClubSwitcher() {
 
     const { data: profile, error: profileError } = await supabase
       .from("profili")
-      .select("club_id, last_club_id, tipo_profilo")
+      .select("club_id, last_club_id, last_squadra_id, tipo_profilo")
       .eq("auth_user_id", user.id)
       .single<Profile>();
 
@@ -82,16 +79,50 @@ export default function ClubSwitcher() {
 
     setActiveClub(selected);
 
-    if (selected && profile.last_club_id !== selected.id) {
-      await supabase
-        .from("profili")
-        .update({
-          last_club_id: selected.id,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("auth_user_id", user.id);
+    if (selected) {
+      const { data: squadraCorrente } = profile.last_squadra_id
+        ? await supabase
+            .from("squadre")
+            .select("id")
+            .eq("id", profile.last_squadra_id)
+            .eq("club_id", selected.id)
+            .maybeSingle()
+        : { data: null };
+
+      let squadraCorrettaId = squadraCorrente?.id ?? null;
+
+      if (!squadraCorrettaId) {
+        const { data: primaSquadra } = await supabase
+          .from("squadre")
+          .select("id")
+          .eq("club_id", selected.id)
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+        squadraCorrettaId = primaSquadra?.id ?? null;
+      }
+
+      if (
+        profile.last_club_id !== selected.id ||
+        profile.last_squadra_id !== squadraCorrettaId
+      ) {
+        await supabase
+          .from("profili")
+          .update({
+            last_club_id: selected.id,
+            last_squadra_id: squadraCorrettaId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("auth_user_id", user.id);
+      }
     }
   }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadClubs();
+  }, []);
 
   async function selectClub(club: Club) {
     if (!isAdmin) return;
@@ -102,10 +133,28 @@ export default function ClubSwitcher() {
 
     if (!user) return;
 
+    // Club e squadra formano un unico contesto. Conservare la squadra del
+    // club precedente fa eseguire le pagine con dati appartenenti a due club
+    // diversi. Selezioniamo la prima squadra del nuovo club (o null se il
+    // club non ne ha ancora una) nello stesso aggiornamento del profilo.
+    const { data: primaSquadra, error: squadraError } = await supabase
+      .from("squadre")
+      .select("id")
+      .eq("club_id", club.id)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (squadraError) {
+      console.error(squadraError);
+      return;
+    }
+
     const { error } = await supabase
       .from("profili")
       .update({
         last_club_id: club.id,
+        last_squadra_id: primaSquadra?.id ?? null,
         updated_at: new Date().toISOString(),
       })
       .eq("auth_user_id", user.id);

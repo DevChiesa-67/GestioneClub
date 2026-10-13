@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { createClient } from "@/lib/supabase-server";
@@ -47,10 +48,25 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 }
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  /*
+   * Protezione centrale di tutte le route contenute nel gruppo dashboard.
+   * getUser() valida la sessione con Supabase, quindi non ci affidiamo alla
+   * sola presenza di un cookie potenzialmente scaduto o contraffatto.
+   */
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error || !user) {
+    redirect("/login");
+  }
+
   return <AppShell>{children}</AppShell>;
 }

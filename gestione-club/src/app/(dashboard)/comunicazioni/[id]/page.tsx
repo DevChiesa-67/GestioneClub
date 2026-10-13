@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import Link from "next/link";
 import {
   ArrowLeft,
   CalendarDays,
@@ -106,10 +107,21 @@ const { data: comunicazione, error: comunicazioneError } = await supabase
     notFound();
   }
 
+  const { data: giocatoreCollegato } =
+    String(profilo.tipo_profilo ?? "").toLowerCase() === "giocatore"
+      ? await supabase
+          .from("giocatori")
+          .select("id")
+          .eq("club_id", profilo.last_club_id)
+          .eq("id_atleta", profilo.id)
+          .maybeSingle()
+      : { data: null };
+
   if (
     !comunicazioneVisibilePerProfilo(comunicazione, {
       id: profilo.id,
       tipoProfilo: profilo.tipo_profilo,
+      giocatoreId: giocatoreCollegato?.id ?? null,
     })
   ) {
     notFound();
@@ -155,12 +167,12 @@ const numeroDestinatari = isTutti
       {/* HEADER */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <a
+          <Link
             href="/comunicazioni"
             className="flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-400 transition hover:border-zinc-700 hover:text-white"
           >
             <ArrowLeft size={18} />
-          </a>
+          </Link>
 
           <div>
             <p className="text-sm text-zinc-500">Comunicazione</p>

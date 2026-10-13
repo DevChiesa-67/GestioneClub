@@ -95,11 +95,36 @@ export async function POST(req: Request) {
     const squadraCasa = squadre.find((s) => s.id === squadraCasaId);
     const squadraFuori = squadre.find((s) => s.id === squadraFuoriId);
 
+    let squadraInternaId: string | null = null;
+
+    if (profilo.last_squadra_id) {
+      const { data: squadraInterna } = await supabase
+        .from("squadre")
+        .select("id")
+        .eq("id", profilo.last_squadra_id)
+        .eq("club_id", profilo.last_club_id)
+        .maybeSingle();
+
+      squadraInternaId = squadraInterna?.id ?? null;
+    }
+
+    if (!squadraInternaId) {
+      const { data: primaSquadra } = await supabase
+        .from("squadre")
+        .select("id")
+        .eq("club_id", profilo.last_club_id)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      squadraInternaId = primaSquadra?.id ?? null;
+    }
+
     const { data: partita, error: insertError } = await supabase
       .from("partite")
       .insert({
         club_id: profilo.last_club_id,
-        squadra_id: profilo.last_squadra_id,
+        squadra_id: squadraInternaId,
         squadra_casa_id: squadraCasaId,
         squadra_fuori_id: squadraFuoriId,
         casa_fuori: casaFuori,

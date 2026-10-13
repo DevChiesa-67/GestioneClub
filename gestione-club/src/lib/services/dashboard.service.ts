@@ -479,6 +479,7 @@ if (!profilo?.last_club_id) {
       descrizione,
       destinatari_tipo,
       destinatari_profili,
+      destinatari_giocatori,
       created_at,
       club_id
     `)
@@ -495,10 +496,21 @@ if (!profilo?.last_club_id) {
     return [];
   }
 
+  const { data: giocatoreCollegato } =
+    String(profilo.tipo_profilo ?? "").toLowerCase() === "giocatore"
+      ? await supabase
+          .from("giocatori")
+          .select("id")
+          .eq("club_id", profilo.last_club_id)
+          .eq("id_atleta", profilo.id)
+          .maybeSingle()
+      : { data: null };
+
   const visibili = (data ?? []).filter((comunicazione) =>
     comunicazioneVisibilePerProfilo(comunicazione, {
       id: profilo.id,
       tipoProfilo: profilo.tipo_profilo,
+      giocatoreId: giocatoreCollegato?.id ?? null,
     })
   );
 

@@ -17,16 +17,22 @@ export const CATEGORIA_PER_TIPO_PROFILO: Record<string, string> = {
   giocatore: "Giocatori",
   allenatore: "Allenatori",
   preparatore: "Preparatori",
+  medico: "Medici",
+  fisioterapista: "Fisioterapisti",
+  accompagnatore: "Accompagnatori",
+  utente_esterno: "Utenti esterni",
 };
 
 export type ComunicazioneDestinatari = {
   destinatari_tipo: string[] | null | undefined;
   destinatari_profili: string[] | null | undefined;
+  destinatari_giocatori?: string[] | null | undefined;
 };
 
 export type ProfiloDestinatario = {
   id: string;
   tipoProfilo: string | null | undefined;
+  giocatoreId?: string | null | undefined;
 };
 
 export function comunicazioneVisibilePerProfilo(
@@ -44,9 +50,16 @@ export function comunicazioneVisibilePerProfilo(
   }
 
   const destinatariProfili = comunicazione.destinatari_profili ?? [];
+  const destinatariGiocatori = comunicazione.destinatari_giocatori ?? [];
 
-  if (destinatariProfili.length > 0) {
-    return destinatariProfili.includes(profilo.id);
+  if (destinatariProfili.length > 0 || destinatariGiocatori.length > 0) {
+    return (
+      destinatariProfili.includes(profilo.id) ||
+      Boolean(
+        profilo.giocatoreId &&
+          destinatariGiocatori.includes(profilo.giocatoreId)
+      )
+    );
   }
 
   const destinatariTipo = (comunicazione.destinatari_tipo ?? []).map((tipo) =>
@@ -75,12 +88,17 @@ export type ComunicazioneScope = "tutti" | "gruppo" | "personale";
 
 export function getComunicazioneScope(
   comunicazione: ComunicazioneDestinatari,
-  profiloId: string
+  profiloId: string,
+  giocatoreId?: string | null
 ): ComunicazioneScope {
   const destinatariProfili = comunicazione.destinatari_profili ?? [];
+  const destinatariGiocatori = comunicazione.destinatari_giocatori ?? [];
 
-  if (destinatariProfili.length > 0) {
-    return destinatariProfili.includes(profiloId) ? "personale" : "gruppo";
+  if (destinatariProfili.length > 0 || destinatariGiocatori.length > 0) {
+    return destinatariProfili.includes(profiloId) ||
+      Boolean(giocatoreId && destinatariGiocatori.includes(giocatoreId))
+      ? "personale"
+      : "gruppo";
   }
 
   const destinatariTipo = (comunicazione.destinatari_tipo ?? []).map((tipo) =>

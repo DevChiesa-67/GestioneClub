@@ -20,6 +20,7 @@ type Profilo = {
 
 type Giocatore = {
   id: string;
+  id_atleta: string | null;
   nome: string;
   cognome: string;
   squadra_id: string | null;
@@ -73,7 +74,16 @@ function formattaPeso(byte: number | null) {
   return `${Math.max(1, Math.round(byte / 1024))} KB`;
 }
 
-const categorie = ["Tutti", "Allenatori", "Preparatori", "Giocatori"];
+const categorie = [
+  "Tutti",
+  "Allenatori",
+  "Preparatori",
+  "Giocatori",
+  "Medici",
+  "Fisioterapisti",
+  "Accompagnatori",
+  "Utenti esterni",
+];
 
 function normalize(value: string | null | undefined) {
   return String(value ?? "").toLowerCase();
@@ -253,7 +263,7 @@ export default function ComunicazioniClient() {
 
         supabase
           .from("giocatori")
-          .select("id, nome, cognome, squadra_id, squadre(nome)")
+          .select("id, id_atleta, nome, cognome, squadra_id, squadre(nome)")
           .eq("club_id", activeClubId)
           .eq("attivo", true)
           .order("cognome", { ascending: true }),
@@ -488,13 +498,18 @@ export default function ComunicazioniClient() {
   const comunicazioniVisibili = useMemo(() => {
     if (!profiloId) return [];
 
+    const giocatoreId =
+      giocatori.find((giocatore) => giocatore.id_atleta === profiloId)?.id ??
+      null;
+
     return comunicazioni.filter((comunicazione) =>
       comunicazioneVisibilePerProfilo(comunicazione, {
         id: profiloId,
         tipoProfilo,
+        giocatoreId,
       })
     );
-  }, [comunicazioni, profiloId, tipoProfilo]);
+  }, [comunicazioni, profiloId, tipoProfilo, giocatori]);
 
   const categoriaSingola =
     destinatariTipo.length === 1 && destinatariTipo[0] !== "Tutti";
@@ -520,6 +535,10 @@ export default function ComunicazioniClient() {
 
         if (categoria === "Allenatori") return tipo === "allenatore";
         if (categoria === "Preparatori") return tipo === "preparatore";
+        if (categoria === "Medici") return tipo === "medico";
+        if (categoria === "Fisioterapisti") return tipo === "fisioterapista";
+        if (categoria === "Accompagnatori") return tipo === "accompagnatore";
+        if (categoria === "Utenti esterni") return tipo === "utente_esterno";
 
         return false;
       })
@@ -587,11 +606,24 @@ export default function ComunicazioniClient() {
   }
 
   function openEdit(comunicazione: Comunicazione) {
+    const profiliCollegatiAiGiocatori = new Set(
+      giocatori
+        .map((giocatore) => giocatore.id_atleta)
+        .filter((id): id is string => Boolean(id))
+    );
+
     setEditing(comunicazione);
     setTitolo(comunicazione.titolo);
     setDescrizione(comunicazione.descrizione);
     setDestinatariTipo(comunicazione.destinatari_tipo ?? []);
-    setDestinatariProfili(comunicazione.destinatari_profili ?? []);
+    // I profili derivati dai giocatori vengono ricostruiti al salvataggio:
+    // non devono entrare nello stato delle persone staff selezionate,
+    // altrimenti resterebbero destinatari dopo aver deselezionato l'atleta.
+    setDestinatariProfili(
+      (comunicazione.destinatari_profili ?? []).filter(
+        (id) => !profiliCollegatiAiGiocatori.has(id)
+      )
+    );
     setDestinatariGiocatori(comunicazione.destinatari_giocatori ?? []);
     setAllegatiEsistenti(allegati[comunicazione.id] ?? []);
     setFileDaCaricare([]);
@@ -610,14 +642,45 @@ export default function ComunicazioniClient() {
       return;
     }
 
+    const profiliDeiGiocatoriSelezionati = giocatori
+      .filter(
+        (giocatore) =>
+          destinatariGiocatori.includes(giocatore.id) &&
+          Boolean(giocatore.id_atleta)
+      )
+      .map((giocatore) => giocatore.id_atleta as string);
+
+    if (
+      destinatariGiocatori.length > 0 &&
+      profiliDeiGiocatoriSelezionati.length !== destinatariGiocatori.length
+    ) {
+      showToast({
+        type: "error",
+        title: "Destinatario senza accesso",
+        message:
+          "Uno dei giocatori selezionati non ha ancora un profilo di accesso collegato.",
+      });
+      return;
+    }
+
+    /*
+     * La visibilita' e le notifiche lavorano sui profili di accesso. Quando
+     * l'admin sceglie uno o piu' giocatori, salviamo quindi sia gli ID degli
+     * atleti (utili alla UI) sia i rispettivi profili. Senza questa conversione
+     * destinatari_profili restava vuoto e il filtro ricadeva sulla categoria
+     * "Giocatori", mostrando il messaggio a tutta la rosa.
+     */
+    const profiliDestinatariEffettivi = Array.from(
+      new Set([...destinatariProfili, ...profiliDeiGiocatoriSelezionati])
+    );
+
     const payload = {
       club_id: clubId,
       titolo: titolo.trim(),
       descrizione: descrizione.trim(),
       destinatari_tipo: destinatariTipo,
-      destinatari_profili: destinatariProfili,
+      destinatari_profili: profiliDestinatariEffettivi,
       destinatari_giocatori: destinatariGiocatori,
-      created_by: profiloId,
       updated_at: new Date().toISOString(),
     };
 
@@ -656,7 +719,7 @@ export default function ComunicazioniClient() {
     } else {
       const { data: creata, error } = await supabase
         .from("comunicazioni")
-        .insert(payload)
+        .insert({ ...payload, created_by: profiloId })
         .select("id")
         .single();
 
